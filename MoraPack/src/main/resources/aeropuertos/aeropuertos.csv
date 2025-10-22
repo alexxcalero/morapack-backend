@@ -1,0 +1,30 @@
+America,01,SKBO,Bogota,Colombia,bogo,-5,430,04-42-05,74-08-49
+America,02,SEQM,Quito,Ecuador,quit,-5,410,00-06-48,78-21-31
+America,03,SVMI,Caracas,Venezuela,cara,-4,400,10-36-11,66-59-26
+America,04,SBBR,Brasilia,Brasil,bras,-3,480,15-51-53,47-55-05
+America,05,SPIM,Lima,Peru,lima,-5,440,12-01-19,77-06-52
+America,06,SLLP,La Paz,Bolivia,lapa,-4,420,16-30-47,68-11-32
+America,07,SCEL,Santiago de Chile,Chile,sant,-3,460,33-23-47,70-47-41
+America,08,SABE,Buenos Aires,Argentina,buen,-3,460,34-33-33,58-24-56
+America,09,SGAS,Asuncion,Paraguay,asun,-4,400,25-14-24,57-31-12
+America,10,SUAA,Motenvideo,Uruguay,mont,-3,400,34-47-21,56-15-53
+Europa,11,LATI,Tirana,Albania,tira,2,410,41-24-53,19-43-14
+Europa,12,EDDI,Berlin,Alemania,berl,2,480,52-28-25,13-24-06
+Europa,13,LOWW,Viena,Austria,vien,2,430,48-06-39,16-34-15
+Europa,14,EBCI,Bruselas,Belgica,brus,2,440,50-27-33,04-27-13
+Europa,15,UMMS,Minsk,Bielorrusia,mins,3,400,53-52-57,28-01-57
+Europa,16,LBSF,Sofia,Bulgaria,sofi,3,400,42-41-25,23-24-17
+Europa,17,LKPR,Praga,Checa,prag,2,400,50-06-05,14-15-56
+Europa,18,LDZA,Zagreb,Croacia,zagr,2,420,45-44-34,16-04-07
+Europa,19,EKCH,Copenhague,Dinamarca,cope,2,480,55-37-05,12-39-22
+Europa,20,EHAM,Amsterdam,Holanda,amst,2,480,52-18-00,04-45-54
+Asia,21,VIDP,Delhi,India,delh,5,480,28-33-59,77-06-11
+Asia,22,OSDI,Damasco,Siria,dama,3,400,33-24-41,36-30-56
+Asia,23,OERK,Riad,Arabia Saudita,riad,3,420,24-57-28,46-41-56
+Asia,24,OMDB,Dubai,Emiratos A.U,emir,4,420,25-15-10,55-21-52
+Asia,25,OAKB,Kabul,Afganistan,kabu,4,480,34-33-56,69-12-39
+Asia,26,OOMS,Mascate,Oman,masc,4,460,23-35-22,58-17-03
+Asia,27,OYSN,Sana,Yemen,sana,3,420,15-28-34,44-13-11
+Asia,28,OPKC,Karachi,Pakistan,kara,5,410,24-54-00,67-09-00
+Asia,29,UBBB,Baku,Azerbaiyan,baku,2,400,40-28-02,50-02-48
+Asia,30,OJAI,Aman,Jordania,aman,3,400,31-43-21,35-59-36
