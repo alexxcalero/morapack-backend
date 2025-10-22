@@ -32,10 +32,22 @@ public class Aeropuerto {
     private String ciudad;
     private String abreviatura;
     private Integer estado;
-    private Double longitud;
-    private Double latitud;
+    private String longitud;  // Verificar luego como sera esto
+    private String latitud;  // Verificar luego como sera esto
 
     public boolean estaLleno() {
         return this.capacidadMaxima == this.capacidadOcupada;
+    }
+
+    public void setIdPais(Integer id) {
+        if(this.pais == null)
+            this.pais = new Pais();
+        this.pais.setId(id);
+    }
+
+    public Integer getIdPais() {
+        if(this.pais == null)
+            return -1;
+        return this.pais.getId();
     }
 }

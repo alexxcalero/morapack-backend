@@ -15,10 +15,10 @@ public interface PlanDeVueloRepository extends JpaRepository<PlanDeVuelo, Intege
     @Query("SELECT new pe.edu.pucp.morapack.dtos.PlanDeVueloResponse(" +
             "p.id, " +
             "p.ciudadOrigen, " +
-            "CONCAT(CAST(FUNCTION('DATE_FORMAT', p.horaOrigen, '%Y-%m-%d %H:%i:%s') AS string),'Z',ao.huso_horario), " +
+            "CONCAT(CAST(FUNCTION('DATE_FORMAT', p.horaOrigen, '%Y-%m-%d %H:%i:%s') AS string),'Z',ao.husoHorario), " +
             "ao.longitud, ao.latitud, " +
             "p.ciudadDestino, " +
-            "CONCAT(CAST(FUNCTION('DATE_FORMAT', p.horaDestino, '%Y-%m-%d %H:%i:%s') AS string),'Z',ad.huso_horario), " +
+            "CONCAT(CAST(FUNCTION('DATE_FORMAT', p.horaDestino, '%Y-%m-%d %H:%i:%s') AS string),'Z',ad.husoHorario), " +
             "ad.longitud, ad.latitud, " +
             "p.capacidadMaxima, " +
             "p.capacidadOcupada, " +

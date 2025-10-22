@@ -8,10 +8,7 @@ import pe.edu.pucp.morapack.repositories.AeropuertoRepository;
 import pe.edu.pucp.morapack.repositories.PlanDeVueloRepository;
 import pe.edu.pucp.morapack.services.PlanDeVueloService;
 
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
+import java.time.*;
 import java.util.ArrayList;
 import java.util.Optional;
 
@@ -61,8 +58,15 @@ public class PlanDeVueloServiceImp implements PlanDeVueloService {
         Integer cantidad = 0;
         LocalTime horaInicio = LocalTime.parse(tInicio);
         LocalTime horaFin = LocalTime.parse(tFin);
-        ZonedDateTime zonedHoraInicio = ZonedDateTime.of(aa, mm, dd, horaInicio.getHour(), horaInicio.getMinute(), 0, 0, ZoneId.of(husoDestino));
-        ZonedDateTime convertedHoraInicio = zonedHoraInicio.withZoneSameInstant(ZoneId.of(husoDestino));
+
+        Integer offsetOrigen = Integer.parseInt(husoOrigen);
+        Integer offsetDestino = Integer.parseInt(husoDestino);
+
+        ZoneOffset zoneOrigen = ZoneOffset.ofHours(offsetOrigen);
+        ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
+
+        ZonedDateTime zonedHoraInicio = ZonedDateTime.of(aa, mm, dd, horaInicio.getHour(), horaInicio.getMinute(), 0, 0, zoneOrigen);
+        ZonedDateTime convertedHoraInicio = zonedHoraInicio.withZoneSameInstant(zoneDestino);
 
         if(!convertedHoraInicio.toLocalDate().isEqual(zonedHoraInicio.toLocalDate()))
             cantidad++;

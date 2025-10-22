@@ -1,5 +1,6 @@
 package pe.edu.pucp.morapack.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -21,5 +22,6 @@ public class Continente {
     private String nombre;
 
     @OneToMany(mappedBy = "continente", cascade = CascadeType.ALL)
+    @JsonIgnore
     private List<Pais> paises = new ArrayList<>();
 }

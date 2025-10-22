@@ -11,12 +11,12 @@ public class PlanDeVueloResponse {
     private Integer idTramo;
     private Integer ciudadOrigen;
     private String horaOrigen;
-    private Double longitudOrigen;
-    private Double latitudOrigen;
+    private String longitudOrigen;  // Verificar luego como sera esto
+    private String latitudOrigen;  // Verificar luego como sera esto
     private Integer ciudadDestino;
     private String horaDestino;
-    private Double longitudDestino;
-    private Double latitudDestino;
+    private String longitudDestino;  // Verificar luego como sera esto
+    private String latitudDestino;  // Verificar luego como sera esto
     private Integer capacidadMaxima;
     private Integer capacidadOcupada;
     private Integer estado;

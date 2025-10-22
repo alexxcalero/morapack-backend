@@ -20,7 +20,7 @@ public class AeropuertoServiceImp implements AeropuertoService {
     }
 
     @Override
-    public ArrayList<Aeropuerto> insertListaAeropuertos(ArrayList<Aeropuerto> aeropuertos) {
+    public ArrayList<Aeropuerto> insertarListaAeropuertos(ArrayList<Aeropuerto> aeropuertos) {
         return (ArrayList<Aeropuerto>)aeropuertoRepository.saveAll(aeropuertos);
     }
 
