@@ -14,13 +14,4 @@ import java.util.ArrayList;
 public interface EnvioRepository extends JpaRepository<Envio, Integer> {
     @Query("SELECT e FROM Envio e WHERE FUNCTION('DATE', e.fechaIngreso) = :fecha")
     ArrayList<Envio> findByFechaIngreso(LocalDate fecha);
-
-    @Query("SELECT e FROM Envio e LEFT JOIN FETCH e.productos " +
-            "WHERE e.fechaIngreso BETWEEN " +
-            "FUNCTION('CONVERT_TZ', :fechaInicio, :husoHorarioInicio, e.husoHorarioOrigen) " +
-            "AND " +
-            "FUNCTION('CONVERT_TZ', :fechaFin, :husoHorarioInicio, e.husoHorarioOrigen)")
-    ArrayList<Envio> findByFechaIngresoInRange(@Param("fechaInicio") LocalDateTime fechaInicio,
-                                               @Param("husoHorarioInicio") String husoHorarioInicio,
-                                               @Param("fechaFin") LocalDateTime fechaFin);
 }

@@ -43,32 +43,11 @@ public class EnvioServiceImp implements EnvioService {
     }
 
     @Override
-    public ArrayList<Envio> obtenerEnviosPorFecha(LocalDateTime fechaInicio, String husoHorario, LocalDateTime fechaFin) {
-        return envioRepository.findByFechaIngresoInRange(fechaInicio, husoHorario, fechaFin);
-    }
-
-    @Override
     public Integer calcularTotalProductosEnvio(ArrayList<Envio> envios) {
         Integer totalProductos = 0;
         for(Envio envio : envios) {
             totalProductos += envio.getNumProductos();
         }
         return totalProductos;
-    }
-
-    @Override
-    public Integer tipoVuelo(Integer ciudadOrigen, Integer ciudadDestino, ArrayList<Pais> paises) {
-        Integer contA = 0, contB = 0;
-        for(Pais pais : paises) {
-            if(pais.getId() == ciudadOrigen)
-                contA = pais.getContinente().getId();
-            if(pais.getId() == ciudadDestino)
-                contB = pais.getContinente().getId();
-        }
-
-        if(contA == contB)
-            return 1;
-        else
-            return 2;
     }
 }

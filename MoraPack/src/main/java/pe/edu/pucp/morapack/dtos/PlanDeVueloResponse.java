@@ -18,10 +18,10 @@ public class PlanDeVueloResponse {
     private String longitudDestino;  // Verificar luego como sera esto
     private String latitudDestino;  // Verificar luego como sera esto
     private Integer capacidadMaxima;
-    private Integer capacidadOcupada;
+    //private Integer capacidadOcupada;
     private Integer estado;
 
-    public Boolean estaLleno() {
-        return this.capacidadMaxima == this.capacidadOcupada;
-    }
+//    public Boolean estaLleno() {
+//        return this.capacidadMaxima == this.capacidadOcupada;
+//    }
 }

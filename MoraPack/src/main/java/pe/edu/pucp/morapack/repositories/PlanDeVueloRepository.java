@@ -21,42 +21,10 @@ public interface PlanDeVueloRepository extends JpaRepository<PlanDeVuelo, Intege
             "CONCAT(CAST(FUNCTION('DATE_FORMAT', p.horaDestino, '%Y-%m-%d %H:%i:%s') AS string),'Z',ad.husoHorario), " +
             "ad.longitud, ad.latitud, " +
             "p.capacidadMaxima, " +
-            "p.capacidadOcupada, " +
+            //"p.capacidadOcupada, " +
             "p.estado) " +
             "FROM PlanDeVuelo p " +
             "JOIN Aeropuerto ao ON p.ciudadOrigen = ao.id " +
             "JOIN Aeropuerto ad ON p.ciudadDestino = ad.id")
     ArrayList<PlanDeVueloResponse> queryPlanDeVueloWithAeropuerto();
-
-    @Query("""
-            SELECT new pe.edu.pucp.morapack.dtos.PlanDeVueloResponse(\
-            p.id, \
-            p.ciudadOrigen, \
-            CONCAT(CAST(FUNCTION('DATE_FORMAT', p.horaOrigen, '%Y-%m-%d %H:%i:%s') AS string),'Z',ao.husoHorario), \
-            ao.longitud, ao.latitud, \
-            p.ciudadDestino, \
-            CONCAT(CAST(FUNCTION('DATE_FORMAT', p.horaDestino, '%Y-%m-%d %H:%i:%s') AS string),'Z',ad.husoHorario), \
-            ad.longitud, ad.latitud, \
-            p.capacidadMaxima, \
-            p.capacidadOcupada, \
-            p.estado) \
-            FROM PlanDeVuelo p \
-            JOIN Aeropuerto ao ON p.ciudadOrigen = ao.id \
-            JOIN Aeropuerto ad ON p.ciudadDestino = ad.id \
-            WHERE p.horaOrigen BETWEEN \
-            FUNCTION('CONVERT_TZ', :fechaInicio, :husoHorarioInicio, p.husoHorarioOrigen) \
-            AND \
-            FUNCTION('CONVERT_TZ', :fechaFin, :husoHorarioInicio, p.husoHorarioOrigen)""")
-    ArrayList<PlanDeVueloResponse> queryPlanDeVueloWithFechaIngresoFechaFin(@Param("fechaInicio") LocalDateTime fechaInicio,
-                                                                          @Param("husoHorarioInicio") String husoHorarioInicio,
-                                                                          @Param("fechaFin") LocalDateTime fechaFin);
-
-    @Query("SELECT p FROM PlanDeVuelo p " +
-            "WHERE p.horaOrigen BETWEEN " +
-            "FUNCTION('CONVERT_TZ', :fechaInicio, :husoHorarioInicio, p.husoHorarioOrigen) " +
-            "AND " +
-            "FUNCTION('CONVERT_TZ', :fechaFin, :husoHorarioInicio, p.husoHorarioOrigen)")
-    ArrayList<PlanDeVuelo> findByFechaIngresoInRange(@Param("fechaInicio") LocalDateTime fechaInicio,
-                                                     @Param("husoHorarioInicio") String husoHorarioInicio,
-                                                     @Param("fechaFin") LocalDateTime fechaFin);
 }

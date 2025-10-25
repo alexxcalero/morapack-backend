@@ -22,9 +22,6 @@ public class Aeropuerto {
     @JoinColumn(name = "id_pais")
     private Pais pais;
 
-    @OneToMany(mappedBy = "aeropuerto", cascade = CascadeType.ALL)
-    private List<Producto> productos = new ArrayList<>();
-
     private String codigo;
     private String husoHorario;
     private Integer capacidadMaxima;

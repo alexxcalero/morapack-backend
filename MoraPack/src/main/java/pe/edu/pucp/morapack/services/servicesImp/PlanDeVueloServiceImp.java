@@ -44,16 +44,6 @@ public class PlanDeVueloServiceImp implements PlanDeVueloService {
     }
 
     @Override
-    public ArrayList<PlanDeVuelo> obtenerPlanesDeVueloPorFecha(LocalDateTime fechaInicio, String husoHorario, LocalDateTime fechaFin) {
-        return planDeVueloRepository.findByFechaIngresoInRange(fechaInicio, husoHorario, fechaFin);
-    }
-
-    @Override
-    public ArrayList<PlanDeVueloResponse> obtenerPlanesDeVueloPorFechaLatLong(LocalDateTime fechaInicio, String husoHorario, LocalDateTime fechaFin) {
-        return planDeVueloRepository.queryPlanDeVueloWithFechaIngresoFechaFin(fechaInicio, husoHorario, fechaFin);
-    }
-
-    @Override
     public Integer planAcabaAlSiguienteDia(String tInicio, String tFin, String husoOrigen, String husoDestino, Integer aa, Integer mm, Integer dd) {
         Integer cantidad = 0;
         LocalTime horaInicio = LocalTime.parse(tInicio);

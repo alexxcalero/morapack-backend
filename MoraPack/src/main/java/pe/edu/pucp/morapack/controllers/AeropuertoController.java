@@ -42,13 +42,13 @@ public class AeropuertoController {
         return aeropuertoService.obtenerTodosAeropuertos();
     }
 
-    @GetMapping("obtenerPorId")
-    Optional<Aeropuerto> obtenerAeropuertoPorId(@RequestParam Integer idAeropuerto) {
+    @GetMapping("obtenerPorId/{idAeropuerto}")
+    Optional<Aeropuerto> obtenerAeropuertoPorId(@PathVariable Integer idAeropuerto) {
         return aeropuertoService.obtenerAeropuertoPorId(idAeropuerto);
     }
 
-    @GetMapping("obtenerPorCodigo")
-    Optional<Aeropuerto> obtenerAeropuertoPorCodigo(@RequestParam String codigo) {
+    @GetMapping("obtenerPorCodigo/{codigo}")
+    Optional<Aeropuerto> obtenerAeropuertoPorCodigo(@PathVariable String codigo) {
         return aeropuertoService.obtenerAeropuertoPorCodigo(codigo);
     }
 
@@ -103,7 +103,6 @@ public class AeropuertoController {
 
             aeropuerto.setId(idAeropuerto);
             aeropuerto.setIdPais(pais.getId());
-            aeropuerto.setProductos(new ArrayList<>());
             aeropuerto.setLatitud(latitud);
             aeropuerto.setLongitud(longitud);
             aeropuerto.setEstado(1);
@@ -175,7 +174,6 @@ public class AeropuertoController {
 
                 aeropuerto.setId(idAeropuerto);
                 aeropuerto.setIdPais(pais.getId());
-                aeropuerto.setProductos(new ArrayList<>());
                 aeropuerto.setLatitud(latitud);
                 aeropuerto.setLongitud(longitud);
                 aeropuerto.setEstado(1);

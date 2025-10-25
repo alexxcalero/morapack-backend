@@ -27,22 +27,6 @@ public class PlanDeVuelo {
     private String husoHorarioOrigen;
     private String husoHorarioDestino;
     private Integer capacidadMaxima;
-    private Integer capacidadOcupada;
+    private Boolean mismoContinente;
     private Integer estado;
-
-    @Transient
-    private ZonedDateTime zonedHoraOrigen;
-
-    @Transient
-    private ZonedDateTime zonedHoraDestino;
-
-    public boolean estaLleno() {
-        return this.capacidadMaxima == this.capacidadOcupada;
-    }
-
-    @PostLoad
-    private void cargarZonedDateTime() {
-        this.zonedHoraOrigen = horaOrigen.atZone(ZoneId.of(husoHorarioOrigen));
-        this.zonedHoraDestino = horaDestino.atZone(ZoneId.of(husoHorarioDestino));
-    }
 }
