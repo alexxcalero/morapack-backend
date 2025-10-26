@@ -30,7 +30,7 @@ public class Envio {
     private String husoHorarioDestino;
 
     @Transient
-    private List<Aeropuerto> aeropuertosOrigen = new ArrayList<>();  // Multihub
+    private List<Aeropuerto> aeropuertosOrigen = new ArrayList<>(); // Multihub
 
     @ManyToOne
     @JoinColumn(name = "id_aeropuerto_destino")

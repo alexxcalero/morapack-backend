@@ -8,6 +8,8 @@ import pe.edu.pucp.morapack.models.Aeropuerto;
 import pe.edu.pucp.morapack.models.PlanDeVuelo;
 import pe.edu.pucp.morapack.services.AeropuertoService;
 import pe.edu.pucp.morapack.services.PlanDeVueloService;
+import pe.edu.pucp.morapack.services.servicesImp.AeropuertoServiceImp;
+import pe.edu.pucp.morapack.services.servicesImp.PlanDeVueloServiceImp;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -23,8 +25,8 @@ import java.util.Scanner;
 @RequiredArgsConstructor
 @RequestMapping("api/planesDeVuelo")
 public class PlanDeVueloController {
-    private final PlanDeVueloService planDeVueloService;
-    private final AeropuertoService aeropuertoService;
+    private final PlanDeVueloServiceImp planDeVueloService;
+    private final AeropuertoServiceImp aeropuertoService;
 
     @PostMapping("insertar")
     PlanDeVuelo insertarPlanDeVuelo(PlanDeVuelo plan) {
@@ -47,7 +49,8 @@ public class PlanDeVueloController {
     }
 
     @PostMapping("lecturaArchivo/{fecha}")
-    ArrayList<PlanDeVuelo> cargarDatos(@RequestParam("arch") MultipartFile arch, @PathVariable String fecha) throws IOException {
+    ArrayList<PlanDeVuelo> cargarDatos(@RequestParam("arch") MultipartFile arch, @PathVariable String fecha)
+            throws IOException {
         long startTime = System.currentTimeMillis();
         ArrayList<PlanDeVuelo> planes = new ArrayList<>();
         String anio = fecha.substring(0, 4);
@@ -60,11 +63,12 @@ public class PlanDeVueloController {
         String planesDatos = new String(arch.getBytes());
         String[] lineas = planesDatos.split("\n");
 
-        for(String linea : lineas) {
+        for (String linea : lineas) {
             String data[] = linea.trim().split("-");
 
-            // Un solo dato significaria que solo se leyo el salto de linea, el cual no queremos
-            if(data.length > 1) {
+            // Un solo dato significaria que solo se leyo el salto de linea, el cual no
+            // queremos
+            if (data.length > 1) {
                 Optional<Aeropuerto> aeropuertoOptionalOrig = aeropuertoService.obtenerAeropuertoPorCodigo(data[0]);
                 Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[1]);
 
@@ -85,8 +89,10 @@ public class PlanDeVueloController {
                     LocalDateTime fechaInicio = LocalDateTime.of(aa, mm, dd, hI.getHour(), hI.getMinute(), 0);
                     LocalDateTime fechaFin;
 
-                    //Segun la hora de inicio y final, podemos determinar si el vuelo acaba en el mismo o diferente dia
-                    Integer cantDias = planDeVueloService.planAcabaAlSiguienteDia(data[2], data[3], husoOrigen, husoDestino, aa, mm, dd);
+                    // Segun la hora de inicio y final, podemos determinar si el vuelo acaba en el
+                    // mismo o diferente dia
+                    Integer cantDias = planDeVueloService.planAcabaAlSiguienteDia(data[2], data[3], husoOrigen,
+                            husoDestino, aa, mm, dd);
                     fechaFin = LocalDateTime.of(aa, mm, dd, hF.getHour(), hF.getMinute(), 0).plusDays(cantDias);
 
                     PlanDeVuelo plan = PlanDeVuelo.builder()
@@ -97,7 +103,7 @@ public class PlanDeVueloController {
                             .husoHorarioOrigen(husoOrigen)
                             .husoHorarioDestino(husoDestino)
                             .capacidadMaxima(capacidad)
-                            //.capacidadOcupada(0)
+                            // .capacidadOcupada(0)
                             .estado(1)
                             .build();
 
@@ -130,16 +136,17 @@ public class PlanDeVueloController {
         try {
             File planesFile = new File("src/main/resources/planes/vuelos.txt");
             Scanner scanner = new Scanner(planesFile);
-            while(scanner.hasNextLine()) {  // Leer todas la lineas
+            while (scanner.hasNextLine()) { // Leer todas la lineas
                 String row = scanner.nextLine();
                 String data[] = row.split("-");
 
-                // Un solo dato significaria que solo se leyo el salto de linea, el cual no queremos
-                if(data.length > 1) {
+                // Un solo dato significaria que solo se leyo el salto de linea, el cual no
+                // queremos
+                if (data.length > 1) {
                     Optional<Aeropuerto> aeropuertoOptionalOrig = aeropuertoService.obtenerAeropuertoPorCodigo(data[0]);
                     Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[1]);
 
-                    if(aeropuertoOptionalOrig.isPresent() && aeropuertoOptionalDest.isPresent()) {
+                    if (aeropuertoOptionalOrig.isPresent() && aeropuertoOptionalDest.isPresent()) {
                         Aeropuerto aeropuertoOrigen = aeropuertoOptionalOrig.get();
                         Aeropuerto aeropuertoDest = aeropuertoOptionalDest.get();
 
@@ -156,8 +163,17 @@ public class PlanDeVueloController {
                         LocalDateTime fechaInicio = LocalDateTime.of(aa, mm, dd, hI.getHour(), hI.getMinute(), 0);
                         LocalDateTime fechaFin;
 
-                        //Segun la hora de inicio y final, podemos determinar si el vuelo acaba en el mismo o diferente dia
-                        Integer cantDias = planDeVueloService.planAcabaAlSiguienteDia(data[2], data[3], husoOrigen, husoDestino, aa, mm, dd);
+                        Integer contOrig = aeropuertoOrigen.getPais() != null
+                                ? aeropuertoOrigen.getPais().getIdContinente()
+                                : null;
+                        Integer contDest = aeropuertoDest.getPais() != null ? aeropuertoDest.getPais().getIdContinente()
+                                : null;
+                        Boolean mismoContinente = (contOrig != null && contDest != null) ? contOrig.equals(contDest)
+                                : null;
+                        // Segun la hora de inicio y final, podemos determinar si el vuelo acaba en el
+                        // mismo o diferente dia
+                        Integer cantDias = planDeVueloService.planAcabaAlSiguienteDia(data[2], data[3], husoOrigen,
+                                husoDestino, aa, mm, dd);
                         fechaFin = LocalDateTime.of(aa, mm, dd, hF.getHour(), hF.getMinute(), 0).plusDays(cantDias);
 
                         PlanDeVuelo plan = PlanDeVuelo.builder()
@@ -168,7 +184,8 @@ public class PlanDeVueloController {
                                 .husoHorarioOrigen(husoOrigen)
                                 .husoHorarioDestino(husoDestino)
                                 .capacidadMaxima(capacidad)
-                                //.capacidadOcupada(0)
+                                .mismoContinente(mismoContinente)
+                                // .capacidadOcupada(0)
                                 .estado(1)
                                 .build();
 
@@ -178,7 +195,7 @@ public class PlanDeVueloController {
                     }
                 }
             }
-        } catch(FileNotFoundException e) {
+        } catch (FileNotFoundException e) {
             System.out.println("Archivo de pedidos no encontrado, error: " + e.getMessage());
         }
 

@@ -9,6 +9,9 @@ import pe.edu.pucp.morapack.models.Pais;
 import pe.edu.pucp.morapack.services.AeropuertoService;
 import pe.edu.pucp.morapack.services.ContinenteService;
 import pe.edu.pucp.morapack.services.PaisService;
+import pe.edu.pucp.morapack.services.servicesImp.AeropuertoServiceImp;
+import pe.edu.pucp.morapack.services.servicesImp.ContinenteServiceImp;
+import pe.edu.pucp.morapack.services.servicesImp.PaisServiceImp;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -23,9 +26,9 @@ import java.util.Scanner;
 @RequiredArgsConstructor
 @RequestMapping("api/aeropuertos")
 public class AeropuertoController {
-    private final AeropuertoService aeropuertoService;
-    private final PaisService paisService;
-    private final ContinenteService continenteService;
+    private final AeropuertoServiceImp aeropuertoService;
+    private final PaisServiceImp paisService;
+    private final ContinenteServiceImp continenteService;
 
     @PostMapping("insertar")
     Aeropuerto insertarAeropuerto(@RequestBody Aeropuerto aeropuerto) {
@@ -78,7 +81,7 @@ public class AeropuertoController {
         String aeropuertosDatos = new String(arch.getBytes());
         String[] lineas = aeropuertosDatos.split("\n");
 
-        for(String linea : lineas) {
+        for (String linea : lineas) {
             String data[] = linea.trim().split(",");
 
             Aeropuerto aeropuerto = new Aeropuerto();
@@ -144,11 +147,9 @@ public class AeropuertoController {
         continenteService.insertarContinente(continente2);
         continenteService.insertarContinente(continente3);
 
-        try {
-            File planesFile = new File("src/main/resources/aeropuertos/aeropuertos.csv");
-            Scanner scanner = new Scanner(planesFile);
+        try (Scanner scanner = new Scanner(new File("src/main/resources/aeropuertos/aeropuertos.csv"))) {
 
-            while(scanner.hasNextLine()) {  // Leer todas la lineas
+            while (scanner.hasNextLine()) { // Leer todas la lineas
                 String row = scanner.nextLine();
                 String data[] = row.split(",");
 
@@ -170,10 +171,12 @@ public class AeropuertoController {
 
                 pais.setNombre(paisNombre);
                 pais.setIdContinente(idContinente);
+                pais.setContinente(continente);
                 paisService.insertarPais(pais);
 
                 aeropuerto.setId(idAeropuerto);
                 aeropuerto.setIdPais(pais.getId());
+                aeropuerto.setPais(pais);
                 aeropuerto.setLatitud(latitud);
                 aeropuerto.setLongitud(longitud);
                 aeropuerto.setEstado(1);
@@ -189,7 +192,7 @@ public class AeropuertoController {
                 // Aeropuerto insertado
                 insertarAeropuerto(aeropuerto);
             }
-        } catch(FileNotFoundException e) {
+        } catch (FileNotFoundException e) {
             throw new RuntimeException(e);
         }
 

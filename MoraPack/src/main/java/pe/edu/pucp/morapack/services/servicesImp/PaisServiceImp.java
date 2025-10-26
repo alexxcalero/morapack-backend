@@ -3,7 +3,7 @@ package pe.edu.pucp.morapack.services.servicesImp;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import pe.edu.pucp.morapack.models.Pais;
-import pe.edu.pucp.morapack.repositories.PaisRepository;
+import pe.edu.pucp.morapack.repository.PaisRepository;
 import pe.edu.pucp.morapack.services.PaisService;
 
 import java.util.ArrayList;
@@ -20,6 +20,6 @@ public class PaisServiceImp implements PaisService {
 
     @Override
     public ArrayList<Pais> obtenerTodosPaises() {
-        return (ArrayList<Pais>)paisRepository.findAll();
+        return (ArrayList<Pais>) paisRepository.findAll();
     }
 }

@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import pe.edu.pucp.morapack.models.Envio;
 import pe.edu.pucp.morapack.models.Pais;
-import pe.edu.pucp.morapack.repositories.EnvioRepository;
+import pe.edu.pucp.morapack.repository.EnvioRepository;
 import pe.edu.pucp.morapack.services.EnvioService;
 
 import java.time.LocalDate;
@@ -24,12 +24,12 @@ public class EnvioServiceImp implements EnvioService {
 
     @Override
     public ArrayList<Envio> insertarListaEnvios(ArrayList<Envio> envios) {
-        return (ArrayList<Envio>)envioRepository.saveAll(envios);
+        return (ArrayList<Envio>) envioRepository.saveAll(envios);
     }
 
     @Override
     public ArrayList<Envio> obtenerEnvios() {
-        return (ArrayList<Envio>)envioRepository.findAll();
+        return (ArrayList<Envio>) envioRepository.findAll();
     }
 
     @Override
@@ -45,7 +45,7 @@ public class EnvioServiceImp implements EnvioService {
     @Override
     public Integer calcularTotalProductosEnvio(ArrayList<Envio> envios) {
         Integer totalProductos = 0;
-        for(Envio envio : envios) {
+        for (Envio envio : envios) {
             totalProductos += envio.getNumProductos();
         }
         return totalProductos;
