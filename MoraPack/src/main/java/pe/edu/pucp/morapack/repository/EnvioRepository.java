@@ -1,4 +1,4 @@
-package pe.edu.pucp.morapack.repositories;
+package pe.edu.pucp.morapack.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;

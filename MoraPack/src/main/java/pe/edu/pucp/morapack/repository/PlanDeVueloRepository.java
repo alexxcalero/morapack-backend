@@ -1,4 +1,4 @@
-package pe.edu.pucp.morapack.repositories;
+package pe.edu.pucp.morapack.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -21,7 +21,7 @@ public interface PlanDeVueloRepository extends JpaRepository<PlanDeVuelo, Intege
             "CONCAT(CAST(FUNCTION('DATE_FORMAT', p.horaDestino, '%Y-%m-%d %H:%i:%s') AS string),'Z',ad.husoHorario), " +
             "ad.longitud, ad.latitud, " +
             "p.capacidadMaxima, " +
-            //"p.capacidadOcupada, " +
+            // "p.capacidadOcupada, " +
             "p.estado) " +
             "FROM PlanDeVuelo p " +
             "JOIN Aeropuerto ao ON p.ciudadOrigen = ao.id " +

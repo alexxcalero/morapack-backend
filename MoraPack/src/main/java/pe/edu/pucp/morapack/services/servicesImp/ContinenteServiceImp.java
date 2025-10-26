@@ -3,7 +3,7 @@ package pe.edu.pucp.morapack.services.servicesImp;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import pe.edu.pucp.morapack.models.Continente;
-import pe.edu.pucp.morapack.repositories.ContinenteRepository;
+import pe.edu.pucp.morapack.repository.ContinenteRepository;
 import pe.edu.pucp.morapack.services.ContinenteService;
 
 import java.util.ArrayList;
@@ -26,6 +26,6 @@ public class ContinenteServiceImp implements ContinenteService {
 
     @Override
     public ArrayList<Continente> obtenerTodosContinentes() {
-        return (ArrayList<Continente>)continenteRepository.findAll();
+        return (ArrayList<Continente>) continenteRepository.findAll();
     }
 }
