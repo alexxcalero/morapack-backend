@@ -19,9 +19,9 @@ import java.util.stream.Collectors;
 @AllArgsConstructor
 public class Grasp {
 
-    private static final int MAX_ITERACIONES = 300; // bajar a 100-300 para pruebas, normal 1500
-    private static final int MAX_SIN_MEJORA = 50;
-    private static final int DIAS_A_INSTANCIAR = 5;
+    private static final int MAX_ITERACIONES = 100; // bajar a 100-300 para pruebas, normal 1500
+    private static final int MAX_SIN_MEJORA = 5;
+    private static final int DIAS_A_INSTANCIAR = 3;
 
     private ArrayList<Aeropuerto> aeropuertos;
     private ArrayList<Pais> paises;
