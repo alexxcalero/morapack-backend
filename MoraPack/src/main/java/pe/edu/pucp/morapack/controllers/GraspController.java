@@ -1,10 +1,8 @@
 package pe.edu.pucp.morapack.controllers;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import pe.edu.pucp.morapack.models.*;
-import pe.edu.pucp.morapack.services.*;
 import pe.edu.pucp.morapack.services.servicesImp.AeropuertoServiceImp;
 import pe.edu.pucp.morapack.services.servicesImp.ContinenteServiceImp;
 import pe.edu.pucp.morapack.services.servicesImp.EnvioServiceImp;
@@ -24,6 +22,7 @@ public class GraspController {
     private final PaisServiceImp paisService;
     private final EnvioServiceImp envioService;
     private final PlanDeVueloServiceImp planDeVueloService;
+    private final PlanificadorController planificadorController;
 
     private Grasp grasp = new Grasp();
     private Boolean esPrimeraSimulacion;
@@ -90,6 +89,11 @@ public class GraspController {
         solucionDiaria = grasp.ejecucionDiaria();
 
         return solucionDiaria;
+    }
+
+    @PostMapping("/iniciar-programado")
+    public Map<String, Object> iniciarGraspProgramado() {
+        return planificadorController.iniciarPlanificadorProgramado();
     }
 
     // @PostMapping("ejecucionDiaria/cargarEnvio")

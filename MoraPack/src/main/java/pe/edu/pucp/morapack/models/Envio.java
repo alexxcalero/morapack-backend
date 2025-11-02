@@ -22,7 +22,7 @@ public class Envio {
     private Integer id;
 
     // Cada parte tiene su propia ruta y cantidad
-    @OneToMany(mappedBy = "envio", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "envio", fetch = FetchType.EAGER, cascade = CascadeType.ALL)
     @JsonManagedReference
     private List<ParteAsignada> parteAsignadas = new ArrayList<>();
 
@@ -44,13 +44,15 @@ public class Envio {
 
     private LocalDateTime fechaLlegadaMax;
 
+    private String cliente;
+
     @Transient
     private ZonedDateTime zonedFechaIngreso;
 
     @Transient
     private ZonedDateTime zonedFechaLlegadaMax;
 
-    public Envio(LocalDateTime fechaIngreso, String husoHorarioDestino, Aeropuerto destino, Integer numProductos) {
+    public Envio(LocalDateTime fechaIngreso, String husoHorarioDestino, Aeropuerto destino, Integer numProductos, String cliente) {
         this.parteAsignadas = new ArrayList<>();
         this.fechaIngreso = fechaIngreso;
         this.husoHorarioDestino = husoHorarioDestino;
@@ -58,6 +60,7 @@ public class Envio {
         this.aeropuertoDestino = destino;
         this.husoHorarioDestino = husoHorarioDestino;
         this.numProductos = numProductos;
+        this.cliente = cliente;
     }
 
     public Integer cantidadAsignada() {

@@ -75,14 +75,14 @@ public class EnvioController {
                     Integer hora = Integer.parseInt(data[1]);
                     Integer minutos = Integer.parseInt(data[2]);
                     Integer numProductos = Integer.parseInt(data[4]);
+                    String cliente = data[5];
 
                     LocalDateTime fechaIngreso = LocalDateTime.of(LocalDate.of(anho, mes, dia),
                             LocalTime.of(hora, minutos, 0));
 
                     String husoCiudadDestino = aeropuertoOptionalDest.get().getHusoHorario();
 
-                    Envio newEnvio = new Envio(fechaIngreso, husoCiudadDestino, aeropuertoOptionalDest.get(),
-                            numProductos);
+                    Envio newEnvio = new Envio(fechaIngreso, husoCiudadDestino, aeropuertoOptionalDest.get(), numProductos, cliente);
 
                     ArrayList<Aeropuerto> hubs = new ArrayList<>();
                     String[] hubCodes = { "SPIM", "EBCI", "UBBB" };
@@ -144,14 +144,14 @@ public class EnvioController {
                         Integer hora = Integer.parseInt(data[1]);
                         Integer minutos = Integer.parseInt(data[2]);
                         Integer numProductos = Integer.parseInt(data[4]);
+                        String cliente = data[5];
 
                         LocalDateTime fechaIngreso = LocalDateTime.of(LocalDate.of(anho, mes, dia),
                                 LocalTime.of(hora, minutos, 0));
 
                         String husoCiudadDestino = aeropuertoOptionalDest.get().getHusoHorario();
 
-                        Envio newEnvio = new Envio(fechaIngreso, husoCiudadDestino, aeropuertoOptionalDest.get(),
-                                numProductos);
+                        Envio newEnvio = new Envio(fechaIngreso, husoCiudadDestino, aeropuertoOptionalDest.get(), numProductos, cliente);
                         ArrayList<Aeropuerto> hubs = new ArrayList<>();
                         String[] hubCodes = { "SPIM", "EBCI", "UBBB" };
 
