@@ -33,6 +33,8 @@ public class Planificador {
     private Solucion ultimaSolucion;
     private Map<String, Object> estadisticas = new HashMap<>();
     private List<Map<String, Object>> historicoCiclos = new ArrayList<>();
+    private boolean pausado = false;
+    private Future<?> tareaActual = null;
 
     private ArrayList<Envio> enviosOriginales;
 
@@ -46,7 +48,7 @@ public class Planificador {
     }
 
     public void iniciarPlanificacionProgramada() {
-        if(enEjecucion) {
+        if (enEjecucion) {
             System.out.println("⚠️ El planificador ya está en ejecución");
             return;
         }
@@ -59,15 +61,17 @@ public class Planificador {
         webSocketService.enviarEstadoPlanificador(true, cicloActual.get(), "inmediato");
 
         System.out.println("🚀 INICIANDO PLANIFICADOR PROGRAMADO");
-        System.out.printf("⚙️ Configuración: Sa=%d min, K=%d, Ta=%d seg, Sc=%d min%n", SA_MINUTOS, K, TA_SEGUNDOS, SA_MINUTOS * K);
+        System.out.printf("⚙️ Configuración: Sa=%d min, K=%d, Ta=%d seg, Sc=%d min%n", SA_MINUTOS, K, TA_SEGUNDOS,
+                SA_MINUTOS * K);
 
-        this.enviosOriginales = this.grasp.getEnvios();  // Guardo todos los envios
+        this.enviosOriginales = this.grasp.getEnvios(); // Guardo todos los envios
 
         // Obtener el primer pedido como referencia temporal
         this.tiempoInicioSimulacion = obtenerPrimerPedidoTiempo();
         this.ultimoHorizontePlanificado = this.tiempoInicioSimulacion;
 
-        System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+        System.out.printf("⏰ Tiempo de inicio de simulación: %s%n",
+                tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
         // Ejecutar el primer ciclo inmediatamente
         ejecutarCicloPlanificacion(tiempoInicioSimulacion);
@@ -80,13 +84,13 @@ public class Planificador {
     }
 
     public void detenerPlanificacion() {
-        if(scheduler != null) {
+        if (scheduler != null) {
             scheduler.shutdown();
             try {
-                if(!scheduler.awaitTermination(30, TimeUnit.SECONDS)) {
+                if (!scheduler.awaitTermination(30, TimeUnit.SECONDS)) {
                     scheduler.shutdownNow();
                 }
-            } catch(InterruptedException e) {
+            } catch (InterruptedException e) {
                 scheduler.shutdownNow();
                 Thread.currentThread().interrupt();
             }
@@ -97,8 +101,50 @@ public class Planificador {
         System.out.println("🛑 Planificador detenido");
     }
 
+    public void pausarPlanificacion() {
+        if (!enEjecucion) {
+            System.out.println("⚠️ El planificador no está en ejecución");
+            return;
+        }
+
+        if (pausado) {
+            System.out.println("⚠️ El planificador ya está pausado");
+            return;
+        }
+
+        pausado = true;
+        System.out.println("⏸️ PLANIFICADOR PAUSADO");
+        System.out.printf("📊 Ciclo actual: %d%n", cicloActual.get());
+
+        // ✅ ENVIAR ESTADO DE PAUSA VÍA WEBSOCKET
+        webSocketService.enviarEstadoPlanificador(true, cicloActual.get(), "pausado");
+    }
+
+    public void reanudarPlanificacion() {
+        if (!enEjecucion) {
+            System.out.println("⚠️ El planificador no está en ejecución");
+            return;
+        }
+
+        if (!pausado) {
+            System.out.println("⚠️ El planificador no está pausado");
+            return;
+        }
+
+        pausado = false;
+        System.out.println("▶️ PLANIFICADOR REANUDADO");
+        System.out.printf("📊 Continuando desde ciclo: %d%n", cicloActual.get());
+
+        // ✅ ENVIAR ESTADO DE REANUDACIÓN VÍA WEBSOCKET
+        LocalDateTime proxima = LocalDateTime.now().plusMinutes(SA_MINUTOS);
+        webSocketService.enviarEstadoPlanificador(
+                true,
+                cicloActual.get(),
+                proxima.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+    }
+
     private LocalDateTime obtenerPrimerPedidoTiempo() {
-        if(grasp.getEnvios() == null || grasp.getEnvios().isEmpty()) {
+        if (grasp.getEnvios() == null || grasp.getEnvios().isEmpty()) {
             return LocalDateTime.now();
         }
 
@@ -124,7 +170,13 @@ public class Planificador {
     private static LocalDateTime ultimoTiempoEjecucion;
 
     private void ejecutarCicloPlanificacion(LocalDateTime tiempoEjecucion) {
-        if(!enEjecucion) return;
+        if (pausado) {
+            System.out.println("⏸️ Ciclo omitido - Planificador en pausa");
+            return;
+        }
+
+        if (!enEjecucion)
+            return;
 
         long inicioCiclo = System.currentTimeMillis();
         int ciclo = cicloActual.incrementAndGet();
@@ -132,7 +184,8 @@ public class Planificador {
         proximaEjecucion = ultimaEjecucion.plusMinutes(SA_MINUTOS);
 
         System.out.printf("%n=== CICLO %d INICIADO ===%n", ciclo);
-        System.out.printf("🕒 Ejecución: %s%n", ultimaEjecucion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        System.out.printf("🕒 Ejecución: %s%n",
+                ultimaEjecucion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
         try {
             // 1. Calcular horizonte temporal (Sc)
@@ -148,7 +201,7 @@ public class Planificador {
 
             System.out.printf("📦 Pedidos a planificar en el ciclo %d: %d%n", ciclo, pedidosParaPlanificar.size());
 
-            if(pedidosParaPlanificar.isEmpty()) {
+            if (pedidosParaPlanificar.isEmpty()) {
                 System.out.println("✅ No hay pedidos pendientes en este horizonte");
 
                 ultimoTiempoEjecucion = tiempoEjecucion;
@@ -173,15 +226,17 @@ public class Planificador {
             // 4. Mostrar resultados
             mostrarResultadosCiclo(solucion, pedidosParaPlanificar, ciclo);
 
-            System.out.printf("✅ CICLO %d COMPLETADO - %d/%d envíos asignados%n", ciclo, solucion.getEnviosCompletados(), solucion.getEnvios().size());
+            System.out.printf("✅ CICLO %d COMPLETADO - %d/%d envíos asignados%n", ciclo,
+                    solucion.getEnviosCompletados(), solucion.getEnvios().size());
 
             ultimoTiempoEjecucion = tiempoEjecucion;
-//        } catch(TimeoutException e) {
-//            // ✅ ENVIAR ERROR VÍA WEBSOCKET
-//            webSocketService.enviarError("Timeout después de " + TA_SEGUNDOS + " segundos", ciclo);
-//            System.out.printf("⏰ CICLO %d - TIMEOUT%n", ciclo);
-//            actualizarEstadisticasTimeout(ciclo);
-        } catch(Exception e) {
+            // } catch(TimeoutException e) {
+            // // ✅ ENVIAR ERROR VÍA WEBSOCKET
+            // webSocketService.enviarError("Timeout después de " + TA_SEGUNDOS + "
+            // segundos", ciclo);
+            // System.out.printf("⏰ CICLO %d - TIMEOUT%n", ciclo);
+            // actualizarEstadisticasTimeout(ciclo);
+        } catch (Exception e) {
             // ✅ ENVIAR ERROR VÍA WEBSOCKET
             webSocketService.enviarError("Error: " + e.getMessage(), ciclo);
             System.err.printf("❌ CICLO %d - ERROR: %s%n", ciclo, e.getMessage());
@@ -192,24 +247,24 @@ public class Planificador {
     private List<Envio> obtenerPedidosEnVentana(LocalDateTime inicio, LocalDateTime fin) {
         List<Envio> pedidosNuevos = new ArrayList<>();
 
-        if(enviosOriginales == null) {
+        if (enviosOriginales == null) {
             return new ArrayList<>();
         }
 
-        for(Envio envio : enviosOriginales) {
+        for (Envio envio : enviosOriginales) {
             LocalDateTime tiempoPedido = envio.getZonedFechaIngreso().toLocalDateTime();
-            if(!tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin)) {
+            if (!tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin)) {
                 // ✅ Crear COPIA del envío para este ciclo específico
                 pedidosNuevos.add(crearCopiaEnvio(envio));
             }
         }
 
-//        return enviosOriginales.stream()
-//                .filter(envio -> {
-//                    LocalDateTime tiempoPedido = envio.getZonedFechaIngreso().toLocalDateTime();
-//                    return !tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin);
-//                })
-//                .collect(Collectors.toList());
+        // return enviosOriginales.stream()
+        // .filter(envio -> {
+        // LocalDateTime tiempoPedido = envio.getZonedFechaIngreso().toLocalDateTime();
+        // return !tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin);
+        // })
+        // .collect(Collectors.toList());
         return pedidosNuevos;
     }
 
@@ -222,7 +277,7 @@ public class Planificador {
         copia.setZonedFechaIngreso(original.getZonedFechaIngreso());
         copia.setNumProductos(original.getNumProductos());
 
-        copia.setParteAsignadas(new ArrayList<>());  // ← Lista VACIA para este ciclo
+        copia.setParteAsignadas(new ArrayList<>()); // ← Lista VACIA para este ciclo
 
         // Si necesitas las partes asignadas previas, cópialas manualmente
         if (original.getParteAsignadas() != null && !original.getParteAsignadas().isEmpty()) {
@@ -291,21 +346,22 @@ public class Planificador {
     }
 
     private Solucion ejecutarGRASPLimitado(LocalDateTime tiempoEjecucion) {
-        // Aquí adaptas tu lógica GRASP existente para trabajar con el subconjunto de pedidos
+        // Aquí adaptas tu lógica GRASP existente para trabajar con el subconjunto de
+        // pedidos
         // y respetar el tiempo límite
 
         Solucion mejorSolucion = null;
         long inicioEjecucion = System.currentTimeMillis();
 
-        for(LocalDateTime dia : grasp.getDias()) {
+        for (LocalDateTime dia : grasp.getDias()) {
             // Verificar timeout periódicamente
-            if((System.currentTimeMillis() - inicioEjecucion) > (TA_SEGUNDOS * 1000 * 0.8)) {
+            if ((System.currentTimeMillis() - inicioEjecucion) > (TA_SEGUNDOS * 1000 * 0.8)) {
                 System.out.println("⏰ GRASP: Cerca del timeout, terminando iteraciones");
                 break;
             }
 
             List<Envio> enviosDelDia = grasp.getEnviosPorDia().get(dia);
-            if(enviosDelDia == null || enviosDelDia.isEmpty()) {
+            if (enviosDelDia == null || enviosDelDia.isEmpty()) {
                 continue;
             }
 
@@ -324,7 +380,7 @@ public class Planificador {
             // Ejecutar GRASP para este día
             Solucion solucionDia = grasp.ejecutarGrasp(enviosDelDia, rutasDiarias);
 
-            if(mejorSolucion == null || grasp.esMejor(solucionDia, mejorSolucion)) {
+            if (mejorSolucion == null || grasp.esMejor(solucionDia, mejorSolucion)) {
                 mejorSolucion = solucionDia;
             }
         }
@@ -354,8 +410,10 @@ public class Planificador {
         statsCiclo.put("duracionSegundos", duracionMs / 1000.0);
         statsCiclo.put("totalEnvios", solucion.getEnvios().size());
         statsCiclo.put("enviosCompletados", solucion.getEnviosCompletados());
-        statsCiclo.put("tasaExito", solucion.getEnvios().size() > 0 ?
-                (solucion.getEnviosCompletados() * 100.0 / solucion.getEnvios().size()) : 0);
+        statsCiclo.put("tasaExito",
+                solucion.getEnvios().size() > 0
+                        ? (solucion.getEnviosCompletados() * 100.0 / solucion.getEnvios().size())
+                        : 0);
 
         historicoCiclos.add(statsCiclo);
 
@@ -444,7 +502,7 @@ public class Planificador {
         System.out.printf("   • Pedidos procesados: %d%n", pedidosProcesados.size());
         System.out.printf("   • Pedidos completados: %d%n", solucion.getEnviosCompletados());
 
-        if(!pedidosProcesados.isEmpty()) {
+        if (!pedidosProcesados.isEmpty()) {
             double tasaExito = (solucion.getEnviosCompletados() * 100.0) / pedidosProcesados.size();
             System.out.printf("   • Tasa de éxito: %.1f%%%n", tasaExito);
         }
@@ -452,14 +510,13 @@ public class Planificador {
         System.out.printf("   • Tiempo medio de entrega: %s%n",
                 formatDuracion(solucion.getLlegadaMediaPonderada()));
 
-
         System.out.printf("%n📋 DETALLE DE RUTAS ASIGNADAS - CICLO %d%n", ciclo);
-        System.out.println("=" .repeat(80));
+        System.out.println("=".repeat(80));
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM dd HH:mm", new Locale("es", "ES"));
 
-        for(Envio envio : solucion.getEnvios()) {
-            if(envio.estaCompleto() || !envio.getParteAsignadas().isEmpty()) {
+        for (Envio envio : solucion.getEnvios()) {
+            if (envio.estaCompleto() || !envio.getParteAsignadas().isEmpty()) {
                 System.out.printf("📦 PEDIDO %s → %s (%d unidades)%n",
                         envio.getId(),
                         envio.getAeropuertoDestino().getCodigo(),
@@ -473,10 +530,11 @@ public class Planificador {
                 System.out.printf("   ⏰ Aparición: %s%n", envio.getZonedFechaIngreso().format(formatter));
 
                 int parteNum = 1;
-                for(ParteAsignada parte : envio.getParteAsignadas()) {
-                    System.out.printf("   🚚 Parte %d (%d unidades desde %s):%n", parteNum, parte.getCantidad(), parte.getAeropuertoOrigen().getCodigo());
+                for (ParteAsignada parte : envio.getParteAsignadas()) {
+                    System.out.printf("   🚚 Parte %d (%d unidades desde %s):%n", parteNum, parte.getCantidad(),
+                            parte.getAeropuertoOrigen().getCodigo());
 
-                    for(int i = 0; i < parte.getRuta().size(); i++) {
+                    for (int i = 0; i < parte.getRuta().size(); i++) {
                         VueloInstanciado vuelo = parte.getRuta().get(i);
                         System.out.printf("      ✈️  %s → %s | %s - %s | Cap: %d/%d%n",
                                 obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadOrigen()).getCodigo(),
@@ -493,13 +551,13 @@ public class Planificador {
                 System.out.println();
             }
         }
-        System.out.println("=" .repeat(80));
+        System.out.println("=".repeat(80));
 
     }
 
     private Aeropuerto obtenerAeropuertoPorId(Integer id) {
-        for(Aeropuerto aeropuerto : this.grasp.getAeropuertos())
-            if(aeropuerto.getId().equals(id))
+        for (Aeropuerto aeropuerto : this.grasp.getAeropuertos())
+            if (aeropuerto.getId().equals(id))
                 return aeropuerto;
 
         return null;
@@ -511,12 +569,13 @@ public class Planificador {
         estado.put("tiempoInicioSimulacion", tiempoInicioSimulacion);
         estado.put("ultimoHorizontePlanificado", ultimoHorizontePlanificado);
         estado.put("proximoHorizonte", ultimoHorizontePlanificado.plusMinutes(SA_MINUTOS * K));
-        //estado.put("pedidosYaPlanificados", pedidosYaPlanificados.size());
+        // estado.put("pedidosYaPlanificados", pedidosYaPlanificados.size());
         return estado;
     }
 
     private String formatDuracion(Duration duration) {
-        if(duration == null) return "N/A";
+        if (duration == null)
+            return "N/A";
         long hours = duration.toHours();
         long minutes = duration.minusHours(hours).toMinutes();
         return String.format("%d h %d min", hours, minutes);

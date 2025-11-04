@@ -21,6 +21,9 @@ public class Envio {
     @Column(unique = true, nullable = false)
     private Integer id;
 
+    @Column(name = "id_pedido_externo")
+    private String idPedidoExterno;
+
     // Cada parte tiene su propia ruta y cantidad
     @OneToMany(mappedBy = "envio", fetch = FetchType.EAGER, cascade = CascadeType.ALL)
     @JsonManagedReference
@@ -52,7 +55,8 @@ public class Envio {
     @Transient
     private ZonedDateTime zonedFechaLlegadaMax;
 
-    public Envio(LocalDateTime fechaIngreso, String husoHorarioDestino, Aeropuerto destino, Integer numProductos, String cliente) {
+    public Envio(LocalDateTime fechaIngreso, String husoHorarioDestino, Aeropuerto destino, Integer numProductos,
+            String cliente) {
         this.parteAsignadas = new ArrayList<>();
         this.fechaIngreso = fechaIngreso;
         this.husoHorarioDestino = husoHorarioDestino;

@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import pe.edu.pucp.morapack.models.*;
 import pe.edu.pucp.morapack.services.servicesImp.*;
-import pe.edu.pucp.morapack.models.Planificador;
 
 import java.time.*;
 import java.time.format.DateTimeFormatter;
@@ -31,7 +30,7 @@ public class PlanificadorController {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            if(planificadorIniciado) {
+            if (planificadorIniciado) {
                 response.put("estado", "error");
                 response.put("mensaje", "El planificador ya está en ejecución");
                 return response;
@@ -59,9 +58,9 @@ public class PlanificadorController {
 
             // Configurar hubs para los envíos
             ArrayList<Aeropuerto> hubs = grasp.getHubs();
-            if(hubs != null && !hubs.isEmpty()) {
+            if (hubs != null && !hubs.isEmpty()) {
                 ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
-                for(Envio e : grasp.getEnvios()) {
+                for (Envio e : grasp.getEnvios()) {
                     e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
                 }
             }
@@ -80,11 +79,10 @@ public class PlanificadorController {
                     "sa_minutos", 5,
                     "k_factor", 24,
                     "ta_segundos", 150,
-                    "sc_minutos", 120
-            ));
+                    "sc_minutos", 120));
             response.put("timestamp", LocalDateTime.now().toString());
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             response.put("estado", "error");
             response.put("mensaje", "Error al iniciar planificador: " + e.getMessage());
             e.printStackTrace();
@@ -99,7 +97,7 @@ public class PlanificadorController {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            if(planificador != null && planificadorIniciado) {
+            if (planificador != null && planificadorIniciado) {
                 planificador.detenerPlanificacion();
                 planificadorIniciado = false;
 
@@ -110,9 +108,78 @@ public class PlanificadorController {
                 response.put("mensaje", "No hay planificador en ejecución");
             }
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             response.put("estado", "error");
             response.put("mensaje", "Error al detener planificador: " + e.getMessage());
+        }
+
+        return response;
+    }
+
+    // Endpoint para pausar el planificador
+    @PostMapping("/pausar")
+    public Map<String, Object> pausarPlanificador() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            if (!planificadorIniciado) {
+                response.put("estado", "error");
+                response.put("mensaje", "No hay planificador en ejecución");
+                return response;
+            }
+
+            if (planificador.isPausado()) {
+                response.put("estado", "advertencia");
+                response.put("mensaje", "El planificador ya está pausado");
+                return response;
+            }
+
+            planificador.pausarPlanificacion();
+
+            response.put("estado", "éxito");
+            response.put("mensaje", "Planificador pausado correctamente");
+            response.put("cicloActual", planificador.getCicloActual());
+            response.put("timestamp", LocalDateTime.now().toString());
+
+        } catch (Exception e) {
+            response.put("estado", "error");
+            response.put("mensaje", "Error al pausar planificador: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return response;
+    }
+
+    // Endpoint para reanudar el planificador
+    @PostMapping("/reanudar")
+    public Map<String, Object> reanudarPlanificador() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            if (!planificadorIniciado) {
+                response.put("estado", "error");
+                response.put("mensaje", "No hay planificador en ejecución");
+                return response;
+            }
+
+            if (!planificador.isPausado()) {
+                response.put("estado", "advertencia");
+                response.put("mensaje", "El planificador no está pausado");
+                return response;
+            }
+
+            planificador.reanudarPlanificacion();
+
+            response.put("estado", "éxito");
+            response.put("mensaje", "Planificador reanudado correctamente");
+            response.put("cicloActual", planificador.getCicloActual());
+            response.put("proximoCiclo", planificador.getProximoCiclo());
+            response.put("timestamp", LocalDateTime.now().toString());
+
+        } catch (Exception e) {
+            response.put("estado", "error");
+            response.put("mensaje", "Error al reanudar planificador: " + e.getMessage());
+            e.printStackTrace();
         }
 
         return response;
@@ -129,7 +196,19 @@ public class PlanificadorController {
         if (planificador != null && planificadorIniciado) {
             response.put("cicloActual", planificador.getCicloActual());
             response.put("proximoCiclo", planificador.getProximoCiclo());
+            response.put("pausado", planificador.isPausado());
             response.put("estadisticas", planificador.getEstadisticasActuales());
+
+            // ✅ Estado detallado
+            String estadoDetallado;
+            if (planificador.isPausado()) {
+                estadoDetallado = "pausado";
+            } else {
+                estadoDetallado = "en_ejecucion";
+            }
+            response.put("estadoDetallado", estadoDetallado);
+        } else {
+            response.put("estadoDetallado", "detenido");
         }
 
         return response;
@@ -140,7 +219,7 @@ public class PlanificadorController {
     public Map<String, Object> obtenerUltimoCiclo() {
         Map<String, Object> response = new HashMap<>();
 
-        if(planificador != null && planificadorIniciado) {
+        if (planificador != null && planificadorIniciado) {
             Solucion ultimaSolucion = planificador.getUltimaSolucion();
             if (ultimaSolucion != null) {
                 response.put("ciclo", planificador.getCicloActual());
@@ -173,8 +252,8 @@ public class PlanificadorController {
                 for (ParteAsignada parte : envio.getParteAsignadas()) {
                     Map<String, Object> ruta = new HashMap<>();
                     ruta.put("envioId", envio.getId());
-                    ruta.put("origen", parte.getAeropuertoOrigen() != null ?
-                            parte.getAeropuertoOrigen().getCodigo() : "N/A");
+                    ruta.put("origen",
+                            parte.getAeropuertoOrigen() != null ? parte.getAeropuertoOrigen().getCodigo() : "N/A");
                     ruta.put("destino", envio.getAeropuertoDestino().getCodigo());
                     ruta.put("cantidad", parte.getCantidad());
                     ruta.put("llegada", parte.getLlegadaFinal().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
@@ -184,8 +263,10 @@ public class PlanificadorController {
                         List<Map<String, Object>> tramosFrontend = new ArrayList<>();
                         for (VueloInstanciado vuelo : parte.getRuta()) {
                             Map<String, Object> tramo = new HashMap<>();
-                            tramo.put("origen", aeropuertoService.obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadOrigen()).get().getCodigo());
-                            tramo.put("destino", aeropuertoService.obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadDestino()).get().getCodigo());
+                            tramo.put("origen", aeropuertoService
+                                    .obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadOrigen()).get().getCodigo());
+                            tramo.put("destino", aeropuertoService
+                                    .obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadDestino()).get().getCodigo());
                             tramo.put("salida", vuelo.getZonedHoraOrigen().format(
                                     DateTimeFormatter.ISO_LOCAL_DATE_TIME));
                             tramo.put("llegada", vuelo.getZonedHoraDestino().format(
