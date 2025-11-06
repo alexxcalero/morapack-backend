@@ -197,13 +197,13 @@ public class Grasp {
 
         Collections.shuffle(enviosCopia, ThreadLocalRandom.current());
 
-        for(Envio envio : enviosCopia) {
+        for (Envio envio : enviosCopia) {
             Integer partesUsadas = 0;
 
-            while(envio.cantidadRestante() > 0 && partesUsadas < 3) {
+            while (envio.cantidadRestante() > 0 && partesUsadas < 3) {
                 List<CandidatoRuta> rutaCandidata = rutasDiarias.getCandidatosRuta(envio);
 
-                if(rutaCandidata.isEmpty()) {
+                if (rutaCandidata.isEmpty()) {
                     break;
                 }
                 Long mejor = rutaCandidata.get(0).getScore();
@@ -219,17 +219,17 @@ public class Grasp {
 
                 // Verificación de capacidad REAL (importante: asegurar la no sobreasignacion)
                 Integer capacidadReal = Integer.MAX_VALUE;
-                for(VueloInstanciado v : escogido.getTramos()) {
+                for (VueloInstanciado v : escogido.getTramos()) {
                     // Por cada vuelo de la ruta candidata elegida, se va a identificar la minima
                     // capacidad de los vuelos
                     capacidadReal = Math.min(capacidadReal, v.getCapacidadLibre());
                 }
 
                 Integer cant = Math.min(envio.cantidadRestante(), capacidadReal);
-                if(cant <= 0)
+                if (cant <= 0)
                     break;
 
-                for(VueloInstanciado v : escogido.getTramos())
+                for (VueloInstanciado v : escogido.getTramos())
                     v.asignar(cant); // Se va a asignar esa cantidad de productos a los vuelos de las rutas
 
                 // Crear la parte asignada y vincularla al envio para mantener la relación
@@ -239,7 +239,7 @@ public class Grasp {
                 parte.setEnvio(envio);
                 envio.getParteAsignadas().add(parte);
 
-                if(envio.getAeropuertoOrigen() == null && parte.getAeropuertoOrigen() != null) {
+                if (envio.getAeropuertoOrigen() == null && parte.getAeropuertoOrigen() != null) {
                     envio.setAeropuertoOrigen(parte.getAeropuertoOrigen());
                 }
                 partesUsadas++;
@@ -261,8 +261,8 @@ public class Grasp {
             for (ParteAsignada parte : snapshot) {
                 // Se elimina los productos solicitados en el pedido en cada vuelo de la ruta
                 List<VueloInstanciado> rutaActual = parte.getRuta();
-                if(rutaActual != null) {
-                    for(VueloInstanciado vuelo : rutaActual)
+                if (rutaActual != null) {
+                    for (VueloInstanciado vuelo : rutaActual)
                         vuelo.desasignar(parte.getCantidad());
                 }
 

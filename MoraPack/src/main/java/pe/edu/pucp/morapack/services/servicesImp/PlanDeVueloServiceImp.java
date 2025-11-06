@@ -68,4 +68,8 @@ public class PlanDeVueloServiceImp implements PlanDeVueloService {
 
         return cantidad;
     }
+
+    public void eliminarTodosPlanesDeVuelo() {
+        planDeVueloRepository.deleteAll();
+    }
 }

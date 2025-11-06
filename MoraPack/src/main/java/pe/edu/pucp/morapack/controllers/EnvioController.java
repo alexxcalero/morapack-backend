@@ -147,6 +147,9 @@ public class EnvioController {
         long startTime = System.currentTimeMillis();
         ArrayList<Envio> envios = new ArrayList<>();
 
+        // Vaciar tabla de envíos antes de cargar nuevos
+        envioService.eliminarTodosEnvios();
+
         try {
             // Directorio donde están los archivos de pedidos
             File enviosDir = new File("src/main/resources/envios/");

@@ -22,4 +22,8 @@ public class PaisServiceImp implements PaisService {
     public ArrayList<Pais> obtenerTodosPaises() {
         return (ArrayList<Pais>) paisRepository.findAll();
     }
+
+    public void eliminarTodosPaises() {
+        paisRepository.deleteAll();
+    }
 }

@@ -300,4 +300,113 @@ public class PlanificadorController {
 
         return response;
     }
+
+    // Nuevo endpoint para reiniciar con fecha específica
+    @PostMapping("/reiniciar-con-fecha")
+    public Map<String, Object> reiniciarConFecha(@RequestParam String fecha) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            System.out.println("🔄 REINICIANDO PLANIFICADOR CON NUEVA FECHA: " + fecha);
+
+            // Detener planificador actual si existe
+            if (planificador != null && planificadorIniciado) {
+                System.out.println("⏹ Deteniendo planificador anterior...");
+                planificador.detenerPlanificacion();
+                planificadorIniciado = false;
+            }
+
+            // Parsear la fecha seleccionada (formato: yyyyMMdd)
+            LocalDate fechaSeleccionada = LocalDate.parse(fecha, DateTimeFormatter.ofPattern("yyyyMMdd"));
+            LocalDateTime inicioSimulacion = fechaSeleccionada.atStartOfDay();
+            LocalDateTime finSimulacion = inicioSimulacion.plusDays(7);
+
+            System.out.println("📅 Rango de simulación: " + inicioSimulacion + " → " + finSimulacion);
+
+            // Cargar datos actualizados
+            ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+            ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
+            ArrayList<Pais> paises = paisService.obtenerTodosPaises();
+
+            // ⭐ FILTRAR envíos según el rango de la simulación
+            ArrayList<Envio> todosEnvios = envioService.obtenerEnvios();
+            ArrayList<Envio> enviosFiltrados = new ArrayList<>();
+
+            for (Envio envio : todosEnvios) {
+                LocalDateTime fechaEnvio = envio.getZonedFechaIngreso().toLocalDateTime();
+
+                // Solo incluir envíos dentro del rango de 7 días de la simulación
+                if (!fechaEnvio.isBefore(inicioSimulacion) && fechaEnvio.isBefore(finSimulacion)) {
+                    enviosFiltrados.add(envio);
+                }
+            }
+
+            System.out.println(
+                    "📦 Envíos filtrados: " + enviosFiltrados.size() + " de " + todosEnvios.size() + " totales");
+
+            // ⭐ IMPORTANTE: Recarga los planes de vuelo de la BD
+            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerListaPlanesDeVuelo();
+
+            System.out.println("📊 Datos cargados: aeropuertos=" + aeropuertos.size() +
+                    ", planes=" + planes.size() + ", envios=" + enviosFiltrados.size());
+
+            if (planes.isEmpty()) {
+                response.put("estado", "error");
+                response.put("mensaje", "No hay planes de vuelo cargados. Ejecuta primero cargarArchivoPlanes.");
+                return response;
+            }
+
+            if (enviosFiltrados.isEmpty()) {
+                response.put("estado", "advertencia");
+                response.put("mensaje", "No hay envíos en el rango de fechas seleccionado (" +
+                        inicioSimulacion.format(DateTimeFormatter.ISO_LOCAL_DATE) + " → " +
+                        finSimulacion.format(DateTimeFormatter.ISO_LOCAL_DATE) + ")");
+                response.put("planesVueloCargados", planes.size());
+                response.put("enviosCargados", 0);
+                return response;
+            }
+
+            // Configurar GRASP con los envíos filtrados
+            Grasp grasp = new Grasp();
+            grasp.setAeropuertos(aeropuertos);
+            grasp.setContinentes(continentes);
+            grasp.setPaises(paises);
+            grasp.setEnvios(enviosFiltrados); // ← Usar solo los envíos del rango
+            grasp.setPlanesOriginales(planes);
+            grasp.setHubsPropio();
+
+            // Configurar hubs para los envíos
+            ArrayList<Aeropuerto> hubs = grasp.getHubs();
+            if (hubs != null && !hubs.isEmpty()) {
+                ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
+                for (Envio e : grasp.getEnvios()) {
+                    e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
+                }
+            }
+
+            grasp.setEnviosPorDiaPropio();
+
+            // Crear e iniciar nuevo planificador
+            planificador = new Planificador(grasp, webSocketService);
+            planificador.iniciarPlanificacionProgramada();
+
+            planificadorIniciado = true;
+
+            response.put("estado", "éxito");
+            response.put("mensaje", "Planificador reiniciado con fecha: " + fecha);
+            response.put("planesVueloCargados", planes.size());
+            response.put("enviosCargados", enviosFiltrados.size());
+            response.put("rangoSimulacion", Map.of(
+                    "inicio", inicioSimulacion.toString(),
+                    "fin", finSimulacion.toString()));
+            response.put("timestamp", LocalDateTime.now().toString());
+
+        } catch (Exception e) {
+            response.put("estado", "error");
+            response.put("mensaje", "Error al reiniciar planificador: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return response;
+    }
 }

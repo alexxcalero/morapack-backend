@@ -28,4 +28,8 @@ public class ContinenteServiceImp implements ContinenteService {
     public ArrayList<Continente> obtenerTodosContinentes() {
         return (ArrayList<Continente>) continenteRepository.findAll();
     }
+
+    public void eliminarTodosContinentes() {
+        continenteRepository.deleteAll();
+    }
 }

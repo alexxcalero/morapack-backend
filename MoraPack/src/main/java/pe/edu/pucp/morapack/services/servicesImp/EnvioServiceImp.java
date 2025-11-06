@@ -50,4 +50,9 @@ public class EnvioServiceImp implements EnvioService {
         }
         return totalProductos;
     }
+
+    public void eliminarTodosEnvios() {
+        envioRepository.deleteAll();
+        // Si usas JPA y quieres optimizar: envioRepository.deleteAllInBatch();
+    }
 }

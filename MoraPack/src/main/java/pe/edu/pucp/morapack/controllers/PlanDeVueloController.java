@@ -126,84 +126,109 @@ public class PlanDeVueloController {
     ArrayList<PlanDeVuelo> cargarPlanesVuelo(@PathVariable String fecha) {
         long startTime = System.currentTimeMillis();
         ArrayList<PlanDeVuelo> planes = new ArrayList<>();
+
+        // Limpiar tabla de planes de vuelo
+        System.out.println("Limpiando tabla de planes de vuelo...");
+        planDeVueloService.eliminarTodosPlanesDeVuelo();
+
         String anio = fecha.substring(0, 4);
         String mes = fecha.substring(4, 6);
         String dia = fecha.substring(6, 8);
         int aa = Integer.parseInt(anio);
         int mm = Integer.parseInt(mes);
         int dd = Integer.parseInt(dia);
-        int i = 1;
-        try {
-            File planesFile = new File("src/main/resources/planes/vuelos.txt");
-            Scanner scanner = new Scanner(planesFile);
-            while (scanner.hasNextLine()) { // Leer todas la lineas
-                String row = scanner.nextLine();
-                String data[] = row.split("-");
 
-                // Un solo dato significaria que solo se leyo el salto de linea, el cual no
-                // queremos
-                if (data.length > 1) {
-                    Optional<Aeropuerto> aeropuertoOptionalOrig = aeropuertoService.obtenerAeropuertoPorCodigo(data[0]);
-                    Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[1]);
+        System.out.println("Generando planes de vuelo para 7 días desde: " + aa + "-" + mm + "-" + dd);
 
-                    if (aeropuertoOptionalOrig.isPresent() && aeropuertoOptionalDest.isPresent()) {
-                        Aeropuerto aeropuertoOrigen = aeropuertoOptionalOrig.get();
-                        Aeropuerto aeropuertoDest = aeropuertoOptionalDest.get();
+        // Generar vuelos para 7 días
+        for (int diaOffset = 0; diaOffset < 7; diaOffset++) {
+            // Calcular la fecha para este día
+            java.time.LocalDate fechaActual = java.time.LocalDate.of(aa, mm, dd).plusDays(diaOffset);
+            int aaActual = fechaActual.getYear();
+            int mmActual = fechaActual.getMonthValue();
+            int ddActual = fechaActual.getDayOfMonth();
 
-                        Integer ciudadOrigen = aeropuertoOrigen.getId();
-                        Integer ciudadDestino = aeropuertoDest.getId();
+            System.out.println(
+                    "Generando vuelos para día " + (diaOffset + 1) + ": " + aaActual + "-" + mmActual + "-" + ddActual);
 
-                        String husoOrigen = aeropuertoOrigen.getHusoHorario();
-                        String husoDestino = aeropuertoDest.getHusoHorario();
+            int i = 1;
+            try {
+                File planesFile = new File("src/main/resources/planes/vuelos.txt");
+                Scanner scanner = new Scanner(planesFile);
 
-                        LocalTime hI = LocalTime.parse(data[2]);
-                        LocalTime hF = LocalTime.parse(data[3]);
-                        Integer capacidad = Integer.parseInt(data[4]);
+                while (scanner.hasNextLine()) {
+                    String row = scanner.nextLine();
+                    String data[] = row.split("-");
 
-                        LocalDateTime fechaInicio = LocalDateTime.of(aa, mm, dd, hI.getHour(), hI.getMinute(), 0);
-                        LocalDateTime fechaFin;
+                    if (data.length > 1) {
+                        Optional<Aeropuerto> aeropuertoOptionalOrig = aeropuertoService
+                                .obtenerAeropuertoPorCodigo(data[0]);
+                        Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService
+                                .obtenerAeropuertoPorCodigo(data[1]);
 
-                        Integer contOrig = aeropuertoOrigen.getPais() != null
-                                ? aeropuertoOrigen.getPais().getIdContinente()
-                                : null;
-                        Integer contDest = aeropuertoDest.getPais() != null ? aeropuertoDest.getPais().getIdContinente()
-                                : null;
-                        Boolean mismoContinente = (contOrig != null && contDest != null) ? contOrig.equals(contDest)
-                                : null;
-                        // Segun la hora de inicio y final, podemos determinar si el vuelo acaba en el
-                        // mismo o diferente dia
-                        Integer cantDias = planDeVueloService.planAcabaAlSiguienteDia(data[2], data[3], husoOrigen,
-                                husoDestino, aa, mm, dd);
-                        fechaFin = LocalDateTime.of(aa, mm, dd, hF.getHour(), hF.getMinute(), 0).plusDays(cantDias);
+                        if (aeropuertoOptionalOrig.isPresent() && aeropuertoOptionalDest.isPresent()) {
+                            Aeropuerto aeropuertoOrigen = aeropuertoOptionalOrig.get();
+                            Aeropuerto aeropuertoDest = aeropuertoOptionalDest.get();
 
-                        PlanDeVuelo plan = PlanDeVuelo.builder()
-                                .ciudadOrigen(ciudadOrigen)
-                                .ciudadDestino(ciudadDestino)
-                                .horaOrigen(fechaInicio)
-                                .horaDestino(fechaFin)
-                                .husoHorarioOrigen(husoOrigen)
-                                .husoHorarioDestino(husoDestino)
-                                .capacidadMaxima(capacidad)
-                                .mismoContinente(mismoContinente)
-                                // .capacidadOcupada(0)
-                                .estado(1)
-                                .build();
+                            Integer ciudadOrigen = aeropuertoOrigen.getId();
+                            Integer ciudadDestino = aeropuertoDest.getId();
 
-                        planes.add(plan);
-                        System.out.println(i);
-                        i++;
+                            String husoOrigen = aeropuertoOrigen.getHusoHorario();
+                            String husoDestino = aeropuertoDest.getHusoHorario();
+
+                            LocalTime hI = LocalTime.parse(data[2]);
+                            LocalTime hF = LocalTime.parse(data[3]);
+                            Integer capacidad = Integer.parseInt(data[4]);
+
+                            LocalDateTime fechaInicio = LocalDateTime.of(aaActual, mmActual, ddActual, hI.getHour(),
+                                    hI.getMinute(), 0);
+                            LocalDateTime fechaFin;
+
+                            Integer contOrig = aeropuertoOrigen.getPais() != null
+                                    ? aeropuertoOrigen.getPais().getIdContinente()
+                                    : null;
+                            Integer contDest = aeropuertoDest.getPais() != null
+                                    ? aeropuertoDest.getPais().getIdContinente()
+                                    : null;
+                            Boolean mismoContinente = (contOrig != null && contDest != null) ? contOrig.equals(contDest)
+                                    : null;
+
+                            Integer cantDias = planDeVueloService.planAcabaAlSiguienteDia(data[2], data[3], husoOrigen,
+                                    husoDestino, aaActual, mmActual, ddActual);
+                            fechaFin = LocalDateTime.of(aaActual, mmActual, ddActual, hF.getHour(), hF.getMinute(), 0)
+                                    .plusDays(cantDias);
+
+                            PlanDeVuelo plan = PlanDeVuelo.builder()
+                                    .ciudadOrigen(ciudadOrigen)
+                                    .ciudadDestino(ciudadDestino)
+                                    .horaOrigen(fechaInicio)
+                                    .horaDestino(fechaFin)
+                                    .husoHorarioOrigen(husoOrigen)
+                                    .husoHorarioDestino(husoDestino)
+                                    .capacidadMaxima(capacidad)
+                                    .mismoContinente(mismoContinente)
+                                    .estado(1)
+                                    .build();
+
+                            planes.add(plan);
+                            i++;
+                        }
                     }
                 }
+                scanner.close();
+            } catch (FileNotFoundException e) {
+                System.out.println("Archivo de planes no encontrado, error: " + e.getMessage());
             }
-        } catch (FileNotFoundException e) {
-            System.out.println("Archivo de pedidos no encontrado, error: " + e.getMessage());
         }
 
+        System.out.println("Total de vuelos generados: " + planes.size());
         planDeVueloService.insertarListaPlanesDeVuelo(planes);
+
         long endTime = System.currentTimeMillis();
         long durationInMillis = endTime - startTime;
         double durationInSeconds = durationInMillis / 1000.0;
-        System.out.println("Tiempo de ejecucion: " + durationInSeconds + " segundos");
+        System.out.println("Tiempo de ejecución: " + durationInSeconds + " segundos");
+
         return planes;
     }
 }

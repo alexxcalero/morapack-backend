@@ -126,7 +126,15 @@ public class AeropuertoController {
 
     @PostMapping("lecturaArchivoBack")
     ArrayList<Aeropuerto> cargarDatosBack() {
+        long startTime = System.currentTimeMillis();
         ArrayList<Aeropuerto> aeropuertos = new ArrayList<>();
+
+        // Limpiar tablas antes de cargar datos
+        System.out.println("Limpiando tablas de aeropuertos, países y continentes...");
+        aeropuertoService.eliminarTodosAeropuertos();
+        paisService.eliminarTodosPaises();
+        continenteService.eliminarTodosContinentes();
+        System.out.println("Tablas limpiadas exitosamente.");
 
         Continente continente1 = Continente.builder()
                 .id(1)
@@ -147,9 +155,12 @@ public class AeropuertoController {
         continenteService.insertarContinente(continente2);
         continenteService.insertarContinente(continente3);
 
+        System.out.println("Continentes insertados correctamente.");
+
+        int contador = 0;
         try (Scanner scanner = new Scanner(new File("src/main/resources/aeropuertos/aeropuertos.csv"))) {
 
-            while (scanner.hasNextLine()) { // Leer todas la lineas
+            while (scanner.hasNextLine()) {
                 String row = scanner.nextLine();
                 String data[] = row.split(",");
 
@@ -188,13 +199,23 @@ public class AeropuertoController {
                 aeropuerto.setAbreviatura(abreviatura);
 
                 aeropuertos.add(aeropuerto);
-
-                // Aeropuerto insertado
                 insertarAeropuerto(aeropuerto);
+
+                contador++;
+                if (contador % 10 == 0) {
+                    System.out.println("Aeropuertos procesados: " + contador);
+                }
             }
         } catch (FileNotFoundException e) {
+            System.out.println("Archivo de aeropuertos no encontrado: " + e.getMessage());
             throw new RuntimeException(e);
         }
+
+        long endTime = System.currentTimeMillis();
+        long durationInMillis = endTime - startTime;
+        double durationInSeconds = durationInMillis / 1000.0;
+        System.out.println("Tiempo de ejecución: " + durationInSeconds + " segundos");
+        System.out.println("Total de aeropuertos cargados: " + aeropuertos.size());
 
         return aeropuertos;
     }
