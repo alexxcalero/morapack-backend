@@ -48,11 +48,28 @@ public class VueloInstanciado {
     }
 
     void asignar(Integer cantidad) {
+        // ✅ Asegúrate de que esté sumando, no reemplazando
         this.capacidadOcupada += cantidad;
+
+        // Y verifica que no exceda la capacidad máxima
+        if (this.capacidadOcupada > this.getCapacidadMaxima()) {
+            System.err.printf("⚠️  SOBREASIGNACIÓN: %s->%s | %d > %d%n",
+                    this.getVueloBase().getCiudadOrigen(), this.getVueloBase().getCiudadDestino(),
+                    this.capacidadOcupada, this.getCapacidadMaxima());
+            this.capacidadOcupada = this.getCapacidadMaxima();
+        }
     }
 
     void desasignar(Integer cantidad) {
-        this.capacidadOcupada -= cantidad;
+        // Mejor implementación que evita capacidades negativas
+        if (this.capacidadOcupada >= cantidad) {
+            this.capacidadOcupada -= cantidad;
+        } else {
+            // Esto no debería pasar, pero por seguridad
+            System.err.printf("⚠️  Intento de desasignar más de lo asignado: %d > %d%n",
+                    cantidad, this.capacidadOcupada);
+            this.capacidadOcupada = 0;
+        }
     }
 
     @PostLoad

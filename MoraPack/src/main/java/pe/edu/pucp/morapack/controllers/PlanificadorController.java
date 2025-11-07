@@ -9,6 +9,7 @@ import pe.edu.pucp.morapack.models.Planificador;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @CrossOrigin(origins = "*")
 @RestController
@@ -162,46 +163,75 @@ public class PlanificadorController {
     private Map<String, Object> convertirSolucionParaFrontend(Solucion solucion) {
         Map<String, Object> solucionFrontend = new HashMap<>();
 
+        if (solucion == null || solucion.getEnvios() == null) {
+            solucionFrontend.put("totalEnvios", 0);
+            solucionFrontend.put("enviosCompletados", 0);
+            solucionFrontend.put("llegadaMediaPonderada", "N/A");
+            solucionFrontend.put("rutas", new ArrayList<>());
+            return solucionFrontend;
+        }
+
         solucionFrontend.put("totalEnvios", solucion.getEnvios().size());
         solucionFrontend.put("enviosCompletados", solucion.getEnviosCompletados());
         solucionFrontend.put("llegadaMediaPonderada", solucion.getLlegadaMediaPonderada().toString());
 
-        // Convertir rutas para el frontend
-        List<Map<String, Object>> rutasFrontend = new ArrayList<>();
+        // Agrupar por envío, no por parte
+        List<Map<String, Object>> enviosFrontend = new ArrayList<>();
+
         for (Envio envio : solucion.getEnvios()) {
+            Map<String, Object> envioFrontend = new HashMap<>();
+            envioFrontend.put("envioId", envio.getId());
+            envioFrontend.put("destino", envio.getAeropuertoDestino().getCodigo());
+            envioFrontend.put("cantidadTotal", envio.getNumProductos());
+            envioFrontend.put("cantidadAsignada", envio.cantidadAsignada());
+            envioFrontend.put("completo", envio.estaCompleto());
+            envioFrontend.put("origenesPosibles", envio.getAeropuertosOrigen().stream()
+                    .map(Aeropuerto::getCodigo)
+                    .collect(Collectors.toList()));
+            envioFrontend.put("aparicion", envio.getZonedFechaIngreso().format(
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+
+            // ✅ PARTES como array dentro del mismo envío
+            List<Map<String, Object>> partesFrontend = new ArrayList<>();
+
             if (envio.getParteAsignadas() != null) {
                 for (ParteAsignada parte : envio.getParteAsignadas()) {
-                    Map<String, Object> ruta = new HashMap<>();
-                    ruta.put("envioId", envio.getId());
-                    ruta.put("origen", parte.getAeropuertoOrigen() != null ?
-                            parte.getAeropuertoOrigen().getCodigo() : "N/A");
-                    ruta.put("destino", envio.getAeropuertoDestino().getCodigo());
-                    ruta.put("cantidad", parte.getCantidad());
-                    ruta.put("llegada", parte.getLlegadaFinal().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                    Map<String, Object> parteFrontend = new HashMap<>();
+                    parteFrontend.put("cantidad", parte.getCantidad());
+                    parteFrontend.put("origen", parte.getAeropuertoOrigen().getCodigo());
+                    parteFrontend.put("llegadaFinal", parte.getLlegadaFinal().format(
+                            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
-                    // Convertir tramos de la ruta
+                    // ✅ TRAMOS como array dentro de cada parte
+                    List<Map<String, Object>> tramosFrontend = new ArrayList<>();
+
                     if (parte.getRuta() != null) {
-                        List<Map<String, Object>> tramosFrontend = new ArrayList<>();
                         for (VueloInstanciado vuelo : parte.getRuta()) {
-                            Map<String, Object> tramo = new HashMap<>();
-                            tramo.put("origen", aeropuertoService.obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadOrigen()).get().getCodigo());
-                            tramo.put("destino", aeropuertoService.obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadDestino()).get().getCodigo());
-                            tramo.put("salida", vuelo.getZonedHoraOrigen().format(
-                                    DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-                            tramo.put("llegada", vuelo.getZonedHoraDestino().format(
-                                    DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-                            tramo.put("capacidadOcupada", vuelo.getCapacidadOcupada());
-                            tramosFrontend.add(tramo);
+                            Map<String, Object> tramoFrontend = new HashMap<>();
+                            tramoFrontend.put("vueloBaseId", vuelo.getVueloBase().getId());
+                            tramoFrontend.put("origen", aeropuertoService.obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadOrigen()).get().getCodigo());
+                            tramoFrontend.put("destino", aeropuertoService.obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadDestino()).get().getCodigo());
+                            tramoFrontend.put("salida", vuelo.getZonedHoraOrigen().format(
+                                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                            tramoFrontend.put("llegada", vuelo.getZonedHoraDestino().format(
+                                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                            tramoFrontend.put("capacidadOcupada", vuelo.getCapacidadOcupada());
+                            tramoFrontend.put("capacidadMaxima", vuelo.getVueloBase().getCapacidadMaxima());
+
+                            tramosFrontend.add(tramoFrontend);
                         }
-                        ruta.put("tramos", tramosFrontend);
                     }
 
-                    rutasFrontend.add(ruta);
+                    parteFrontend.put("tramos", tramosFrontend);
+                    partesFrontend.add(parteFrontend);
                 }
             }
+
+            envioFrontend.put("partes", partesFrontend);
+            enviosFrontend.add(envioFrontend);
         }
 
-        solucionFrontend.put("rutas", rutasFrontend);
+        solucionFrontend.put("envios", enviosFrontend);
         return solucionFrontend;
     }
 

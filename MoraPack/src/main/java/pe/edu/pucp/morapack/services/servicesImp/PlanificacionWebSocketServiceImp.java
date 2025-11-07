@@ -3,17 +3,22 @@ package pe.edu.pucp.morapack.services.servicesImp;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
-import pe.edu.pucp.morapack.models.Solucion;
+import pe.edu.pucp.morapack.models.*;
+import pe.edu.pucp.morapack.services.AeropuertoService;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class PlanificacionWebSocketServiceImp {
 
+    private final AeropuertoService aeropuertoService;
     private final SimpMessagingTemplate messagingTemplate;
 
     // Envia actualizacion cuando se completa un ciclo de planificación
@@ -25,7 +30,7 @@ public class PlanificacionWebSocketServiceImp {
             payload.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
             payload.put("estadisticas", generarEstadisticas(solucion));
             payload.put("totalRutas", calcularTotalRutas(solucion));
-            payload.put("rutas", convertirRutasParaFrontend(solucion));  // ← Agregar esto
+            payload.put("envios", convertirEnviosParaFrontend(solucion));  // ← Agregar esto
 
             messagingTemplate.convertAndSend("/topic/planificacion", payload);
             System.out.println("📤 WebSocket: Update enviado para ciclo " + ciclo);
@@ -59,6 +64,7 @@ public class PlanificacionWebSocketServiceImp {
         messagingTemplate.convertAndSend("/topic/estado", estado);
     }
 
+
     private Map<String, Object> generarEstadisticas(Solucion solucion) {
         Map<String, Object> stats = new HashMap<>();
         if (solucion != null) {
@@ -80,15 +86,65 @@ public class PlanificacionWebSocketServiceImp {
     }
 
     // Convierte las rutas al formato que espera el frontend
-    private Object convertirRutasParaFrontend(Solucion solucion) {
+    private List<Map<String, Object>> convertirEnviosParaFrontend(Solucion solucion) {
+        List<Map<String, Object>> enviosFrontend = new ArrayList<>();
+
         if (solucion == null || solucion.getEnvios() == null) {
-            return new HashMap<>();
+            return enviosFrontend;
         }
 
-        Map<String, Object> rutasFrontend = new HashMap<>();
-        // Aquí puedes agregar la lógica específica para tu frontend
-        // Por ejemplo, las rutas en formato para el mapa
+        for (Envio envio : solucion.getEnvios()) {
+            Map<String, Object> envioFrontend = new HashMap<>();
+            envioFrontend.put("envioId", envio.getId());
+            envioFrontend.put("destino", envio.getAeropuertoDestino().getCodigo());
+            envioFrontend.put("cantidadTotal", envio.getNumProductos());
+            envioFrontend.put("cantidadAsignada", envio.cantidadAsignada());
+            envioFrontend.put("completo", envio.estaCompleto());
+            envioFrontend.put("origenesPosibles", envio.getAeropuertosOrigen().stream()
+                    .map(Aeropuerto::getCodigo)
+                    .collect(Collectors.toList()));
+            envioFrontend.put("aparicion", envio.getZonedFechaIngreso().format(
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
-        return rutasFrontend;
+            // Partes del envío
+            List<Map<String, Object>> partesFrontend = new ArrayList<>();
+
+            if (envio.getParteAsignadas() != null) {
+                for (ParteAsignada parte : envio.getParteAsignadas()) {
+                    Map<String, Object> parteFrontend = new HashMap<>();
+                    parteFrontend.put("cantidad", parte.getCantidad());
+                    parteFrontend.put("origen", parte.getAeropuertoOrigen().getCodigo());
+                    parteFrontend.put("llegadaFinal", parte.getLlegadaFinal().format(
+                            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+
+                    // Tramos de la parte
+                    List<Map<String, Object>> tramosFrontend = new ArrayList<>();
+
+                    if (parte.getRuta() != null) {
+                        for (VueloInstanciado vuelo : parte.getRuta()) {
+                            Map<String, Object> tramoFrontend = new HashMap<>();
+                            tramoFrontend.put("origen", aeropuertoService.obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadOrigen()).get().getCodigo());
+                            tramoFrontend.put("destino", aeropuertoService.obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadDestino()).get().getCodigo());
+                            tramoFrontend.put("salida", vuelo.getZonedHoraOrigen().format(
+                                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                            tramoFrontend.put("llegada", vuelo.getZonedHoraDestino().format(
+                                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                            tramoFrontend.put("capacidadOcupada", vuelo.getCapacidadOcupada());
+                            tramoFrontend.put("capacidadMaxima", vuelo.getVueloBase().getCapacidadMaxima());
+
+                            tramosFrontend.add(tramoFrontend);
+                        }
+                    }
+
+                    parteFrontend.put("tramos", tramosFrontend);
+                    partesFrontend.add(parteFrontend);
+                }
+            }
+
+            envioFrontend.put("partes", partesFrontend);
+            enviosFrontend.add(envioFrontend);
+        }
+
+        return enviosFrontend;
     }
 }

@@ -22,9 +22,9 @@ public class Planificador {
     private boolean enEjecucion = false;
 
     // Configuración de planificación programada
-    private static final int SA_MINUTOS = 5; // Salto del algoritmo - ejecutar cada 5 minutos
-    private static final int K = 24; // Factor de consumo - planificar 120 minutos adelante
-    private static final int TA_SEGUNDOS = 150; // Tiempo máximo de ejecución GRASP - 2.5 minutos
+    private static final int SA_MINUTOS = 2; // Salto del algoritmo - ejecutar cada 2 minutos
+    private static final int K = 120; // Factor de consumo - planificar 240 minutos adelante
+    private static final int TA_SEGUNDOS = 90; // Tiempo máximo de ejecución GRASP - 1.5 minutos
 
     // Estado del planificador
     private AtomicInteger cicloActual = new AtomicInteger(0);
