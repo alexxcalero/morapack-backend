@@ -11,7 +11,7 @@ import java.util.ArrayList;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CandidatoRuta {
-    private ArrayList<VueloInstanciado> tramos;
+    private ArrayList<PlanDeVuelo> tramos;
     private ZonedDateTime llegada;
     private Long score;
     private Integer capacidadRuta;  // Minima capacidad libre a lo largo de la ruta

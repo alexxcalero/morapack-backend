@@ -120,17 +120,17 @@ public class PlanificacionWebSocketServiceImp {
                     // Tramos de la parte
                     List<Map<String, Object>> tramosFrontend = new ArrayList<>();
 
-                    if (parte.getRuta() != null) {
-                        for (VueloInstanciado vuelo : parte.getRuta()) {
+                    if(parte.getRuta() != null) {
+                        for(PlanDeVuelo vuelo : parte.getRuta()) {
                             Map<String, Object> tramoFrontend = new HashMap<>();
-                            tramoFrontend.put("origen", aeropuertoService.obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadOrigen()).get().getCodigo());
-                            tramoFrontend.put("destino", aeropuertoService.obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadDestino()).get().getCodigo());
+                            tramoFrontend.put("origen", aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).get().getCodigo());
+                            tramoFrontend.put("destino", aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadDestino()).get().getCodigo());
                             tramoFrontend.put("salida", vuelo.getZonedHoraOrigen().format(
                                     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                             tramoFrontend.put("llegada", vuelo.getZonedHoraDestino().format(
                                     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                             tramoFrontend.put("capacidadOcupada", vuelo.getCapacidadOcupada());
-                            tramoFrontend.put("capacidadMaxima", vuelo.getVueloBase().getCapacidadMaxima());
+                            tramoFrontend.put("capacidadMaxima", vuelo.getCapacidadMaxima());
 
                             tramosFrontend.add(tramoFrontend);
                         }

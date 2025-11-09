@@ -64,25 +64,26 @@ public class EnvioController {
         String enviosDatos = new String(arch.getBytes());
         String[] lineas = enviosDatos.split("\n");
         Integer i = 0;
-        for (String linea : lineas) {
+        for(String linea : lineas) {
             String data[] = linea.split("-");
-            if (data.length > 1) {
-                Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[3]);
-                if (aeropuertoOptionalDest.isPresent()) {
-                    Integer anho = 2025;
-                    Integer mes = 1;
-                    Integer dia = Integer.parseInt(data[0]);
-                    Integer hora = Integer.parseInt(data[1]);
-                    Integer minutos = Integer.parseInt(data[2]);
-                    Integer numProductos = Integer.parseInt(data[4]);
-                    String cliente = data[5];
+            if(data.length > 1) {
+                Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[4]);
+                if(aeropuertoOptionalDest.isPresent()) {
+                    Long idEnvioPorAeropuerto = Long.valueOf(data[0]);
+                    Integer anho = Integer.parseInt(data[1].substring(0,4));
+                    Integer mes = Integer.parseInt(data[1].substring(4,6));
+                    Integer dia = Integer.parseInt(data[1].substring(6,8));
+                    Integer hora = Integer.parseInt(data[2]);
+                    Integer minutos = Integer.parseInt(data[3]);
+                    Integer numProductos = Integer.parseInt(data[5]);
+                    String cliente = data[6];
 
                     LocalDateTime fechaIngreso = LocalDateTime.of(LocalDate.of(anho, mes, dia),
                             LocalTime.of(hora, minutos, 0));
 
                     String husoCiudadDestino = aeropuertoOptionalDest.get().getHusoHorario();
 
-                    Envio newEnvio = new Envio(fechaIngreso, husoCiudadDestino, aeropuertoOptionalDest.get(), numProductos, cliente);
+                    Envio newEnvio = new Envio(idEnvioPorAeropuerto, fechaIngreso, husoCiudadDestino, aeropuertoOptionalDest.get(), numProductos, cliente);
 
                     ArrayList<Aeropuerto> hubs = new ArrayList<>();
                     String[] hubCodes = { "SPIM", "EBCI", "UBBB" };
@@ -124,6 +125,7 @@ public class EnvioController {
         return envios;
     }
 
+    /*
     @PostMapping("LecturaArchivoBack")
     public ArrayList<Envio> cargarEnviosBack() {
         long startTime = System.currentTimeMillis();
@@ -195,4 +197,5 @@ public class EnvioController {
         System.out.println("Tiempo de ejecucion: " + durationInSeconds + " segundos");
         return envios;
     }
+    */
 }
