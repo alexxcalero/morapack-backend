@@ -14,6 +14,7 @@ import pe.edu.pucp.morapack.services.servicesImp.PlanDeVueloServiceImp;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -103,7 +104,7 @@ public class PlanDeVueloController {
                             .husoHorarioOrigen(husoOrigen)
                             .husoHorarioDestino(husoDestino)
                             .capacidadMaxima(capacidad)
-                            // .capacidadOcupada(0)
+                            .capacidadOcupada(0)
                             .estado(1)
                             .build();
 
@@ -119,6 +120,92 @@ public class PlanDeVueloController {
         long durationInMillis = endTime - startTime;
         double durationInSeconds = durationInMillis / 1000.0;
         System.out.println("Tiempo de ejecucion: " + durationInSeconds + " segundos");
+        return planes;
+    }
+
+    @PostMapping("cargarMasivoArchivoPlanes/{fecha}")
+    ArrayList<PlanDeVuelo> cargarPlanesMasivoVuelo(@RequestParam("arch") MultipartFile arch, @PathVariable String fecha) throws IOException {
+        long startTime = System.currentTimeMillis();
+        ArrayList<PlanDeVuelo> planes = new ArrayList<>();
+
+        // Parsear la fecha base
+        String anio = fecha.substring(0, 4);
+        String mes = fecha.substring(4, 6);
+        String dia = fecha.substring(6, 8);
+        int aa = Integer.parseInt(anio);
+        int mm = Integer.parseInt(mes);
+        int dd = Integer.parseInt(dia);
+
+        LocalDate fechaBase = LocalDate.of(aa, mm, dd);
+
+        int i = 1;
+        String planesDatos = new String(arch.getBytes());
+        String[] lineas = planesDatos.split("\n");
+
+        for (String linea : lineas) {
+            String data[] = linea.trim().split("-");
+
+            if (data.length > 1) {
+                Optional<Aeropuerto> aeropuertoOptionalOrig = aeropuertoService.obtenerAeropuertoPorCodigo(data[0]);
+                Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[1]);
+
+                if (aeropuertoOptionalOrig.isPresent() && aeropuertoOptionalDest.isPresent()) {
+                    Aeropuerto aeropuertoOrigen = aeropuertoOptionalOrig.get();
+                    Aeropuerto aeropuertoDest = aeropuertoOptionalDest.get();
+
+                    Integer ciudadOrigen = aeropuertoOrigen.getId();
+                    Integer ciudadDestino = aeropuertoDest.getId();
+                    String husoOrigen = aeropuertoOrigen.getHusoHorario();
+                    String husoDestino = aeropuertoDest.getHusoHorario();
+                    LocalTime hI = LocalTime.parse(data[2]);
+                    LocalTime hF = LocalTime.parse(data[3]);
+                    Integer capacidad = Integer.parseInt(data[4]);
+
+                    // ✅ GENERAR PARA 7 DÍAS
+                    for (int diaOffset = 0; diaOffset < 7; diaOffset++) {
+                        LocalDate fechaVuelo = fechaBase.plusDays(diaOffset);
+
+                        LocalDateTime fechaInicio = LocalDateTime.of(fechaVuelo, hI);
+                        LocalDateTime fechaFin;
+
+                        // Calcular si el vuelo acaba en el mismo o diferente día
+                        Integer cantDias = planDeVueloService.planAcabaAlSiguienteDia(
+                                data[2], data[3], husoOrigen, husoDestino,
+                                fechaVuelo.getYear(), fechaVuelo.getMonthValue(), fechaVuelo.getDayOfMonth()
+                        );
+
+                        fechaFin = LocalDateTime.of(fechaVuelo, hF).plusDays(cantDias);
+
+                        PlanDeVuelo plan = PlanDeVuelo.builder()
+                                .ciudadOrigen(ciudadOrigen)
+                                .ciudadDestino(ciudadDestino)
+                                .horaOrigen(fechaInicio)
+                                .horaDestino(fechaFin)
+                                .husoHorarioOrigen(husoOrigen)
+                                .husoHorarioDestino(husoDestino)
+                                .capacidadMaxima(capacidad)
+                                .capacidadOcupada(0)
+                                .estado(1)
+                                .build();
+
+                        planes.add(plan);
+                        System.out.println("Plan " + i + " - Día " + (diaOffset + 1));
+                        i++;
+                    }
+                }
+            }
+        }
+
+        planDeVueloService.insertarListaPlanesDeVuelo(planes);
+
+        long endTime = System.currentTimeMillis();
+        long durationInMillis = endTime - startTime;
+        double durationInSeconds = durationInMillis / 1000.0;
+
+        System.out.println("✅ Vuelos generados: " + planes.size());
+        System.out.println("📅 Rango: " + fechaBase + " hasta " + fechaBase.plusDays(6));
+        System.out.println("⏱️ Tiempo de ejecución: " + durationInSeconds + " segundos");
+
         return planes;
     }
 
@@ -185,7 +272,7 @@ public class PlanDeVueloController {
                                 .husoHorarioDestino(husoDestino)
                                 .capacidadMaxima(capacidad)
                                 .mismoContinente(mismoContinente)
-                                // .capacidadOcupada(0)
+                                .capacidadOcupada(0)
                                 .estado(1)
                                 .build();
 

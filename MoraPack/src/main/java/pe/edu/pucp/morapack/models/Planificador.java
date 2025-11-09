@@ -3,11 +3,12 @@ package pe.edu.pucp.morapack.models;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.stereotype.Component;
-import pe.edu.pucp.morapack.services.servicesImp.PlanificacionWebSocketServiceImp;
+import pe.edu.pucp.morapack.services.servicesImp.*;
 
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -18,6 +19,9 @@ import java.util.stream.Collectors;
 public class Planificador {
     private final Grasp grasp;
     private final PlanificacionWebSocketServiceImp webSocketService;
+    private final EnvioServiceImp envioService;
+    private final PlanDeVueloServiceImp planDeVueloService;
+    private final AeropuertoServiceImp aeropuertoService;
     private ScheduledExecutorService scheduler;
     private boolean enEjecucion = false;
 
@@ -35,14 +39,22 @@ public class Planificador {
     private List<Map<String, Object>> historicoCiclos = new ArrayList<>();
 
     private ArrayList<Envio> enviosOriginales;
+    private LocalDateTime inicioHorizonteUltimoCiclo;
+    private LocalDateTime finHorizonteUltimoCiclo;
+    private List<PlanDeVuelo> vuelosUltimoCiclo = new ArrayList<>();
 
     // Controlar saltos para planificaciones semanales o del colapso
     private LocalDateTime ultimoHorizontePlanificado;
     private LocalDateTime tiempoInicioSimulacion;
 
-    public Planificador(Grasp grasp, PlanificacionWebSocketServiceImp webSocketService) {
+    public Planificador(Grasp grasp, PlanificacionWebSocketServiceImp webSocketService,
+                       EnvioServiceImp envioService, PlanDeVueloServiceImp planDeVueloService,
+                       AeropuertoServiceImp aeropuertoService) {
         this.grasp = grasp;
         this.webSocketService = webSocketService;
+        this.envioService = envioService;
+        this.planDeVueloService = planDeVueloService;
+        this.aeropuertoService = aeropuertoService;
     }
 
     public void iniciarPlanificacionProgramada() {
@@ -61,7 +73,7 @@ public class Planificador {
         System.out.println("🚀 INICIANDO PLANIFICADOR PROGRAMADO");
         System.out.printf("⚙️ Configuración: Sa=%d min, K=%d, Ta=%d seg, Sc=%d min%n", SA_MINUTOS, K, TA_SEGUNDOS, SA_MINUTOS * K);
 
-        this.enviosOriginales = this.grasp.getEnvios();  // Guardo todos los envios
+        this.enviosOriginales = envioService.obtenerEnvios(); //this.grasp.getEnvios();  // Guardo todos los envios
 
         // Obtener el primer pedido como referencia temporal
         this.tiempoInicioSimulacion = obtenerPrimerPedidoTiempo();
@@ -140,8 +152,8 @@ public class Planificador {
             LocalDateTime finHorizonte = inicioHorizonte.plusMinutes(SA_MINUTOS * K);
 
             System.out.printf("📊 Horizonte de planificación: %s → %s%n",
-                    inicioHorizonte.format(DateTimeFormatter.ofPattern("MM-dd HH:mm")),
-                    finHorizonte.format(DateTimeFormatter.ofPattern("MM-dd HH:mm")));
+                    inicioHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                    finHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
             // 2. Obtener pedidos dentro del horizonte actual
             List<Envio> pedidosParaPlanificar = obtenerPedidosEnVentana(inicioHorizonte, finHorizonte);
@@ -159,10 +171,25 @@ public class Planificador {
                 return;
             }
 
+            this.inicioHorizonteUltimoCiclo = inicioHorizonte;
+            this.finHorizonteUltimoCiclo = finHorizonte;
+
+            // ✅ Recargar estado actual de vuelos y aeropuertos para este ciclo
+            recargarDatosBase(inicioHorizonte, finHorizonte);
+
             // 3. Ejecutar GRASP con timeout
             Solucion solucion = ejecutarGRASPConTimeout(pedidosParaPlanificar, tiempoEjecucion);
             this.ultimaSolucion = solucion;
             actualizarEstadisticas(solucion, ciclo, System.currentTimeMillis() - inicioCiclo);
+
+            // ✅ PERSISTIR CAMBIOS EN LA BASE DE DATOS
+            try {
+                persistirCambios(solucion);
+                System.out.println("💾 Cambios persistidos en la base de datos");
+            } catch (Exception e) {
+                System.err.printf("❌ Error al persistir cambios: %s%n", e.getMessage());
+                e.printStackTrace();
+            }
 
             // ✅ ACTUALIZAR el horizonte para el próximo ciclo
             this.ultimoHorizontePlanificado = finHorizonte;
@@ -220,13 +247,14 @@ public class Planificador {
         copia.setAeropuertosOrigen(new ArrayList<>(original.getAeropuertosOrigen()));
         copia.setAeropuertoDestino(original.getAeropuertoDestino());
         copia.setZonedFechaIngreso(original.getZonedFechaIngreso());
+        copia.setIdEnvioPorAeropuerto(original.getIdEnvioPorAeropuerto());
         copia.setNumProductos(original.getNumProductos());
 
         copia.setParteAsignadas(new ArrayList<>());  // ← Lista VACIA para este ciclo
 
         // Si necesitas las partes asignadas previas, cópialas manualmente
-        if (original.getParteAsignadas() != null && !original.getParteAsignadas().isEmpty()) {
-            for (ParteAsignada parteOriginal : original.getParteAsignadas()) {
+        if(original.getParteAsignadas() != null && !original.getParteAsignadas().isEmpty()) {
+            for(ParteAsignada parteOriginal : original.getParteAsignadas()) {
                 ParteAsignada parteCopia = crearCopiaParteAsignada(parteOriginal);
                 parteCopia.setEnvio(copia);
                 copia.getParteAsignadas().add(parteCopia);
@@ -244,10 +272,10 @@ public class Planificador {
         copia.setAeropuertoOrigen(original.getAeropuertoOrigen());
 
         // Copiar la ruta (vuelos instanciados)
-        if (original.getRuta() != null) {
-            List<VueloInstanciado> rutaCopia = new ArrayList<>();
-            for (VueloInstanciado vuelo : original.getRuta()) {
-                rutaCopia.add(crearCopiaVueloInstanciado(vuelo));
+        if(original.getRuta() != null) {
+            List<PlanDeVuelo> rutaCopia = new ArrayList<>();
+            for(PlanDeVuelo vuelo : original.getRuta()) {
+                rutaCopia.add(crearCopiaVuelo(vuelo));
             }
             copia.setRuta(rutaCopia);
         }
@@ -255,10 +283,9 @@ public class Planificador {
         return copia;
     }
 
-    private VueloInstanciado crearCopiaVueloInstanciado(VueloInstanciado original) {
-        VueloInstanciado copia = new VueloInstanciado();
+    private PlanDeVuelo crearCopiaVuelo(PlanDeVuelo original) {
+        PlanDeVuelo copia = new PlanDeVuelo();
         copia.setId(original.getId());
-        copia.setVueloBase(original.getVueloBase());
         copia.setZonedHoraOrigen(original.getZonedHoraOrigen());
         copia.setZonedHoraDestino(original.getZonedHoraDestino());
         copia.setCapacidadOcupada(original.getCapacidadOcupada());
@@ -291,12 +318,35 @@ public class Planificador {
     }
 
     private Solucion ejecutarGRASPLimitado(LocalDateTime tiempoEjecucion) {
-        // Aquí adaptas tu lógica GRASP existente para trabajar con el subconjunto de pedidos
-        // y respetar el tiempo límite
-
         Solucion mejorSolucion = null;
         long inicioEjecucion = System.currentTimeMillis();
 
+        // Verificar timeout periódicamente
+        if((System.currentTimeMillis() - inicioEjecucion) > (TA_SEGUNDOS * 1000 * 0.8)) {
+            System.out.println("⏰ GRASP: Cerca del timeout, terminando iteraciones");
+            //break;
+        }
+
+        // Los PlanDeVuelo ya representan vuelos diarios, así que los usamos directamente
+        ArrayList<PlanDeVuelo> planesDeVuelo = planDeVueloService.obtenerListaPlanesDeVuelo(); //grasp.getPlanesDeVuelo();
+        if(planesDeVuelo == null || planesDeVuelo.isEmpty()) {
+            return null;
+        }
+
+        ArrayList<Envio> enviosParaProgramar = grasp.getEnvios();
+
+        // Inicializar los caches necesarios para trabajar con estos vuelos
+        // Pasar los envíos para filtrar por ventana temporal
+        grasp.inicializarCachesParaVuelos(planesDeVuelo, enviosParaProgramar);
+
+        // Ejecutar GRASP para este día
+        Solucion solucionDia = grasp.ejecutarGrasp(enviosParaProgramar, planesDeVuelo);
+
+        if(mejorSolucion == null || grasp.esMejor(solucionDia, mejorSolucion)) {
+            mejorSolucion = solucionDia;
+        }
+
+        /*
         for(LocalDateTime dia : grasp.getDias()) {
             // Verificar timeout periódicamente
             if((System.currentTimeMillis() - inicioEjecucion) > (TA_SEGUNDOS * 1000 * 0.8)) {
@@ -309,25 +359,24 @@ public class Planificador {
                 continue;
             }
 
-            // Instanciar vuelos para este día específico
-            Integer offset = Integer.parseInt(grasp.getAeropuertoByCodigo("SPIM").getHusoHorario());
-            ZoneOffset zone = ZoneOffset.ofHours(offset);
-            ZonedDateTime inicio = dia.atZone(ZoneId.of("UTC"));
-            ZonedDateTime fin = inicio.plusDays(4);
+            // Los PlanDeVuelo ya representan vuelos diarios, así que los usamos directamente
+            ArrayList<PlanDeVuelo> planesDeVuelo = grasp.getPlanesDeVuelo();
+            if(planesDeVuelo == null || planesDeVuelo.isEmpty()) {
+                continue;
+            }
 
-            ArrayList<VueloInstanciado> vuelosInstanciados = grasp.instanciarVuelosDiarios(
-                    grasp.getPlanesOriginales(), inicio, fin);
-
-            RutasDiarias rutasDiarias = new RutasDiarias(
-                    dia, vuelosInstanciados, grasp.getHubs(), grasp.getAeropuertos());
+            // Inicializar los caches necesarios para trabajar con estos vuelos
+            // Pasar los envíos para filtrar por ventana temporal
+            grasp.inicializarCachesParaVuelos(planesDeVuelo, enviosDelDia);
 
             // Ejecutar GRASP para este día
-            Solucion solucionDia = grasp.ejecutarGrasp(enviosDelDia, rutasDiarias);
+            Solucion solucionDia = grasp.ejecutarGrasp(enviosDelDia, planesDeVuelo);
 
             if(mejorSolucion == null || grasp.esMejor(solucionDia, mejorSolucion)) {
                 mejorSolucion = solucionDia;
             }
         }
+        */
 
         return mejorSolucion != null ? mejorSolucion : crearSolucionVacia();
     }
@@ -454,9 +503,9 @@ public class Planificador {
 
 
         System.out.printf("%n📋 DETALLE DE RUTAS ASIGNADAS - CICLO %d%n", ciclo);
-        System.out.println("=" .repeat(80));
+        System.out.println("=".repeat(80));
 
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM dd HH:mm", new Locale("es", "ES"));
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM dd HH:mm", Locale.forLanguageTag("es-ES"));
 
         for(Envio envio : solucion.getEnvios()) {
             if(envio.estaCompleto() || !envio.getParteAsignadas().isEmpty()) {
@@ -470,24 +519,24 @@ public class Planificador {
                                 .map(Aeropuerto::getCodigo)
                                 .collect(Collectors.joining(", ")));
 
-                System.out.printf("   ⏰ Aparición: %s%n", envio.getZonedFechaIngreso().format(formatter));
+                System.out.printf("   ⏰ Aparición: %s%n", formatFechaConOffset(envio.getZonedFechaIngreso(), envio.getFechaIngreso(), envio.getHusoHorarioDestino(), formatter));
 
                 int parteNum = 1;
                 for(ParteAsignada parte : envio.getParteAsignadas()) {
                     System.out.printf("   🚚 Parte %d (%d unidades desde %s):%n", parteNum, parte.getCantidad(), parte.getAeropuertoOrigen().getCodigo());
 
                     for(int i = 0; i < parte.getRuta().size(); i++) {
-                        VueloInstanciado vuelo = parte.getRuta().get(i);
+                        PlanDeVuelo vuelo = parte.getRuta().get(i);
                         System.out.printf("      ✈️  %s → %s | %s - %s | Cap: %d/%d%n",
-                                obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadOrigen()).getCodigo(),
-                                obtenerAeropuertoPorId(vuelo.getVueloBase().getCiudadDestino()).getCodigo(),
-                                vuelo.getZonedHoraOrigen().format(formatter),
-                                vuelo.getZonedHoraDestino().format(formatter),
+                                obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo(),
+                                obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo(),
+                                formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(), vuelo.getHusoHorarioOrigen(), formatter),
+                                formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(), vuelo.getHusoHorarioDestino(), formatter),
                                 vuelo.getCapacidadOcupada(),
-                                vuelo.getVueloBase().getCapacidadMaxima());
+                                vuelo.getCapacidadMaxima());
                     }
 
-                    System.out.printf("      🏁 Llegada final: %s%n", parte.getLlegadaFinal().format(formatter));
+                    System.out.printf("      🏁 Llegada final: %s%n", formatFechaConOffset(parte.getLlegadaFinal(), null, null, formatter));
                     parteNum++;
                 }
                 System.out.println();
@@ -520,5 +569,270 @@ public class Planificador {
         long hours = duration.toHours();
         long minutes = duration.minusHours(hours).toMinutes();
         return String.format("%d h %d min", hours, minutes);
+    }
+
+    private String formatFechaConOffset(ZonedDateTime zoned, LocalDateTime local, String husoHorario, DateTimeFormatter baseFormatter) {
+        if(zoned != null) {
+            ZoneOffset offset = zoned.getOffset();
+            String offsetStr = offset.getId().equals("Z") ? "+00:00" : offset.getId();
+            return String.format("%s (UTC%s)", zoned.format(baseFormatter), offsetStr);
+        }
+
+        if(local != null && husoHorario != null) {
+            int offsetHoras;
+            try {
+                offsetHoras = Integer.parseInt(husoHorario);
+            } catch(NumberFormatException e) {
+                offsetHoras = 0;
+            }
+            return String.format("%s (UTC%+03d:00)", local.format(baseFormatter), offsetHoras);
+        }
+
+        if(local != null) {
+            return String.format("%s (UTC%+03d:00)", local.format(baseFormatter), 0);
+        }
+
+        return "N/A";
+    }
+
+    public List<PlanDeVuelo> getVuelosUltimoCiclo() {
+        return vuelosUltimoCiclo != null ? vuelosUltimoCiclo : Collections.emptyList();
+    }
+
+    public List<Map<String, Object>> getAsignacionesUltimoCiclo() {
+        if(ultimaSolucion == null || ultimaSolucion.getEnvios() == null) {
+            return Collections.emptyList();
+        }
+
+        List<Map<String, Object>> asignaciones = new ArrayList<>();
+
+        for(Envio envio : ultimaSolucion.getEnvios()) {
+            if(envio.getParteAsignadas() == null) continue;
+
+            for(ParteAsignada parte : envio.getParteAsignadas()) {
+                if(parte.getRuta() == null) continue;
+
+                for(PlanDeVuelo vuelo : parte.getRuta()) {
+                    if(vuelo.getId() == null) continue;
+
+                    Map<String, Object> registro = new HashMap<>();
+                    registro.put("vueloId", vuelo.getId());
+                    registro.put("envioId", envio.getId());
+                    registro.put("cantidad", parte.getCantidad());
+                    registro.put("envioIdPorAeropuerto", envio.getIdEnvioPorAeropuerto());
+
+                    if(envio.getCliente() != null) {
+                        registro.put("cliente", envio.getCliente());
+                    }
+
+                    if(parte.getAeropuertoOrigen() != null) {
+                        registro.put("aeropuertoOrigen", parte.getAeropuertoOrigen().getCodigo());
+                    }
+
+                    asignaciones.add(registro);
+                }
+            }
+        }
+
+        return asignaciones;
+    }
+
+    public LocalDateTime getInicioHorizonteUltimoCiclo() {
+        return inicioHorizonteUltimoCiclo;
+    }
+
+    public LocalDateTime getFinHorizonteUltimoCiclo() {
+        return finHorizonteUltimoCiclo;
+    }
+
+    /**
+     * Recarga desde la base de datos el estado actual de planes de vuelo y aeropuertos.
+     * Esto garantiza que cada ciclo utilice los mismos registros persistidos y respete la capacidad disponible.
+     */
+    private void recargarDatosBase(LocalDateTime inicioHorizonte, LocalDateTime finHorizonte) {
+        ArrayList<PlanDeVuelo> planesActualizados = planDeVueloService.obtenerListaPlanesDeVuelo();
+        ArrayList<Aeropuerto> aeropuertosActualizados = aeropuertoService.obtenerTodosAeropuertos();
+
+        ArrayList<PlanDeVuelo> planesFiltrados = planesActualizados.stream()
+                .filter(plan -> {
+                    LocalDateTime salida = plan.getHoraOrigen();
+                    LocalDateTime llegada = plan.getHoraDestino();
+                    if(salida == null || llegada == null) return false;
+
+                    boolean salidaEnRango = !salida.isBefore(inicioHorizonte) && !salida.isAfter(finHorizonte);
+                    boolean llegadaEnRango = !llegada.isBefore(inicioHorizonte) && !llegada.isAfter(finHorizonte);
+                    boolean cruzaHorizonte = salida.isBefore(inicioHorizonte) && llegada.isAfter(inicioHorizonte);
+                    return salidaEnRango || llegadaEnRango || cruzaHorizonte;
+                })
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        this.vuelosUltimoCiclo = planesFiltrados;
+
+        grasp.setPlanesDeVuelo(planesActualizados);
+        grasp.setAeropuertos(aeropuertosActualizados);
+        grasp.setHubsPropio();
+    }
+
+    /**
+     * Persiste los cambios en la base de datos después de ejecutar GRASP
+     * - Guarda las partes asignadas nuevas con sus rutas
+     * - Actualiza la capacidad ocupada de los planes de vuelo
+     * - Actualiza la capacidad ocupada de los aeropuertos
+     */
+    private void persistirCambios(Solucion solucion) {
+        if (solucion == null || solucion.getEnvios() == null || solucion.getEnvios().isEmpty()) {
+            return;
+        }
+
+        // Conjuntos para rastrear qué objetos fueron modificados
+        Set<Integer> planesDeVueloModificados = new HashSet<>();
+        Set<Integer> aeropuertosModificados = new HashSet<>();
+        List<Envio> enviosParaActualizar = new ArrayList<>();
+
+        // 1. Procesar cada envío y sus partes asignadas
+        for(Envio envioCopia : solucion.getEnvios()) {
+            if(envioCopia.getId() == null) {
+                continue; // Saltar envíos sin ID (nuevos)
+            }
+
+            // Cargar el envío real de la BD
+            Optional<Envio> envioOpt = envioService.obtenerEnvioPorId(envioCopia.getId());
+            if(envioOpt.isEmpty()) {
+                System.err.printf("⚠️ No se encontró el envío %d en la BD%n", envioCopia.getId());
+                continue;
+            }
+
+            Envio envioReal = envioOpt.get();
+
+            // Procesar cada parte asignada nueva
+            if(envioCopia.getParteAsignadas() != null) {
+                for(ParteAsignada parteCopia : envioCopia.getParteAsignadas()) {
+                    // Verificar si esta parte ya existe en el envío real
+                    boolean parteExiste = false;
+                    if(envioReal.getParteAsignadas() != null) {
+                        for(ParteAsignada parteExistente : envioReal.getParteAsignadas()) {
+                            if(parteExistente.getId() != null && parteExistente.getId().equals(parteCopia.getId())) {
+                                parteExiste = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Si la parte es nueva (sin ID) o no existe, crearla
+                    if(parteCopia.getId() == null || !parteExiste) {
+                        // Crear nueva parte asignada
+                        ParteAsignada nuevaParte = new ParteAsignada();
+                        nuevaParte.setEnvio(envioReal);
+                        nuevaParte.setCantidad(parteCopia.getCantidad());
+                        nuevaParte.setLlegadaFinal(parteCopia.getLlegadaFinal());
+                        nuevaParte.setAeropuertoOrigen(parteCopia.getAeropuertoOrigen());
+
+                        // Copiar la ruta transient - cargar los planes de vuelo reales de BD
+                        if(parteCopia.getRuta() != null && !parteCopia.getRuta().isEmpty()) {
+                            List<PlanDeVuelo> rutaReal = new ArrayList<>();
+                            for(PlanDeVuelo vueloCopia : parteCopia.getRuta()) {
+                                if(vueloCopia.getId() != null) {
+                                    Optional<PlanDeVuelo> vueloOpt = planDeVueloService.obtenerPlanDeVueloPorId(vueloCopia.getId());
+                                    if(vueloOpt.isPresent()) {
+                                        rutaReal.add(vueloOpt.get());
+                                        planesDeVueloModificados.add(vueloCopia.getId());
+                                        if(vueloCopia.getCiudadDestino() != null) {
+                                            aeropuertosModificados.add(vueloCopia.getCiudadDestino());
+                                        }
+                                    }
+                                }
+                            }
+                            nuevaParte.setRuta(rutaReal);
+                            // Sincronizar la ruta con BD antes de persistir
+                            nuevaParte.sincronizarRutaConBD();
+                        }
+
+                        // Agregar a la lista de partes del envío
+                        if(envioReal.getParteAsignadas() == null) {
+                            envioReal.setParteAsignadas(new ArrayList<>());
+                        }
+                        envioReal.getParteAsignadas().add(nuevaParte);
+                    }
+                }
+            }
+
+            enviosParaActualizar.add(envioReal);
+        }
+
+        // 2. Actualizar planes de vuelo con su capacidad ocupada
+        List<PlanDeVuelo> planesParaActualizar = new ArrayList<>();
+        for(Integer planId : planesDeVueloModificados) {
+            Optional<PlanDeVuelo> planOpt = planDeVueloService.obtenerPlanDeVueloPorId(planId);
+            if(planOpt.isPresent()) {
+                PlanDeVuelo planReal = planOpt.get();
+                // Buscar el plan en el grasp para obtener la capacidad actualizada
+        Integer capacidadAsignada = calcularCapacidadAsignada(planId, solucion.getEnvios());
+        if(capacidadAsignada != null) {
+            planReal.setCapacidadOcupada(capacidadAsignada);
+            planesParaActualizar.add(planReal);
+        }
+            }
+        }
+
+        // 3. Actualizar aeropuertos con su capacidad ocupada
+        List<Aeropuerto> aeropuertosParaActualizar = new ArrayList<>();
+        for(Integer aeropuertoId : aeropuertosModificados) {
+            Optional<Aeropuerto> aeropuertoOpt = aeropuertoService.obtenerAeropuertoPorId(aeropuertoId);
+            if (aeropuertoOpt.isPresent()) {
+                Aeropuerto aeropuertoReal = aeropuertoOpt.get();
+                // Buscar el aeropuerto en el grasp para obtener la capacidad actualizada
+                Aeropuerto aeropuertoGrasp = obtenerAeropuertoPorId(aeropuertoId);
+                if (aeropuertoGrasp != null && aeropuertoGrasp.getCapacidadOcupada() != null) {
+                    aeropuertoReal.setCapacidadOcupada(aeropuertoGrasp.getCapacidadOcupada());
+                    aeropuertosParaActualizar.add(aeropuertoReal);
+                }
+            }
+        }
+
+        // 4. Persistir todos los cambios
+        try {
+            // Guardar envíos (esto guardará las partes asignadas por cascade)
+            for (Envio envio : enviosParaActualizar) {
+                envioService.insertarEnvio(envio);
+            }
+
+            // Guardar planes de vuelo
+            if (!planesParaActualizar.isEmpty()) {
+                planDeVueloService.insertarListaPlanesDeVuelo(new ArrayList<>(planesParaActualizar));
+            }
+
+            // Guardar aeropuertos
+            if (!aeropuertosParaActualizar.isEmpty()) {
+                aeropuertoService.insertarListaAeropuertos(new ArrayList<>(aeropuertosParaActualizar));
+            }
+
+        } catch (Exception e) {
+            System.err.printf("❌ Error al guardar en BD: %s%n", e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
+     * Encuentra un plan de vuelo en el grasp por su ID
+     */
+    private Integer calcularCapacidadAsignada(Integer planId, List<Envio> envios) {
+        if(envios == null) return null;
+
+        int total = 0;
+        for(Envio envio : envios) {
+            if(envio.getParteAsignadas() == null) continue;
+
+            for(ParteAsignada parte : envio.getParteAsignadas()) {
+                if(parte.getRuta() == null) continue;
+
+                for(PlanDeVuelo vuelo : parte.getRuta()) {
+                    if(vuelo.getId() != null && vuelo.getId().equals(planId)) {
+                        total += parte.getCantidad();
+                        break;
+                    }
+                }
+            }
+        }
+        return total;
     }
 }

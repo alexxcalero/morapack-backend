@@ -13,7 +13,7 @@ import java.util.ArrayList;
 public class PathState {
     private Aeropuerto ubicacion;
     private ZonedDateTime llegadaUltimoVuelo;
-    private ArrayList<VueloInstanciado> tramos;
-    private VueloInstanciado ultimoVuelo;
+    private ArrayList<PlanDeVuelo> tramos;
+    private PlanDeVuelo ultimoVuelo;
     private Integer capacidadRuta;  // Minima capacidad libre hasta ahora
 }

@@ -36,4 +36,8 @@ public class AeropuertoServiceImp implements AeropuertoService {
     public ArrayList<Aeropuerto> obtenerTodosAeropuertos() {
         return (ArrayList<Aeropuerto>) aeropuertoRepository.findAll();
     }
+
+    public void aumentarProductosEnAlmacen(Integer cantProductos) {
+
+    }
 }

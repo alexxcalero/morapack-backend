@@ -14,11 +14,11 @@ import java.util.List;
 @AllArgsConstructor
 public class Solucion {
     private ArrayList<Envio> envios;
-    private ArrayList<VueloInstanciado> vuelos;
+    private ArrayList<PlanDeVuelo> vuelos;
     private Integer enviosCompletados;
     private Duration llegadaMediaPonderada;
 
-    public Solucion(ArrayList<Envio> e, ArrayList<VueloInstanciado> v) {
+    public Solucion(ArrayList<Envio> e, ArrayList<PlanDeVuelo> v) {
         this.envios = e;
         this.vuelos = v;
         recomputar();

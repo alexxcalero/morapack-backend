@@ -64,7 +64,7 @@ public class GraspController {
         grasp.setContinentes(continentes);
         grasp.setPaises(paises);
         grasp.setEnvios(envios);
-        grasp.setPlanesOriginales(planes);
+        //grasp.setPlanesOriginales(planes);
         grasp.setHubsPropio();
 
         ArrayList<Aeropuerto> hubs = grasp.getHubs();
@@ -80,13 +80,13 @@ public class GraspController {
 
         grasp.setEnviosPorDia(new HashMap<>());
         grasp.setDias(new ArrayList<>());
-        grasp.setVuelosInstanciados(new ArrayList<>());
+        //grasp.setVuelosInstanciados(new ArrayList<>());
 
         this.esPrimeraSimulacion = true;
 
         grasp.setEnviosPorDiaPropio();
 
-        solucionDiaria = grasp.ejecucionDiaria();
+        //solucionDiaria = grasp.ejecucionDiaria();
 
         return solucionDiaria;
     }

@@ -3,9 +3,6 @@ package pe.edu.pucp.morapack.models;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.util.ArrayList;
-import java.util.List;
-
 @Getter
 @Setter
 @Builder
@@ -34,6 +31,37 @@ public class Aeropuerto {
 
     public boolean estaLleno() {
         return this.capacidadMaxima == this.capacidadOcupada;
+    }
+
+    public Integer getCapacidadLibre() {
+        return this.capacidadMaxima - this.capacidadOcupada;
+    }
+
+    public void asignarCapacidad(Integer cantidad) {
+        if(this.capacidadOcupada == null) {
+            this.capacidadOcupada = 0;
+        }
+        this.capacidadOcupada += cantidad;
+
+        // Verificar que no exceda la capacidad máxima
+        if(this.capacidadOcupada > this.capacidadMaxima) {
+            System.err.printf("⚠️  SOBREASIGNACIÓN AEROPUERTO: %s | %d > %d%n",
+                    this.codigo, this.capacidadOcupada, this.capacidadMaxima);
+            this.capacidadOcupada = this.capacidadMaxima;
+        }
+    }
+
+    public void desasignarCapacidad(Integer cantidad) {
+        if(this.capacidadOcupada == null) {
+            this.capacidadOcupada = 0;
+        }
+        if(this.capacidadOcupada >= cantidad) {
+            this.capacidadOcupada -= cantidad;
+        } else {
+            System.err.printf("⚠️  Intento de desasignar más de lo asignado en aeropuerto %s: %d > %d%n",
+                    this.codigo, cantidad, this.capacidadOcupada);
+            this.capacidadOcupada = 0;
+        }
     }
 
     public void setIdPais(Integer id) {
