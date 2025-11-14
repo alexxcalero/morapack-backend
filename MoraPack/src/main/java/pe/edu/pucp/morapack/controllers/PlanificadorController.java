@@ -1,10 +1,14 @@
 package pe.edu.pucp.morapack.controllers;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import pe.edu.pucp.morapack.models.*;
 import pe.edu.pucp.morapack.services.servicesImp.*;
 import pe.edu.pucp.morapack.models.Planificador;
+import pe.edu.pucp.morapack.repository.*;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 
 import java.time.*;
 import java.time.format.DateTimeFormatter;
@@ -22,6 +26,10 @@ public class PlanificadorController {
     private final EnvioServiceImp envioService;
     private final PlanDeVueloServiceImp planDeVueloService;
     private final PlanificacionWebSocketServiceImp webSocketService;
+    private final AeropuertoRepository aeropuertoRepository;
+    private final PlanDeVueloRepository planDeVueloRepository;
+    private final EnvioRepository envioRepository;
+    private final EntityManager entityManager;
 
     private Planificador planificador;
     private boolean planificadorIniciado = false;
@@ -114,6 +122,92 @@ public class PlanificadorController {
         } catch(Exception e) {
             response.put("estado", "error");
             response.put("mensaje", "Error al detener planificador: " + e.getMessage());
+        }
+
+        return response;
+    }
+
+    // Endpoint para limpiar todas las planificaciones anteriores
+    @PostMapping("/limpiar-planificacion")
+    @Transactional
+    public Map<String, Object> limpiarPlanificacion() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Verificar si el planificador está activo
+            if(planificadorIniciado) {
+                response.put("estado", "error");
+                response.put("mensaje", "No se puede limpiar la planificación mientras el planificador está activo. Detén el planificador primero.");
+                return response;
+            }
+
+            int aeropuertosActualizados = 0;
+            int planesActualizados = 0;
+            int relacionesVuelosEliminadas = 0;
+            int partesEliminadas = 0;
+            int enviosActualizados = 0;
+
+            // 1. Vaciar capacidades ocupadas de todos los aeropuertos
+            List<Aeropuerto> aeropuertos = new ArrayList<>();
+            for(Aeropuerto aeropuerto : aeropuertoRepository.findAll()) {
+                aeropuerto.setCapacidadOcupada(0);
+                aeropuertos.add(aeropuerto);
+            }
+            if(!aeropuertos.isEmpty()) {
+                aeropuertoRepository.saveAll(aeropuertos);
+                aeropuertosActualizados = aeropuertos.size();
+            }
+
+            // 2. Vaciar capacidades ocupadas de todos los planes de vuelo
+            List<PlanDeVuelo> planesDeVuelo = planDeVueloRepository.findAll();
+            for(PlanDeVuelo plan : planesDeVuelo) {
+                plan.setCapacidadOcupada(0);
+            }
+            if(!planesDeVuelo.isEmpty()) {
+                planDeVueloRepository.saveAll(planesDeVuelo);
+                planesActualizados = planesDeVuelo.size();
+            }
+
+            // 3. Limpiar las referencias de partes asignadas en los envíos
+            List<Envio> envios = envioRepository.findAll();
+            List<Envio> enviosParaActualizar = new ArrayList<>();
+            for(Envio envio : envios) {
+                if(envio.getParteAsignadas() != null && !envio.getParteAsignadas().isEmpty()) {
+                    envio.setParteAsignadas(new ArrayList<>());
+                    enviosParaActualizar.add(envio);
+                    enviosActualizados++;
+                }
+            }
+            if(!enviosParaActualizar.isEmpty()) {
+                envioRepository.saveAll(enviosParaActualizar);
+            }
+
+            // 4. Eliminar primero las relaciones ParteAsignadaPlanDeVuelo usando SQL nativo
+            Query queryRelaciones = entityManager.createNativeQuery("DELETE FROM parte_asignada_plan_de_vuelo");
+            relacionesVuelosEliminadas = queryRelaciones.executeUpdate();
+
+            // 5. Eliminar todas las partes asignadas usando SQL nativo
+            Query queryPartes = entityManager.createNativeQuery("DELETE FROM parte_asignada");
+            partesEliminadas = queryPartes.executeUpdate();
+
+            // Hacer flush para asegurar que los cambios se apliquen
+            entityManager.flush();
+
+            response.put("estado", "exito");
+            response.put("mensaje", "Planificación limpiada correctamente");
+            response.put("detalles", Map.of(
+                    "aeropuertosActualizados", aeropuertosActualizados,
+                    "planesActualizados", planesActualizados,
+                    "relacionesVuelosEliminadas", relacionesVuelosEliminadas,
+                    "partesEliminadas", partesEliminadas,
+                    "enviosActualizados", enviosActualizados
+            ));
+            response.put("timestamp", LocalDateTime.now().toString());
+
+        } catch(Exception e) {
+            response.put("estado", "error");
+            response.put("mensaje", "Error al limpiar planificación: " + e.getMessage());
+            e.printStackTrace();
         }
 
         return response;
@@ -300,8 +394,156 @@ public class PlanificadorController {
                 .collect(Collectors.toList());
 
         response.put("vuelos", vuelosFrontend);
+
+        // Agregar lista de envíos planificados con sus partes y vuelos
+        Solucion ultimaSolucion = planificador.getUltimaSolucion();
+        if(ultimaSolucion != null && ultimaSolucion.getEnvios() != null) {
+            List<Map<String, Object>> enviosPlanificados = convertirEnviosPlanificadosParaFrontend(ultimaSolucion.getEnvios(), formatter);
+            response.put("enviosPlanificados", enviosPlanificados);
+            response.put("cantidadEnvios", enviosPlanificados.size());
+        } else {
+            response.put("enviosPlanificados", Collections.emptyList());
+            response.put("cantidadEnvios", 0);
+        }
+
+        // Agregar lista de aeropuertos con sus capacidades
+        List<Map<String, Object>> aeropuertosFrontend = convertirAeropuertosParaFrontend();
+        response.put("aeropuertos", aeropuertosFrontend);
+        response.put("cantidadAeropuertos", aeropuertosFrontend.size());
+
         response.put("timestamp", formatFechaConOffset(null, LocalDateTime.now(), "0", formatter));
         return response;
+    }
+
+    private List<Map<String, Object>> convertirAeropuertosParaFrontend() {
+        ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+
+        return aeropuertos.stream()
+                .map(a -> {
+                    Map<String, Object> aeropuertoMap = new HashMap<>();
+                    aeropuertoMap.put("id", a.getId());
+                    aeropuertoMap.put("codigo", a.getCodigo());
+                    aeropuertoMap.put("ciudad", a.getCiudad());
+                    aeropuertoMap.put("pais", a.getPais());
+                    aeropuertoMap.put("capacidadOcupada", a.getCapacidadOcupada() != null ? a.getCapacidadOcupada() : 0);
+                    aeropuertoMap.put("capacidadMaxima", a.getCapacidadMaxima());
+                    return aeropuertoMap;
+                })
+                .collect(Collectors.toList());
+    }
+
+    private List<Map<String, Object>> convertirEnviosPlanificadosParaFrontend(List<Envio> envios, DateTimeFormatter formatter) {
+        List<Map<String, Object>> enviosFrontend = new ArrayList<>();
+
+        for(Envio envio : envios) {
+            // Solo incluir envíos que tengan partes asignadas
+            if(envio.getParteAsignadas() == null || envio.getParteAsignadas().isEmpty()) {
+                continue;
+            }
+
+            Map<String, Object> envioMap = new HashMap<>();
+            envioMap.put("envioId", envio.getId());
+            envioMap.put("envioIdPorAeropuerto", envio.getIdEnvioPorAeropuerto());
+            envioMap.put("cliente", envio.getCliente());
+            envioMap.put("cantidadTotal", envio.getNumProductos());
+            envioMap.put("cantidadAsignada", envio.cantidadAsignada());
+            envioMap.put("completo", envio.estaCompleto());
+
+            // Información del destino
+            if(envio.getAeropuertoDestino() != null) {
+                envioMap.put("destino", Map.of(
+                        "id", envio.getAeropuertoDestino().getId(),
+                        "codigo", envio.getAeropuertoDestino().getCodigo(),
+                        "ciudad", envio.getAeropuertoDestino().getCiudad()
+                ));
+            }
+
+            // Información de aparición
+            envioMap.put("aparicion", formatFechaConOffset(
+                    envio.getZonedFechaIngreso(),
+                    envio.getFechaIngreso(),
+                    envio.getHusoHorarioDestino(),
+                    formatter));
+
+            // Lista de partes (si el pedido está dividido)
+            List<Map<String, Object>> partesFrontend = new ArrayList<>();
+
+            for(ParteAsignada parte : envio.getParteAsignadas()) {
+                Map<String, Object> parteMap = new HashMap<>();
+                parteMap.put("cantidad", parte.getCantidad());
+
+                // Aeropuerto origen de esta parte
+                if(parte.getAeropuertoOrigen() != null) {
+                    parteMap.put("aeropuertoOrigen", Map.of(
+                            "id", parte.getAeropuertoOrigen().getId(),
+                            "codigo", parte.getAeropuertoOrigen().getCodigo(),
+                            "ciudad", parte.getAeropuertoOrigen().getCiudad()
+                    ));
+                }
+
+                // Llegada final de esta parte
+                parteMap.put("llegadaFinal", formatFechaConOffset(
+                        parte.getLlegadaFinal(),
+                        null,
+                        null,
+                        formatter));
+
+                // Lista de vuelos por los que pasa esta parte (ruta completa)
+                List<Map<String, Object>> vuelosRuta = new ArrayList<>();
+
+                if(parte.getRuta() != null && !parte.getRuta().isEmpty()) {
+                    for(int i = 0; i < parte.getRuta().size(); i++) {
+                        PlanDeVuelo vuelo = parte.getRuta().get(i);
+                        Map<String, Object> vueloRutaMap = new HashMap<>();
+                        vueloRutaMap.put("orden", i + 1); // Orden en la ruta (1, 2, 3...)
+                        vueloRutaMap.put("vueloId", vuelo.getId());
+
+                        // Origen del vuelo
+                        aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadOrigen())
+                                .ifPresent(a -> vueloRutaMap.put("origen", Map.of(
+                                        "id", a.getId(),
+                                        "codigo", a.getCodigo(),
+                                        "ciudad", a.getCiudad()
+                                )));
+
+                        // Destino del vuelo
+                        aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadDestino())
+                                .ifPresent(a -> vueloRutaMap.put("destino", Map.of(
+                                        "id", a.getId(),
+                                        "codigo", a.getCodigo(),
+                                        "ciudad", a.getCiudad()
+                                )));
+
+                        vueloRutaMap.put("horaSalida", formatFechaConOffset(
+                                vuelo.getZonedHoraOrigen(),
+                                vuelo.getHoraOrigen(),
+                                vuelo.getHusoHorarioOrigen(),
+                                formatter));
+
+                        vueloRutaMap.put("horaLlegada", formatFechaConOffset(
+                                vuelo.getZonedHoraDestino(),
+                                vuelo.getHoraDestino(),
+                                vuelo.getHusoHorarioDestino(),
+                                formatter));
+
+                        vueloRutaMap.put("capacidadOcupada", vuelo.getCapacidadOcupada());
+                        vueloRutaMap.put("capacidadMaxima", vuelo.getCapacidadMaxima());
+
+                        vuelosRuta.add(vueloRutaMap);
+                    }
+                }
+
+                parteMap.put("vuelos", vuelosRuta);
+                partesFrontend.add(parteMap);
+            }
+
+            envioMap.put("partes", partesFrontend);
+            envioMap.put("cantidadPartes", partesFrontend.size());
+
+            enviosFrontend.add(envioMap);
+        }
+
+        return enviosFrontend;
     }
 
     private Map<String, Object> convertirVueloParaFrontend(PlanDeVuelo vuelo, Map<Integer, List<Map<String, Object>>> asignacionesPorVuelo) {
