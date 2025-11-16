@@ -162,7 +162,7 @@ public class PlanDeVueloController {
                     Integer capacidad = Integer.parseInt(data[4]);
 
                     // ✅ GENERAR PARA 7 DÍAS
-                    for (int diaOffset = 0; diaOffset < 7; diaOffset++) {
+                    for (int diaOffset = 0; diaOffset < 30; diaOffset++) {
                         LocalDate fechaVuelo = fechaBase.plusDays(diaOffset);
 
                         LocalDateTime fechaInicio = LocalDateTime.of(fechaVuelo, hI);

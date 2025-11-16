@@ -17,6 +17,8 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Scanner;
@@ -53,6 +55,31 @@ public class AeropuertoController {
     @GetMapping("obtenerPorCodigo/{codigo}")
     Optional<Aeropuerto> obtenerAeropuertoPorCodigo(@PathVariable String codigo) {
         return aeropuertoService.obtenerAeropuertoPorCodigo(codigo);
+    }
+
+    @GetMapping("obtenerCapacidades")
+    public Map<String, Object> obtenerCapacidadesAeropuertos() {
+        Map<String, Object> response = new HashMap<>();
+        ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+
+        List<Map<String, Object>> aeropuertosFrontend = aeropuertos.stream()
+                .map(a -> {
+                    Map<String, Object> aeropuertoMap = new HashMap<>();
+                    aeropuertoMap.put("id", a.getId());
+                    aeropuertoMap.put("codigo", a.getCodigo());
+                    aeropuertoMap.put("ciudad", a.getCiudad());
+                    aeropuertoMap.put("pais", a.getPais());
+                    aeropuertoMap.put("capacidadOcupada", a.getCapacidadOcupada() != null ? a.getCapacidadOcupada() : 0);
+                    aeropuertoMap.put("capacidadMaxima", a.getCapacidadMaxima());
+                    return aeropuertoMap;
+                })
+                .collect(java.util.stream.Collectors.toList());
+
+        response.put("estado", "exito");
+        response.put("cantidadAeropuertos", aeropuertosFrontend.size());
+        response.put("aeropuertos", aeropuertosFrontend);
+
+        return response;
     }
 
     @PostMapping("lecturaArchivo")
