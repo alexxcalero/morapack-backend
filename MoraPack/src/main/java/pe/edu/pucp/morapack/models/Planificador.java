@@ -47,6 +47,17 @@ public class Planificador {
     private LocalDateTime ultimoHorizontePlanificado;
     private LocalDateTime tiempoInicioSimulacion;
 
+    // Modos de simulación
+    public enum ModoSimulacion {
+        NORMAL,      // Modo original - planifica todos los pedidos
+        SEMANAL,     // Simulación semanal con fecha inicio y fin
+        COLAPSO      // Simulación de colapso - solo fecha inicio
+    }
+
+    private ModoSimulacion modoSimulacion = ModoSimulacion.NORMAL;
+    private LocalDateTime fechaInicioSimulacion;
+    private LocalDateTime fechaFinSimulacion;
+
     public Planificador(Grasp grasp, PlanificacionWebSocketServiceImp webSocketService,
                        EnvioServiceImp envioService, PlanDeVueloServiceImp planDeVueloService,
                        AeropuertoServiceImp aeropuertoService) {
@@ -58,6 +69,10 @@ public class Planificador {
     }
 
     public void iniciarPlanificacionProgramada() {
+        iniciarPlanificacionProgramada(ModoSimulacion.NORMAL, null, null);
+    }
+
+    public void iniciarPlanificacionProgramada(ModoSimulacion modo, LocalDateTime fechaInicio, LocalDateTime fechaFin) {
         if(enEjecucion) {
             System.out.println("⚠️ El planificador ya está en ejecución");
             return;
@@ -66,25 +81,38 @@ public class Planificador {
         enEjecucion = true;
         cicloActual.set(0);
         scheduler = Executors.newScheduledThreadPool(1);
+        this.modoSimulacion = modo;
+        this.fechaInicioSimulacion = fechaInicio;
+        this.fechaFinSimulacion = fechaFin;
 
         // ✅ ENVIAR ESTADO INICIAL VÍA WEBSOCKET
         webSocketService.enviarEstadoPlanificador(true, cicloActual.get(), "inmediato");
 
         System.out.println("🚀 INICIANDO PLANIFICADOR PROGRAMADO");
         System.out.printf("⚙️ Configuración: Sa=%d min, K=%d, Ta=%d seg, Sc=%d min%n", SA_MINUTOS, K, TA_SEGUNDOS, SA_MINUTOS * K);
+        System.out.printf("📋 Modo de simulación: %s%n", modo);
 
         this.enviosOriginales = envioService.obtenerEnvios(); //this.grasp.getEnvios();  // Guardo todos los envios
 
-        // Obtener el primer pedido como referencia temporal
-        this.tiempoInicioSimulacion = obtenerPrimerPedidoTiempo();
-        this.ultimoHorizontePlanificado = this.tiempoInicioSimulacion;
-
-        System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+        // Determinar tiempo de inicio según el modo
+        if(modo == ModoSimulacion.SEMANAL || modo == ModoSimulacion.COLAPSO) {
+            this.tiempoInicioSimulacion = fechaInicio;
+            this.ultimoHorizontePlanificado = fechaInicio;
+            System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", fechaInicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+            if(modo == ModoSimulacion.SEMANAL) {
+                System.out.printf("⏰ Tiempo de fin de simulación: %s%n", fechaFin.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+            }
+        } else {
+            // Modo normal - obtener el primer pedido como referencia temporal
+            this.tiempoInicioSimulacion = obtenerPrimerPedidoTiempo();
+            this.ultimoHorizontePlanificado = this.tiempoInicioSimulacion;
+            System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+        }
 
         // Ejecutar el primer ciclo inmediatamente
         ejecutarCicloPlanificacion(tiempoInicioSimulacion);
 
-        // Programar ejecuciones posteriores cada 5 minutos
+        // Programar ejecuciones posteriores cada SA_MINUTOS minutos
         scheduler.scheduleAtFixedRate(() -> {
             LocalDateTime tiempoActual = obtenerTiempoActualSimulacion();
             ejecutarCicloPlanificacion(tiempoActual);
@@ -107,6 +135,10 @@ public class Planificador {
         // ✅ ENVIAR ESTADO DE DETENCIÓN VÍA WEBSOCKET
         webSocketService.enviarEstadoPlanificador(false, cicloActual.get(), "detenido");
         System.out.println("🛑 Planificador detenido");
+    }
+
+    public boolean estaEnEjecucion() {
+        return enEjecucion;
     }
 
     private LocalDateTime obtenerPrimerPedidoTiempo() {
@@ -147,15 +179,32 @@ public class Planificador {
         System.out.printf("🕒 Ejecución: %s%n", ultimaEjecucion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
         try {
-            // 1. Calcular horizonte temporal (Sc)
+            // 1. Verificar si se alcanzó la fecha fin (solo para modo SEMANAL)
+            if(modoSimulacion == ModoSimulacion.SEMANAL && fechaFinSimulacion != null) {
+                if(this.ultimoHorizontePlanificado.isAfter(fechaFinSimulacion) ||
+                   this.ultimoHorizontePlanificado.isEqual(fechaFinSimulacion)) {
+                    System.out.println("🏁 Simulación semanal completada - se alcanzó la fecha fin");
+                    detenerPlanificacion();
+                    return;
+                }
+            }
+
+            // 2. Calcular horizonte temporal (Sc)
             LocalDateTime inicioHorizonte = this.ultimoHorizontePlanificado;
             LocalDateTime finHorizonte = inicioHorizonte.plusMinutes(SA_MINUTOS * K);
+
+            // En modo SEMANAL, limitar el horizonte a la fecha fin
+            if(modoSimulacion == ModoSimulacion.SEMANAL && fechaFinSimulacion != null) {
+                if(finHorizonte.isAfter(fechaFinSimulacion)) {
+                    finHorizonte = fechaFinSimulacion;
+                }
+            }
 
             System.out.printf("📊 Horizonte de planificación: %s → %s%n",
                     inicioHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
                     finHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
-            // 2. Obtener pedidos dentro del horizonte actual
+            // 3. Obtener pedidos dentro del horizonte actual
             List<Envio> pedidosParaPlanificar = obtenerPedidosEnVentana(inicioHorizonte, finHorizonte);
 
             System.out.printf("📦 Pedidos a planificar en el ciclo %d: %d%n", ciclo, pedidosParaPlanificar.size());
@@ -168,6 +217,14 @@ public class Planificador {
                 // ✅ IMPORTANTE: Actualizar el horizonte aunque no haya pedidos
                 this.ultimoHorizontePlanificado = finHorizonte;
 
+                // En modo SEMANAL, verificar si se alcanzó la fecha fin
+                if(modoSimulacion == ModoSimulacion.SEMANAL && fechaFinSimulacion != null) {
+                    if(finHorizonte.isAfter(fechaFinSimulacion) || finHorizonte.isEqual(fechaFinSimulacion)) {
+                        System.out.println("🏁 Simulación semanal completada - se alcanzó la fecha fin");
+                        detenerPlanificacion();
+                    }
+                }
+
                 return;
             }
 
@@ -177,10 +234,47 @@ public class Planificador {
             // ✅ Recargar estado actual de vuelos y aeropuertos para este ciclo
             recargarDatosBase(inicioHorizonte, finHorizonte);
 
-            // 3. Ejecutar GRASP con timeout
+            // 4. Ejecutar GRASP con timeout
             Solucion solucion = ejecutarGRASPConTimeout(pedidosParaPlanificar, tiempoEjecucion);
             this.ultimaSolucion = solucion;
             actualizarEstadisticas(solucion, ciclo, System.currentTimeMillis() - inicioCiclo);
+
+            // 5. Verificar si hay pedidos sin ruta (no completados)
+            List<Envio> pedidosSinRuta = new ArrayList<>();
+            for(Envio envio : solucion.getEnvios()) {
+                if(!envio.estaCompleto()) {
+                    pedidosSinRuta.add(envio);
+                }
+            }
+
+            if(!pedidosSinRuta.isEmpty()) {
+                System.out.printf("⚠️ ALERTA: %d pedido(s) no pudieron ser asignados completamente:%n", pedidosSinRuta.size());
+                for(Envio envio : pedidosSinRuta) {
+                    System.out.printf("  - Pedido ID: %d, Cliente: %s, Cantidad restante: %d%n",
+                            envio.getId(), envio.getCliente(), envio.cantidadRestante());
+                }
+
+                // Detener planificación si hay pedidos sin ruta (aplica para ambos modos)
+                System.out.println("🛑 Deteniendo planificación: no se encontró ruta para uno o más pedidos");
+                detenerPlanificacion();
+
+                // ✅ PERSISTIR CAMBIOS EN LA BASE DE DATOS (aunque haya pedidos sin ruta)
+                try {
+                    persistirCambios(solucion);
+                    System.out.println("💾 Cambios persistidos en la base de datos");
+                } catch (Exception e) {
+                    System.err.printf("❌ Error al persistir cambios: %s%n", e.getMessage());
+                    e.printStackTrace();
+                }
+
+                // ✅ ENVIAR ACTUALIZACIÓN VÍA WEBSOCKET
+                webSocketService.enviarActualizacionCiclo(solucion, ciclo);
+
+                // Mostrar resultados
+                mostrarResultadosCiclo(solucion, pedidosParaPlanificar, ciclo);
+
+                return;
+            }
 
             // ✅ PERSISTIR CAMBIOS EN LA BASE DE DATOS
             try {
@@ -197,7 +291,7 @@ public class Planificador {
             // ✅ ENVIAR ACTUALIZACIÓN VÍA WEBSOCKET
             webSocketService.enviarActualizacionCiclo(solucion, ciclo);
 
-            // 4. Mostrar resultados
+            // 6. Mostrar resultados
             mostrarResultadosCiclo(solucion, pedidosParaPlanificar, ciclo);
 
             System.out.printf("✅ CICLO %d COMPLETADO - %d/%d envíos asignados%n", ciclo, solucion.getEnviosCompletados(), solucion.getEnvios().size());
@@ -225,18 +319,39 @@ public class Planificador {
 
         for(Envio envio : enviosOriginales) {
             LocalDateTime tiempoPedido = envio.getZonedFechaIngreso().toLocalDateTime();
-            if(!tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin)) {
+
+            // Filtrar según el modo de simulación
+            boolean incluirPedido = false;
+
+            if(modoSimulacion == ModoSimulacion.SEMANAL) {
+                // En modo semanal, solo incluir pedidos dentro del rango fechaInicioSimulacion - fechaFinSimulacion
+                if(!tiempoPedido.isBefore(fechaInicioSimulacion) && !tiempoPedido.isAfter(fechaFinSimulacion)) {
+                    // Y además deben estar en el horizonte actual
+                    if(!tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin)) {
+                        incluirPedido = true;
+                    }
+                }
+            } else if(modoSimulacion == ModoSimulacion.COLAPSO) {
+                // En modo colapso, solo incluir pedidos desde fechaInicioSimulacion en adelante
+                if(!tiempoPedido.isBefore(fechaInicioSimulacion)) {
+                    // Y además deben estar en el horizonte actual
+                    if(!tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin)) {
+                        incluirPedido = true;
+                    }
+                }
+            } else {
+                // Modo normal - comportamiento original
+                if(!tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin)) {
+                    incluirPedido = true;
+                }
+            }
+
+            if(incluirPedido) {
                 // ✅ Crear COPIA del envío para este ciclo específico
                 pedidosNuevos.add(crearCopiaEnvio(envio));
             }
         }
 
-//        return enviosOriginales.stream()
-//                .filter(envio -> {
-//                    LocalDateTime tiempoPedido = envio.getZonedFechaIngreso().toLocalDateTime();
-//                    return !tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin);
-//                })
-//                .collect(Collectors.toList());
         return pedidosNuevos;
     }
 

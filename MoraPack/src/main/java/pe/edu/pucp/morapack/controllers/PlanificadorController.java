@@ -34,16 +34,20 @@ public class PlanificadorController {
     private Planificador planificador;
     private boolean planificadorIniciado = false;
 
-    // Endpoint para iniciar el planificador programado
+    // Endpoint para iniciar el planificador programado (modo normal)
     @PostMapping("/iniciar")
     public Map<String, Object> iniciarPlanificadorProgramado() {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            if(planificadorIniciado) {
+            // Sincronizar el flag con el estado real del planificador
+            if(planificador != null && planificador.estaEnEjecucion()) {
+                planificadorIniciado = true;
                 response.put("estado", "error");
                 response.put("mensaje", "El planificador ya está en ejecución");
                 return response;
+            } else {
+                planificadorIniciado = false;
             }
 
             // Cargar datos necesarios
@@ -102,19 +106,198 @@ public class PlanificadorController {
         return response;
     }
 
+    // Endpoint para iniciar simulación semanal
+    @PostMapping("/iniciar-simulacion-semanal")
+    public Map<String, Object> iniciarSimulacionSemanal(@RequestBody Map<String, String> request) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Sincronizar el flag con el estado real del planificador
+            if(planificador != null && planificador.estaEnEjecucion()) {
+                planificadorIniciado = true;
+                response.put("estado", "error");
+                response.put("mensaje", "El planificador ya está en ejecución");
+                return response;
+            } else {
+                planificadorIniciado = false;
+            }
+
+            // Validar parámetros
+            String fechaInicioStr = request.get("fechaInicio");
+            String fechaFinStr = request.get("fechaFin");
+
+            if(fechaInicioStr == null || fechaFinStr == null) {
+                response.put("estado", "error");
+                response.put("mensaje", "Se requieren los parámetros 'fechaInicio' y 'fechaFin' en formato 'yyyy-MM-ddTHH:mm:ss'");
+                return response;
+            }
+
+            // Parsear fechas
+            LocalDateTime fechaInicio = LocalDateTime.parse(fechaInicioStr);
+            LocalDateTime fechaFin = LocalDateTime.parse(fechaFinStr);
+
+            if(fechaInicio.isAfter(fechaFin)) {
+                response.put("estado", "error");
+                response.put("mensaje", "La fecha de inicio debe ser anterior a la fecha de fin");
+                return response;
+            }
+
+            // Cargar datos necesarios
+            ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+            ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
+            ArrayList<Pais> paises = paisService.obtenerTodosPaises();
+            ArrayList<Envio> envios = envioService.obtenerEnvios();
+            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerListaPlanesDeVuelo();
+
+            System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL");
+            System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
+                    ", planes=" + planes.size() + ", envios=" + envios.size());
+
+            // Configurar GRASP
+            Grasp grasp = new Grasp();
+            grasp.setAeropuertos(aeropuertos);
+            grasp.setContinentes(continentes);
+            grasp.setPaises(paises);
+            grasp.setEnvios(envios);
+            grasp.setPlanesDeVuelo(planes);
+            grasp.setHubsPropio();
+
+            // Configurar hubs para los envíos
+            ArrayList<Aeropuerto> hubs = grasp.getHubs();
+            if(hubs != null && !hubs.isEmpty()) {
+                ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
+                for(Envio e : grasp.getEnvios()) {
+                    e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
+                }
+            }
+
+            // Crear e iniciar el planificador en modo SEMANAL
+            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService, aeropuertoService);
+            planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.SEMANAL, fechaInicio, fechaFin);
+
+            planificadorIniciado = true;
+
+            response.put("estado", "éxito");
+            response.put("mensaje", "Simulación semanal iniciada correctamente");
+            response.put("configuracion", Map.of(
+                    "modo", "SEMANAL",
+                    "fechaInicio", fechaInicio.toString(),
+                    "fechaFin", fechaFin.toString(),
+                    "sa_minutos", 5,
+                    "k_factor", 24,
+                    "ta_segundos", 150,
+                    "sc_minutos", 120
+            ));
+            response.put("timestamp", LocalDateTime.now().toString());
+
+        } catch(Exception e) {
+            response.put("estado", "error");
+            response.put("mensaje", "Error al iniciar simulación semanal: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return response;
+    }
+
+    // Endpoint para iniciar simulación de colapso
+    @PostMapping("/iniciar-simulacion-colapso")
+    public Map<String, Object> iniciarSimulacionColapso(@RequestBody Map<String, String> request) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Sincronizar el flag con el estado real del planificador
+            if(planificador != null && planificador.estaEnEjecucion()) {
+                planificadorIniciado = true;
+                response.put("estado", "error");
+                response.put("mensaje", "El planificador ya está en ejecución");
+                return response;
+            } else {
+                planificadorIniciado = false;
+            }
+
+            // Validar parámetros
+            String fechaInicioStr = request.get("fechaInicio");
+
+            if(fechaInicioStr == null) {
+                response.put("estado", "error");
+                response.put("mensaje", "Se requiere el parámetro 'fechaInicio' en formato 'yyyy-MM-ddTHH:mm:ss'");
+                return response;
+            }
+
+            // Parsear fecha
+            LocalDateTime fechaInicio = LocalDateTime.parse(fechaInicioStr);
+
+            // Cargar datos necesarios
+            ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+            ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
+            ArrayList<Pais> paises = paisService.obtenerTodosPaises();
+            ArrayList<Envio> envios = envioService.obtenerEnvios();
+            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerListaPlanesDeVuelo();
+
+            System.out.println("🚀 INICIANDO SIMULACIÓN DE COLAPSO");
+            System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
+                    ", planes=" + planes.size() + ", envios=" + envios.size());
+
+            // Configurar GRASP
+            Grasp grasp = new Grasp();
+            grasp.setAeropuertos(aeropuertos);
+            grasp.setContinentes(continentes);
+            grasp.setPaises(paises);
+            grasp.setEnvios(envios);
+            grasp.setPlanesDeVuelo(planes);
+            grasp.setHubsPropio();
+
+            // Configurar hubs para los envíos
+            ArrayList<Aeropuerto> hubs = grasp.getHubs();
+            if(hubs != null && !hubs.isEmpty()) {
+                ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
+                for(Envio e : grasp.getEnvios()) {
+                    e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
+                }
+            }
+
+            // Crear e iniciar el planificador en modo COLAPSO
+            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService, aeropuertoService);
+            planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.COLAPSO, fechaInicio, null);
+
+            planificadorIniciado = true;
+
+            response.put("estado", "éxito");
+            response.put("mensaje", "Simulación de colapso iniciada correctamente");
+            response.put("configuracion", Map.of(
+                    "modo", "COLAPSO",
+                    "fechaInicio", fechaInicio.toString(),
+                    "sa_minutos", 5,
+                    "k_factor", 24,
+                    "ta_segundos", 150,
+                    "sc_minutos", 120
+            ));
+            response.put("timestamp", LocalDateTime.now().toString());
+
+        } catch(Exception e) {
+            response.put("estado", "error");
+            response.put("mensaje", "Error al iniciar simulación de colapso: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return response;
+    }
+
     // Endpoint para detener el planificador
     @PostMapping("/detener")
     public Map<String, Object> detenerPlanificador() {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            if(planificador != null && planificadorIniciado) {
+            // Sincronizar el flag con el estado real del planificador
+            if(planificador != null && planificador.estaEnEjecucion()) {
                 planificador.detenerPlanificacion();
                 planificadorIniciado = false;
 
                 response.put("estado", "éxito");
                 response.put("mensaje", "Planificador detenido correctamente");
             } else {
+                planificadorIniciado = false; // Asegurar que el flag esté sincronizado
                 response.put("estado", "error");
                 response.put("mensaje", "No hay planificador en ejecución");
             }
