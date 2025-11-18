@@ -154,11 +154,15 @@ public class Planificador {
             return LocalDateTime.now();
         }
 
-        return grasp.getEnvios().stream()
+        // Convertir a UTC para comparar correctamente considerando husos horarios
+        ZonedDateTime primerPedidoZoned = grasp.getEnvios().stream()
                 .map(Envio::getZonedFechaIngreso)
-                .map(ZonedDateTime::toLocalDateTime)
-                .min(LocalDateTime::compareTo)
-                .orElse(LocalDateTime.now());
+                .map(zdt -> zdt.withZoneSameInstant(ZoneOffset.UTC))
+                .min(ZonedDateTime::compareTo)
+                .orElse(ZonedDateTime.now(ZoneOffset.UTC));
+
+        // Retornar como LocalDateTime en UTC para mantener consistencia
+        return primerPedidoZoned.toLocalDateTime();
     }
 
     private LocalDateTime obtenerTiempoActualSimulacion() {
@@ -328,31 +332,51 @@ public class Planificador {
             return new ArrayList<>();
         }
 
+        // Convertir los límites del horizonte a ZonedDateTime en UTC para comparar correctamente
+        ZonedDateTime inicioUTC = inicio.atZone(ZoneOffset.UTC);
+        ZonedDateTime finUTC = fin.atZone(ZoneOffset.UTC);
+
+        ZonedDateTime fechaInicioSimulacionUTC = null;
+        ZonedDateTime fechaFinSimulacionUTC = null;
+        if(fechaInicioSimulacion != null) {
+            fechaInicioSimulacionUTC = fechaInicioSimulacion.atZone(ZoneOffset.UTC);
+        }
+        if(fechaFinSimulacion != null) {
+            fechaFinSimulacionUTC = fechaFinSimulacion.atZone(ZoneOffset.UTC);
+        }
+
         for(Envio envio : enviosOriginales) {
-            LocalDateTime tiempoPedido = envio.getZonedFechaIngreso().toLocalDateTime();
+            // Convertir la fecha de ingreso del pedido a UTC para comparar correctamente
+            ZonedDateTime tiempoPedidoUTC = envio.getZonedFechaIngreso()
+                    .withZoneSameInstant(ZoneOffset.UTC);
 
             // Filtrar según el modo de simulación
             boolean incluirPedido = false;
 
             if(modoSimulacion == ModoSimulacion.SEMANAL) {
                 // En modo semanal, solo incluir pedidos dentro del rango fechaInicioSimulacion - fechaFinSimulacion
-                if(!tiempoPedido.isBefore(fechaInicioSimulacion) && !tiempoPedido.isAfter(fechaFinSimulacion)) {
-                    // Y además deben estar en el horizonte actual
-                    if(!tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin)) {
-                        incluirPedido = true;
+                if(fechaInicioSimulacionUTC != null && fechaFinSimulacionUTC != null) {
+                    if(!tiempoPedidoUTC.isBefore(fechaInicioSimulacionUTC) &&
+                       !tiempoPedidoUTC.isAfter(fechaFinSimulacionUTC)) {
+                        // Y además deben estar en el horizonte actual
+                        if(!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
+                            incluirPedido = true;
+                        }
                     }
                 }
             } else if(modoSimulacion == ModoSimulacion.COLAPSO) {
                 // En modo colapso, solo incluir pedidos desde fechaInicioSimulacion en adelante
-                if(!tiempoPedido.isBefore(fechaInicioSimulacion)) {
-                    // Y además deben estar en el horizonte actual
-                    if(!tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin)) {
-                        incluirPedido = true;
+                if(fechaInicioSimulacionUTC != null) {
+                    if(!tiempoPedidoUTC.isBefore(fechaInicioSimulacionUTC)) {
+                        // Y además deben estar en el horizonte actual
+                        if(!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
+                            incluirPedido = true;
+                        }
                     }
                 }
             } else {
                 // Modo normal - comportamiento original
-                if(!tiempoPedido.isBefore(inicio) && tiempoPedido.isBefore(fin)) {
+                if(!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
                     incluirPedido = true;
                 }
             }
