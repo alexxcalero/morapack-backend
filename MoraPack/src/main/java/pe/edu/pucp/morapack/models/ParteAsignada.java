@@ -45,6 +45,9 @@ public class ParteAsignada {
     @JoinColumn(name = "id_aeropuerto_origen")
     private Aeropuerto aeropuertoOrigen;
 
+    // Indica si el producto ya fue entregado al cliente (liberado del aeropuerto destino)
+    private Boolean entregado = false;
+
     public ParteAsignada(List<PlanDeVuelo> ruta, ZonedDateTime llegadaFinal, Integer cantidad, Aeropuerto aeropuertoOrigen) {
         this.ruta = ruta;
         this.llegadaFinal = llegadaFinal;
