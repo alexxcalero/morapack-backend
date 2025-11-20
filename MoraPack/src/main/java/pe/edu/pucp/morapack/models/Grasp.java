@@ -60,14 +60,19 @@ public class Grasp {
         // Finalmente, lo que se va a obtener es un mapa, donde la llave es cada fecha
         // de aparicion
         // de un envio, y el valor es una lista con los pedidos realizados ese dia
+        // ✅ IMPORTANTE: Convertir a UTC para agrupar correctamente considerando husos horarios
         this.enviosPorDia = new HashMap<>();
-        this.enviosPorDia = envios.stream().collect(Collectors.groupingBy(e -> e.getZonedFechaIngreso().toLocalDateTime()));
+        this.enviosPorDia = envios.stream().collect(Collectors.groupingBy(e ->
+            e.getZonedFechaIngreso()
+                .withZoneSameInstant(java.time.ZoneOffset.UTC)
+                .toLocalDateTime()));
 
         // Aqui lo que se realiza es la obtencion de todas las fechas en donde hayan
         // aparecido pedidos, se ordenan ascendentemente
         // de acuerdo a la fecha, y finalmente se utiliza para poder imprimir la
         // cantidad de dias a planificar
         // Tener en cuenta que el archivo de envios deberia ser de un mes solo
+        // ✅ Las fechas ya están en UTC, por lo que el ordenamiento es correcto
         this.dias = new ArrayList<>();
         this.dias = this.enviosPorDia.keySet().stream().sorted().collect(Collectors.toList());
     }

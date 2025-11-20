@@ -539,6 +539,36 @@ public class PlanificadorController {
         return response;
     }
 
+    // Endpoint para obtener el resumen de la última simulación
+    @GetMapping("/resumen-planificacion")
+    public Map<String, Object> obtenerResumenPlanificacion() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Si no hay planificador en memoria, crear uno temporal para acceder al método
+            // o cargar desde BD directamente
+            if(planificador == null) {
+                // Crear un planificador temporal para usar sus métodos de servicio
+                // Esto permite obtener el resumen incluso después de reiniciar la aplicación
+                Grasp grasp = new Grasp();
+                planificador = new Planificador(grasp, webSocketService, envioService,
+                    planDeVueloService, aeropuertoService);
+            }
+
+            Map<String, Object> resumen = planificador.obtenerResumenUltimaSimulacion();
+
+            response.put("estado", "éxito");
+            response.putAll(resumen);
+
+        } catch(Exception e) {
+            response.put("estado", "error");
+            response.put("mensaje", "Error al obtener resumen de planificación: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return response;
+    }
+
     @GetMapping("/vuelos-ultimo-ciclo")
     public Map<String, Object> obtenerVuelosUltimoCiclo() {
         Map<String, Object> response = new HashMap<>();
