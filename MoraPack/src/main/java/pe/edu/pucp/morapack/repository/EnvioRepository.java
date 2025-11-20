@@ -7,11 +7,16 @@ import org.springframework.stereotype.Repository;
 import pe.edu.pucp.morapack.models.Envio;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 
 @Repository
 public interface EnvioRepository extends JpaRepository<Envio, Integer> {
     @Query("SELECT e FROM Envio e WHERE FUNCTION('DATE', e.fechaIngreso) = :fecha")
     ArrayList<Envio> findByFechaIngreso(LocalDate fecha);
+
+    @Query("SELECT e FROM Envio e WHERE e.aeropuertoOrigen.id = :idAeropuerto")
+    ArrayList<Envio> findByAeropuertoOrigen(@Param("idAeropuerto") Integer idAeropuerto);
+
+    @Query("SELECT e FROM Envio e WHERE e.aeropuertoDestino.id = :idAeropuerto")
+    ArrayList<Envio> findByAeropuertoDestino(@Param("idAeropuerto") Integer idAeropuerto);
 }

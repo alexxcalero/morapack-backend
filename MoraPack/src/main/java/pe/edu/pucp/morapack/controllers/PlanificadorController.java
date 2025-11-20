@@ -410,6 +410,10 @@ public class PlanificadorController {
             response.put("estadisticas", planificador.getEstadisticasActuales());
         }
 
+        // Agregar información de pedidos clasificados por estado
+        Map<String, Object> pedidosConEstado = envioService.obtenerPedidosConEstado();
+        response.put("pedidosClasificados", pedidosConEstado);
+
         return response;
     }
 

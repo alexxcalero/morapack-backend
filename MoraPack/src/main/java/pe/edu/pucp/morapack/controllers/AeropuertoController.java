@@ -6,11 +6,10 @@ import org.springframework.web.multipart.MultipartFile;
 import pe.edu.pucp.morapack.models.Aeropuerto;
 import pe.edu.pucp.morapack.models.Continente;
 import pe.edu.pucp.morapack.models.Pais;
-import pe.edu.pucp.morapack.services.AeropuertoService;
-import pe.edu.pucp.morapack.services.ContinenteService;
-import pe.edu.pucp.morapack.services.PaisService;
+import pe.edu.pucp.morapack.models.Envio;
 import pe.edu.pucp.morapack.services.servicesImp.AeropuertoServiceImp;
 import pe.edu.pucp.morapack.services.servicesImp.ContinenteServiceImp;
+import pe.edu.pucp.morapack.services.servicesImp.EnvioServiceImp;
 import pe.edu.pucp.morapack.services.servicesImp.PaisServiceImp;
 
 import java.io.File;
@@ -31,6 +30,7 @@ public class AeropuertoController {
     private final AeropuertoServiceImp aeropuertoService;
     private final PaisServiceImp paisService;
     private final ContinenteServiceImp continenteService;
+    private final EnvioServiceImp envioService;
 
     @PostMapping("insertar")
     Aeropuerto insertarAeropuerto(@RequestBody Aeropuerto aeropuerto) {
@@ -71,6 +71,26 @@ public class AeropuertoController {
                     aeropuertoMap.put("pais", a.getPais());
                     aeropuertoMap.put("capacidadOcupada", a.getCapacidadOcupada() != null ? a.getCapacidadOcupada() : 0);
                     aeropuertoMap.put("capacidadMaxima", a.getCapacidadMaxima());
+
+                    // Obtener envíos que están físicamente en este aeropuerto
+                    ArrayList<Envio> enviosEnAeropuerto = envioService.obtenerEnviosFisicamenteEnAeropuerto(a.getId());
+
+                    // Convertir a lista de mapas para el frontend
+                    List<Map<String, Object>> enviosList = enviosEnAeropuerto.stream()
+                            .map(envio -> {
+                                Map<String, Object> envioMap = new HashMap<>();
+                                envioMap.put("id", envio.getId());
+                                envioMap.put("idEnvioPorAeropuerto", envio.getIdEnvioPorAeropuerto());
+                                envioMap.put("numProductos", envio.getNumProductos());
+                                envioMap.put("cliente", envio.getCliente());
+                                envioMap.put("fechaIngreso", envio.getFechaIngreso());
+                                envioMap.put("fechaLlegadaMax", envio.getFechaLlegadaMax());
+                                return envioMap;
+                            })
+                            .collect(java.util.stream.Collectors.toList());
+
+                    aeropuertoMap.put("envios", enviosList);
+
                     return aeropuertoMap;
                 })
                 .collect(java.util.stream.Collectors.toList());

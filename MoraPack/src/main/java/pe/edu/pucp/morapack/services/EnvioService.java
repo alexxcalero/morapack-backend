@@ -6,6 +6,7 @@ import pe.edu.pucp.morapack.models.Pais;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.Optional;
 
 public interface EnvioService {
@@ -15,4 +16,9 @@ public interface EnvioService {
     Optional<Envio> obtenerEnvioPorId(Integer id);
     ArrayList<Envio> obtenerEnviosPorFecha(LocalDate fecha);
     Integer calcularTotalProductosEnvio(ArrayList<Envio> envios);
+    ArrayList<Envio> obtenerEnviosPorAeropuertoOrigen(Integer idAeropuerto);
+    ArrayList<Envio> obtenerEnviosPorAeropuertoDestino(Integer idAeropuerto);
+    ArrayList<Envio> obtenerEnviosFisicamenteEnAeropuerto(Integer idAeropuerto);
+    String determinarEstadoPedido(Envio envio);
+    Map<String, Object> obtenerPedidosConEstado();
 }

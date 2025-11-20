@@ -570,6 +570,7 @@ public class Planificador {
         this.estadisticas.put("ultimaEjecucion", LocalDateTime.now().toString());
         this.estadisticas.put("promedioEjecucionSegundos", calcularPromedioEjecucion());
         this.estadisticas.put("totalEnviosProcesados", calcularTotalEnviosProcesados());
+        this.estadisticas.put("totalPedidosPlanificados", calcularTotalPedidosPlanificados());
     }
 
     private void actualizarEstadisticasVacio(int ciclo) {
@@ -631,6 +632,29 @@ public class Planificador {
                 .filter(cycle -> cycle.containsKey("totalEnvios"))
                 .mapToInt(cycle -> (Integer) cycle.get("totalEnvios"))
                 .sum();
+    }
+
+    /**
+     * Calcula el total de pedidos planificados basándose en los envíos que tienen
+     * al menos una parte asignada (es decir, que tienen una ruta de vuelos asignada)
+     */
+    private int calcularTotalPedidosPlanificados() {
+        try {
+            List<Envio> envios = envioService.obtenerEnvios();
+            int totalPlanificados = 0;
+
+            for(Envio envio : envios) {
+                // Un pedido está planificado si tiene al menos una parte asignada
+                if(envio.getParteAsignadas() != null && !envio.getParteAsignadas().isEmpty()) {
+                    totalPlanificados++;
+                }
+            }
+
+            return totalPlanificados;
+        } catch(Exception e) {
+            System.err.printf("❌ Error al calcular pedidos planificados: %s%n", e.getMessage());
+            return 0;
+        }
     }
 
     // Metodo adicional útil para el controller

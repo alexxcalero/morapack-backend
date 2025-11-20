@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Scanner;
 
@@ -55,6 +56,11 @@ public class EnvioController {
         LocalDate localDate = LocalDate.parse(fecha, formatter);
 
         return envioService.obtenerEnviosPorFecha(localDate);
+    }
+
+    @GetMapping("obtenerPedidosConEstado")
+    public Map<String, Object> obtenerPedidosConEstado() {
+        return envioService.obtenerPedidosConEstado();
     }
 
     @PostMapping("lecturaArchivo")
