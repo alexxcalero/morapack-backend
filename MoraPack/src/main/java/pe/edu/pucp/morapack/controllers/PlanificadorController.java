@@ -10,9 +10,14 @@ import pe.edu.pucp.morapack.repository.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.InputStream;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.Optional;
+import java.util.Scanner;
 import java.util.stream.Collectors;
 
 @CrossOrigin(origins = "*")
@@ -141,6 +146,19 @@ public class PlanificadorController {
                 response.put("mensaje", "La fecha de inicio debe ser anterior a la fecha de fin");
                 return response;
             }
+
+            // Cargar vuelos para la semana desde el archivo
+            System.out.println("📂 Cargando vuelos para la semana desde archivo...");
+            LocalDate fechaBase = fechaInicio.toLocalDate();
+            ArrayList<PlanDeVuelo> planesCargados = cargarVuelosParaSemanaDesdeArchivo(fechaBase);
+
+            if(planesCargados.isEmpty()) {
+                response.put("estado", "error");
+                response.put("mensaje", "No se pudieron cargar vuelos desde el archivo. Verifique que el archivo existe en src/main/resources/planes/vuelos.txt");
+                return response;
+            }
+
+            System.out.println("✅ Vuelos cargados: " + planesCargados.size() + " vuelos para 7 días");
 
             // Cargar datos necesarios
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
@@ -373,6 +391,10 @@ public class PlanificadorController {
             Query queryPartes = entityManager.createNativeQuery("DELETE FROM parte_asignada");
             partesEliminadas = queryPartes.executeUpdate();
 
+            // 6. Eliminar todos los planes de vuelo usando SQL nativo
+            Query queryVuelos = entityManager.createNativeQuery("DELETE FROM plan_de_vuelo");
+            int vuelosEliminados = queryVuelos.executeUpdate();
+
             // Hacer flush para asegurar que los cambios se apliquen
             entityManager.flush();
 
@@ -381,6 +403,7 @@ public class PlanificadorController {
             response.put("detalles", Map.of(
                     "aeropuertosActualizados", aeropuertosActualizados,
                     "planesActualizados", planesActualizados,
+                    "vuelosEliminados", vuelosEliminados,
                     "relacionesVuelosEliminadas", relacionesVuelosEliminadas,
                     "partesEliminadas", partesEliminadas,
                     "enviosActualizados", enviosActualizados
@@ -832,5 +855,170 @@ public class PlanificadorController {
         }
 
         return "N/A";
+    }
+
+    /**
+     * Carga vuelos desde el archivo vuelos.txt para los 7 días de la semana
+     * @param fechaBase Fecha base (primer día de la semana)
+     * @return Lista de planes de vuelo generados para 7 días
+     */
+    private ArrayList<PlanDeVuelo> cargarVuelosParaSemanaDesdeArchivo(LocalDate fechaBase) {
+        ArrayList<PlanDeVuelo> planes = new ArrayList<>();
+        Scanner scanner = null;
+        InputStream inputStream = null;
+
+        try {
+            // Intentar leer desde el classpath primero (funciona en JAR y en desarrollo)
+            inputStream = getClass().getClassLoader().getResourceAsStream("planes/vuelos.txt");
+
+            if(inputStream != null) {
+                System.out.println("📂 Leyendo archivo desde classpath: planes/vuelos.txt");
+                scanner = new Scanner(inputStream, "UTF-8");
+            } else {
+                // Si no se encuentra en el classpath, intentar como archivo del sistema
+                File planesFile = new File("src/main/resources/planes/vuelos.txt");
+
+                if(!planesFile.exists()) {
+                    // También intentar desde la raíz del proyecto
+                    planesFile = new File("planes/vuelos.txt");
+
+                    if(!planesFile.exists()) {
+                        // Intentar con ruta absoluta relativa al directorio de trabajo
+                        String workingDir = System.getProperty("user.dir");
+                        planesFile = new File(workingDir + "/src/main/resources/planes/vuelos.txt");
+                    }
+                }
+
+                if(planesFile.exists()) {
+                    System.out.println("📂 Leyendo archivo desde sistema de archivos: " + planesFile.getAbsolutePath());
+                    scanner = new Scanner(planesFile, "UTF-8");
+                } else {
+                    System.err.println("❌ Archivo no encontrado. Buscado en:");
+                    System.err.println("  - classpath:planes/vuelos.txt");
+                    System.err.println("  - src/main/resources/planes/vuelos.txt");
+                    System.err.println("  - planes/vuelos.txt");
+                    System.err.println("  - " + System.getProperty("user.dir") + "/src/main/resources/planes/vuelos.txt");
+                    return planes;
+                }
+            }
+
+            // Procesar el archivo
+            planes = procesarArchivoVuelos(scanner, fechaBase);
+
+            System.out.println("📊 Vuelos procesados del archivo: " + planes.size());
+
+            // Guardar todos los vuelos en la base de datos
+            if(!planes.isEmpty()) {
+                planDeVueloService.insertarListaPlanesDeVuelo(planes);
+                System.out.println("✅ Se generaron " + planes.size() + " vuelos para 7 días (desde " + fechaBase + " hasta " + fechaBase.plusDays(6) + ")");
+            } else {
+                System.err.println("⚠️  El archivo se leyó pero no se generaron vuelos. Verifique el formato del archivo.");
+            }
+
+        } catch(FileNotFoundException e) {
+            System.err.println("❌ Archivo de vuelos no encontrado: " + e.getMessage());
+            e.printStackTrace();
+        } catch(Exception e) {
+            System.err.println("❌ Error al cargar vuelos desde archivo: " + e.getMessage());
+            e.printStackTrace();
+        } finally {
+            // Cerrar recursos
+            if(scanner != null) {
+                scanner.close();
+            }
+            if(inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch(Exception e) {
+                    System.err.println("Error al cerrar inputStream: " + e.getMessage());
+                }
+            }
+        }
+
+        return planes;
+    }
+
+    /**
+     * Procesa el archivo de vuelos y genera planes de vuelo para 7 días
+     * @param scanner Scanner del archivo
+     * @param fechaBase Fecha base (primer día de la semana)
+     * @return Lista de planes de vuelo generados
+     */
+    private ArrayList<PlanDeVuelo> procesarArchivoVuelos(Scanner scanner, LocalDate fechaBase) {
+        ArrayList<PlanDeVuelo> planes = new ArrayList<>();
+
+        while(scanner.hasNextLine()) {
+            String row = scanner.nextLine().trim();
+
+            if(row.isEmpty()) {
+                continue;
+            }
+
+            String[] data = row.split("-");
+
+            // Formato: ORIGEN-DESTINO-HORA_ORIGEN-HORA_DESTINO-CAPACIDAD
+            if(data.length >= 5) {
+                Optional<Aeropuerto> aeropuertoOptionalOrig = aeropuertoService.obtenerAeropuertoPorCodigo(data[0]);
+                Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[1]);
+
+                if(aeropuertoOptionalOrig.isPresent() && aeropuertoOptionalDest.isPresent()) {
+                    Aeropuerto aeropuertoOrigen = aeropuertoOptionalOrig.get();
+                    Aeropuerto aeropuertoDest = aeropuertoOptionalDest.get();
+
+                    Integer ciudadOrigen = aeropuertoOrigen.getId();
+                    Integer ciudadDestino = aeropuertoDest.getId();
+                    String husoOrigen = aeropuertoOrigen.getHusoHorario();
+                    String husoDestino = aeropuertoDest.getHusoHorario();
+
+                    LocalTime hI = LocalTime.parse(data[2]);
+                    LocalTime hF = LocalTime.parse(data[3]);
+                    Integer capacidad = Integer.parseInt(data[4]);
+
+                    // Generar vuelos para los 7 días de la semana
+                    for(int diaOffset = 0; diaOffset < 7; diaOffset++) {
+                        LocalDate fechaVuelo = fechaBase.plusDays(diaOffset);
+
+                        LocalDateTime fechaInicio = LocalDateTime.of(fechaVuelo, hI);
+                        LocalDateTime fechaFin;
+
+                        // Calcular si el vuelo acaba en el mismo o diferente día
+                        Integer cantDias = planDeVueloService.planAcabaAlSiguienteDia(
+                                data[2], data[3], husoOrigen, husoDestino,
+                                fechaVuelo.getYear(), fechaVuelo.getMonthValue(), fechaVuelo.getDayOfMonth()
+                        );
+
+                        fechaFin = LocalDateTime.of(fechaVuelo, hF).plusDays(cantDias);
+
+                        // Verificar si mismo continente
+                        Integer contOrig = aeropuertoOrigen.getPais() != null
+                                ? aeropuertoOrigen.getPais().getIdContinente()
+                                : null;
+                        Integer contDest = aeropuertoDest.getPais() != null
+                                ? aeropuertoDest.getPais().getIdContinente()
+                                : null;
+                        Boolean mismoContinente = (contOrig != null && contDest != null)
+                                ? contOrig.equals(contDest)
+                                : null;
+
+                        PlanDeVuelo plan = PlanDeVuelo.builder()
+                                .ciudadOrigen(ciudadOrigen)
+                                .ciudadDestino(ciudadDestino)
+                                .horaOrigen(fechaInicio)
+                                .horaDestino(fechaFin)
+                                .husoHorarioOrigen(husoOrigen)
+                                .husoHorarioDestino(husoDestino)
+                                .capacidadMaxima(capacidad)
+                                .mismoContinente(mismoContinente)
+                                .capacidadOcupada(0)
+                                .estado(1)
+                                .build();
+
+                        planes.add(plan);
+                    }
+                }
+            }
+        }
+
+        return planes;
     }
 }
