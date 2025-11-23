@@ -19,6 +19,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws-planificacion").setAllowedOriginPatterns("*").withSockJS();
+        // Definimos orígenes explícitos para evitar problemas CORS en el handshake
+        // SockJS /info
+        registry.addEndpoint("/ws-planificacion")
+                .setAllowedOrigins(
+                        "http://localhost:3000",
+                        "https://1inf54-981-5e.inf.pucp.edu.pe",
+                        "http://1inf54-981-5e.inf.pucp.edu.pe")
+                .withSockJS();
     }
 }
