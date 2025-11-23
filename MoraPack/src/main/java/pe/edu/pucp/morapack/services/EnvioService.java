@@ -21,4 +21,6 @@ public interface EnvioService {
     ArrayList<Envio> obtenerEnviosFisicamenteEnAeropuerto(Integer idAeropuerto);
     String determinarEstadoPedido(Envio envio);
     Map<String, Object> obtenerPedidosConEstado();
+    ArrayList<Envio> obtenerEnviosEnRango(LocalDateTime fechaInicio, String husoHorarioInicio, LocalDateTime fechaFin, String husoHorarioFin);
+    ArrayList<Envio> obtenerEnviosDesdeFecha(LocalDateTime fechaInicio, String husoHorarioInicio);
 }

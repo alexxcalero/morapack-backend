@@ -14,6 +14,7 @@ import pe.edu.pucp.morapack.services.servicesImp.PaisServiceImp;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -131,35 +132,76 @@ public class EnvioController {
         return envios;
     }
 
-    /*
-    @PostMapping("LecturaArchivoBack")
-    public ArrayList<Envio> cargarEnviosBack() {
+    @PostMapping("leerArchivoBack")
+    public ArrayList<Envio> leerArchivoBack() {
         long startTime = System.currentTimeMillis();
         ArrayList<Envio> envios = new ArrayList<>();
+        Scanner scanner = null;
+        InputStream inputStream = null;
+
         try {
-            File enviosFile = new File("src/main/resources/envios/envios.txt");
-            Scanner scanner = new Scanner(enviosFile);
+            // Intentar leer desde el classpath primero (funciona en JAR y en desarrollo)
+            inputStream = getClass().getClassLoader().getResourceAsStream("envios/pedidos-diciembre22-31.txt");
+
+            if (inputStream != null) {
+                System.out.println("📂 Leyendo archivo desde classpath: envios/pedidos-diciembre22-31.txt");
+                scanner = new Scanner(inputStream, "UTF-8");
+            } else {
+                // Si no se encuentra en el classpath, intentar como archivo del sistema
+                File enviosFile = new File("src/main/resources/envios/pedidos-diciembre22-31.txt");
+
+                if (!enviosFile.exists()) {
+                    // También intentar desde la raíz del proyecto
+                    enviosFile = new File("envios/pedidos-diciembre22-31.txt");
+
+                    if (!enviosFile.exists()) {
+                        // Intentar con ruta absoluta relativa al directorio de trabajo
+                        String workingDir = System.getProperty("user.dir");
+                        enviosFile = new File(workingDir + "/src/main/resources/envios/pedidos-diciembre22-31.txt");
+                    }
+                }
+
+                if (enviosFile.exists()) {
+                    System.out.println("📂 Leyendo archivo desde sistema de archivos: " + enviosFile.getAbsolutePath());
+                    scanner = new Scanner(enviosFile, "UTF-8");
+                } else {
+                    System.err.println("❌ Archivo no encontrado. Buscado en:");
+                    System.err.println("  - classpath:envios/pedidos-diciembre22-31.txt");
+                    System.err.println("  - src/main/resources/envios/pedidos-diciembre22-31.txt");
+                    System.err.println("  - envios/pedidos-diciembre22-31.txt");
+                    System.err.println("  - " + System.getProperty("user.dir") + "/src/main/resources/envios/pedidos-diciembre22-31.txt");
+                    return envios;
+                }
+            }
+
+            // Procesar el archivo (misma lógica que lecturaArchivo)
             Integer i = 0;
             while (scanner.hasNextLine()) {
-                String row = scanner.nextLine();
-                String data[] = row.split("-");
+                String linea = scanner.nextLine().trim();
+                if (linea.isEmpty()) {
+                    continue;
+                }
+
+                String data[] = linea.split("-");
                 if (data.length > 1) {
-                    Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[3]);
+                    Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[4]);
                     if (aeropuertoOptionalDest.isPresent()) {
-                        Integer anho = 2025;
-                        Integer mes = 1;
-                        Integer dia = Integer.parseInt(data[0]);
-                        Integer hora = Integer.parseInt(data[1]);
-                        Integer minutos = Integer.parseInt(data[2]);
-                        Integer numProductos = Integer.parseInt(data[4]);
-                        String cliente = data[5];
+                        Long idEnvioPorAeropuerto = Long.valueOf(data[0]);
+                        Integer anho = Integer.parseInt(data[1].substring(0, 4));
+                        Integer mes = Integer.parseInt(data[1].substring(4, 6));
+                        Integer dia = Integer.parseInt(data[1].substring(6, 8));
+                        Integer hora = Integer.parseInt(data[2]);
+                        Integer minutos = Integer.parseInt(data[3]);
+                        Integer numProductos = Integer.parseInt(data[5]);
+                        String cliente = data[6];
 
                         LocalDateTime fechaIngreso = LocalDateTime.of(LocalDate.of(anho, mes, dia),
                                 LocalTime.of(hora, minutos, 0));
 
                         String husoCiudadDestino = aeropuertoOptionalDest.get().getHusoHorario();
 
-                        Envio newEnvio = new Envio(fechaIngreso, husoCiudadDestino, aeropuertoOptionalDest.get(), numProductos, cliente);
+                        Envio newEnvio = new Envio(idEnvioPorAeropuerto, fechaIngreso, husoCiudadDestino, aeropuertoOptionalDest.get(), numProductos, cliente);
+
                         ArrayList<Aeropuerto> hubs = new ArrayList<>();
                         String[] hubCodes = { "SPIM", "EBCI", "UBBB" };
 
@@ -188,20 +230,45 @@ public class EnvioController {
                         envios.add(newEnvio);
                     }
                 }
-                System.out.println("Envio #" + i);
                 i++;
+                System.out.println("Envio #" + i);
             }
-        } catch (FileNotFoundException e) {
-            System.out.println("Archivo de pedidos no encontrado, error: " + e.getMessage());
-        }
 
-        envioService.insertarListaEnvios(envios);
+            System.out.println("📊 Envíos procesados del archivo: " + envios.size());
+
+            // Guardar todos los envíos en la base de datos
+            if (!envios.isEmpty()) {
+                envioService.insertarListaEnvios(envios);
+                System.out.println("✅ Se cargaron " + envios.size() + " envíos desde el archivo");
+            } else {
+                System.err.println("⚠️  El archivo se leyó pero no se generaron envíos. Verifique el formato del archivo.");
+            }
+
+        } catch (FileNotFoundException e) {
+            System.err.println("❌ Archivo de pedidos no encontrado: " + e.getMessage());
+            e.printStackTrace();
+        } catch (Exception e) {
+            System.err.println("❌ Error al cargar envíos desde archivo: " + e.getMessage());
+            e.printStackTrace();
+        } finally {
+            // Cerrar recursos
+            if (scanner != null) {
+                scanner.close();
+            }
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException e) {
+                    System.err.println("Error al cerrar inputStream: " + e.getMessage());
+                }
+            }
+        }
 
         long endTime = System.currentTimeMillis();
         long durationInMillis = endTime - startTime;
         double durationInSeconds = durationInMillis / 1000.0;
-        System.out.println("Tiempo de ejecucion: " + durationInSeconds + " segundos");
+        System.out.println("⏱️ Tiempo de ejecución: " + durationInSeconds + " segundos");
         return envios;
     }
-    */
+
 }

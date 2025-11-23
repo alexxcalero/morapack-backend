@@ -27,4 +27,21 @@ public interface PlanDeVueloRepository extends JpaRepository<PlanDeVuelo, Intege
             "JOIN Aeropuerto ao ON p.ciudadOrigen = ao.id " +
             "JOIN Aeropuerto ad ON p.ciudadDestino = ad.id")
     ArrayList<PlanDeVueloResponse> queryPlanDeVueloWithAeropuerto();
+
+    /**
+     * Obtiene vuelos cuya hora de origen está dentro del rango especificado.
+     * Esta consulta es optimizada para trabajar con índices en horaOrigen.
+     */
+    @Query("SELECT p FROM PlanDeVuelo p WHERE p.horaOrigen >= :fechaInicio AND p.horaOrigen <= :fechaFin")
+    ArrayList<PlanDeVuelo> findByHoraOrigenBetween(
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin
+    );
+
+    /**
+     * Obtiene vuelos cuya hora de origen es igual o posterior a la fecha especificada.
+     * Esta consulta es optimizada para trabajar con índices en horaOrigen.
+     */
+    @Query("SELECT p FROM PlanDeVuelo p WHERE p.horaOrigen >= :fechaInicio")
+    ArrayList<PlanDeVuelo> findByHoraOrigenGreaterThanEqual(@Param("fechaInicio") LocalDateTime fechaInicio);
 }

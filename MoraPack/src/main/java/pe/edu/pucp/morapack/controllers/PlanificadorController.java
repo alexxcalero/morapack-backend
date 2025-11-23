@@ -111,9 +111,102 @@ public class PlanificadorController {
         return response;
     }
 
-    // Endpoint para iniciar simulación semanal
+    // Endpoint para iniciar simulación semanal (sin generar vuelos)
     @PostMapping("/iniciar-simulacion-semanal")
     public Map<String, Object> iniciarSimulacionSemanal(@RequestBody Map<String, String> request) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Sincronizar el flag con el estado real del planificador
+            if(planificador != null && planificador.estaEnEjecucion()) {
+                planificadorIniciado = true;
+                response.put("estado", "error");
+                response.put("mensaje", "El planificador ya está en ejecución");
+                return response;
+            } else {
+                planificadorIniciado = false;
+            }
+
+            // Validar parámetros
+            String fechaInicioStr = request.get("fechaInicio");
+            String fechaFinStr = request.get("fechaFin");
+
+            if(fechaInicioStr == null || fechaFinStr == null) {
+                response.put("estado", "error");
+                response.put("mensaje", "Se requieren los parámetros 'fechaInicio' y 'fechaFin' en formato 'yyyy-MM-ddTHH:mm:ss'");
+                return response;
+            }
+
+            // Parsear fechas
+            LocalDateTime fechaInicio = LocalDateTime.parse(fechaInicioStr);
+            LocalDateTime fechaFin = LocalDateTime.parse(fechaFinStr);
+
+            if(fechaInicio.isAfter(fechaFin)) {
+                response.put("estado", "error");
+                response.put("mensaje", "La fecha de inicio debe ser anterior a la fecha de fin");
+                return response;
+            }
+
+            // Cargar datos necesarios
+            ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+            ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
+            ArrayList<Pais> paises = paisService.obtenerTodosPaises();
+            ArrayList<Envio> envios = envioService.obtenerEnvios();
+            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerListaPlanesDeVuelo();
+
+            System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL");
+            System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
+                    ", planes=" + planes.size() + ", envios=" + envios.size());
+
+            // Configurar GRASP
+            Grasp grasp = new Grasp();
+            grasp.setAeropuertos(aeropuertos);
+            grasp.setContinentes(continentes);
+            grasp.setPaises(paises);
+            grasp.setEnvios(envios);
+            grasp.setPlanesDeVuelo(planes);
+            grasp.setHubsPropio();
+
+            // Configurar hubs para los envíos
+            ArrayList<Aeropuerto> hubs = grasp.getHubs();
+            if(hubs != null && !hubs.isEmpty()) {
+                ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
+                for(Envio e : grasp.getEnvios()) {
+                    e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
+                }
+            }
+
+            // Crear e iniciar el planificador en modo SEMANAL
+            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService, aeropuertoService);
+            planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.SEMANAL, fechaInicio, fechaFin);
+
+            planificadorIniciado = true;
+
+            response.put("estado", "éxito");
+            response.put("mensaje", "Simulación semanal iniciada correctamente");
+            response.put("configuracion", Map.of(
+                    "modo", "SEMANAL",
+                    "fechaInicio", fechaInicio.toString(),
+                    "fechaFin", fechaFin.toString(),
+                    "sa_minutos", 5,
+                    "k_factor", 24,
+                    "ta_segundos", 150,
+                    "sc_minutos", 120
+            ));
+            response.put("timestamp", LocalDateTime.now().toString());
+
+        } catch(Exception e) {
+            response.put("estado", "error");
+            response.put("mensaje", "Error al iniciar simulación semanal: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return response;
+    }
+
+    // Endpoint para iniciar simulación semanal v2 (con generación de vuelos)
+    @PostMapping("/iniciar-simulacion-semanal-v2")
+    public Map<String, Object> iniciarSimulacionSemanalV2(@RequestBody Map<String, String> request) {
         Map<String, Object> response = new HashMap<>();
 
         try {
@@ -391,9 +484,7 @@ public class PlanificadorController {
             Query queryPartes = entityManager.createNativeQuery("DELETE FROM parte_asignada");
             partesEliminadas = queryPartes.executeUpdate();
 
-            // 6. Eliminar todos los planes de vuelo usando SQL nativo
-            Query queryVuelos = entityManager.createNativeQuery("DELETE FROM plan_de_vuelo");
-            int vuelosEliminados = queryVuelos.executeUpdate();
+            // Nota: Los planes de vuelo ya no se eliminan, solo se resetean sus capacidades ocupadas
 
             // Hacer flush para asegurar que los cambios se apliquen
             entityManager.flush();
@@ -403,7 +494,6 @@ public class PlanificadorController {
             response.put("detalles", Map.of(
                     "aeropuertosActualizados", aeropuertosActualizados,
                     "planesActualizados", planesActualizados,
-                    "vuelosEliminados", vuelosEliminados,
                     "relacionesVuelosEliminadas", relacionesVuelosEliminadas,
                     "partesEliminadas", partesEliminadas,
                     "enviosActualizados", enviosActualizados

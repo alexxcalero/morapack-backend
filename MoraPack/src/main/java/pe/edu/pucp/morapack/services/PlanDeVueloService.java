@@ -14,4 +14,6 @@ public interface PlanDeVueloService {
     ArrayList<PlanDeVueloResponse> obtenerPlanesDeVuelo();
     ArrayList<PlanDeVuelo> obtenerListaPlanesDeVuelo();
     Integer planAcabaAlSiguienteDia(String tInicio, String tFin, String husoOrigen, String husoDestino, Integer aa, Integer mm, Integer dd);
+    ArrayList<PlanDeVuelo> obtenerVuelosEnRango(LocalDateTime fechaInicio, String husoHorarioInicio, LocalDateTime fechaFin, String husoHorarioFin);
+    ArrayList<PlanDeVuelo> obtenerVuelosDesdeFecha(LocalDateTime fechaInicio, String husoHorarioInicio);
 }

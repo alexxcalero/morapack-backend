@@ -901,8 +901,7 @@ public class Planificador {
                                 aeropuertosActualizados.put(aeropuertoDestinoId, aeropuerto);
                             }
 
-                            Aeropuerto aeropuertoParaActualizar =
-                                aeropuertosActualizados.get(aeropuertoDestinoId);
+                            Aeropuerto aeropuertoParaActualizar = aeropuertosActualizados.get(aeropuertoDestinoId);
                             aeropuertoParaActualizar.desasignarCapacidad(parte.getCantidad());
 
                             productosLiberados += parte.getCantidad();
