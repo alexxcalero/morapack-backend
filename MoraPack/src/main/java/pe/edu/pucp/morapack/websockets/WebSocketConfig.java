@@ -19,13 +19,16 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // Definimos orígenes explícitos para evitar problemas CORS en el handshake
-        // SockJS /info
+        // WebSocket directo sin SockJS (más simple, evita problemas CORS con /info)
         registry.addEndpoint("/ws-planificacion")
                 .setAllowedOrigins(
                         "http://localhost:3000",
                         "https://1inf54-981-5e.inf.pucp.edu.pe",
-                        "http://1inf54-981-5e.inf.pucp.edu.pe")
-                .withSockJS();
+                        "http://1inf54-981-5e.inf.pucp.edu.pe");
+
+        // Alternativa con SockJS (comentada, si prefieres fallback)
+        // registry.addEndpoint("/ws-planificacion-sockjs")
+        // .setAllowedOrigins("http://localhost:3000", "...")
+        // .withSockJS();
     }
 }
