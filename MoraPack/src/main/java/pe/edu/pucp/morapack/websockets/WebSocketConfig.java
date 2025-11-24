@@ -21,12 +21,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(@NonNull StompEndpointRegistry registry) {
         // WebSocket directo sin SockJS (más simple, evita problemas CORS con /info)
+        // Para diagnóstico temporal: usar patrones en lugar de origins exactos.
+        // IMPORTANTE: Revertir a lista específica cuando se solucione el proxy.
         registry.addEndpoint("/ws-planificacion")
                 .addInterceptors(new LoggingHandshakeInterceptor())
-                .setAllowedOrigins(
-                        "http://localhost:3000",
-                        "https://1inf54-981-5e.inf.pucp.edu.pe",
-                        "http://1inf54-981-5e.inf.pucp.edu.pe");
+                .setAllowedOriginPatterns("*");
 
         // Alternativa con SockJS (comentada, si prefieres fallback)
         // registry.addEndpoint("/ws-planificacion-sockjs")

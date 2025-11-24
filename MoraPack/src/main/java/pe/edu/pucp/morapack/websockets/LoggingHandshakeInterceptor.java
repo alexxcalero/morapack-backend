@@ -26,7 +26,9 @@ public class LoggingHandshakeInterceptor implements HandshakeInterceptor {
             @NonNull WebSocketHandler wsHandler,
             @NonNull Map<String, Object> attributes) throws Exception {
         try {
-            log.info("[WS-HANDSHAKE] Inicio handshake: URI={}, Headers={}", request.getURI(), request.getHeaders());
+            String origin = request.getHeaders().getFirst("Origin");
+            log.info("[WS-HANDSHAKE] Inicio handshake: URI={} Origin={} Headers={}", request.getURI(), origin,
+                    request.getHeaders());
         } catch (Exception e) {
             log.warn("[WS-HANDSHAKE] Error log beforeHandshake", e);
         }
@@ -40,13 +42,16 @@ public class LoggingHandshakeInterceptor implements HandshakeInterceptor {
             @NonNull WebSocketHandler wsHandler,
             @Nullable Exception exception) {
         if (exception != null) {
-            log.error("[WS-HANDSHAKE] FALLO: URI={}, Exception={}", request.getURI(), exception.toString(), exception);
+            String origin = request.getHeaders().getFirst("Origin");
+            log.error("[WS-HANDSHAKE] FALLO: URI={} Origin={} Exception={}", request.getURI(), origin,
+                    exception.toString(), exception);
         } else {
             int status = -1;
             if (response instanceof ServletServerHttpResponse servletResp) {
                 status = servletResp.getServletResponse().getStatus();
             }
-            log.info("[WS-HANDSHAKE] Éxito: URI={}, ResponseHeaders={} Status={}", request.getURI(),
+            String origin = request.getHeaders().getFirst("Origin");
+            log.info("[WS-HANDSHAKE] Éxito: URI={} Origin={} ResponseHeaders={} Status={}", request.getURI(), origin,
                     response.getHeaders(), status);
         }
     }
