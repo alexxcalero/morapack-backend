@@ -2,6 +2,7 @@ package pe.edu.pucp.morapack.models;
 
 import jakarta.persistence.*;
 import lombok.*;
+import com.fasterxml.jackson.annotation.JsonBackReference;
 
 @Getter
 @Setter
@@ -18,6 +19,7 @@ public class ParteAsignadaPlanDeVuelo {
 
     @ManyToOne
     @JoinColumn(name = "id_parte_asignada", nullable = false)
+    @JsonBackReference
     private ParteAsignada parteAsignada;
 
     @ManyToOne(fetch = FetchType.EAGER)
