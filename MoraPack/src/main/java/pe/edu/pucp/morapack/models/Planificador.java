@@ -244,7 +244,8 @@ public class Planificador {
             this.finHorizonteUltimoCiclo = finHorizonte;
 
             // ✅ Liberar productos que llegaron al destino final hace más de 2 horas
-            liberarProductosEntregados(tiempoEjecucion);
+            // Usar el tiempo simulado (inicioHorizonte) en lugar del tiempo real
+            liberarProductosEntregados(inicioHorizonte);
 
             // ✅ Recargar estado actual de vuelos y aeropuertos para este ciclo
             recargarDatosBase(inicioHorizonte, finHorizonte);
@@ -825,20 +826,34 @@ public class Planificador {
      * que llegaron hace más de 2 horas (simulando que el cliente recogió el producto).
      * Solo aplica para productos que llegaron al aeropuerto destino final del envío.
      */
-    private void liberarProductosEntregados(LocalDateTime tiempoActual) {
+    private void liberarProductosEntregados(LocalDateTime tiempoSimulado) {
         try {
+            System.out.printf("🔍 [LiberarProductos] Iniciando verificación a las %s (tiempo simulado)%n",
+                tiempoSimulado.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+
             // Obtener todos los envíos de la BD
             List<Envio> envios = envioService.obtenerEnvios();
+            System.out.printf("🔍 [LiberarProductos] Total de envíos obtenidos: %d%n", envios.size());
+
             Map<Integer, Aeropuerto> aeropuertosActualizados = new HashMap<>();
             List<ParteAsignada> partesParaActualizar = new ArrayList<>();
             int productosLiberados = 0;
             int partesEntregadas = 0;
+            int enviosConPartes = 0;
+            int partesSinLlegadaFinal = 0;
+            int partesNoLlegaronDestino = 0;
+            int partesMenosDe2Horas = 0;
 
             for(Envio envio : envios) {
                 if(envio.getParteAsignadas() == null || envio.getAeropuertoDestino() == null) {
                     continue;
                 }
 
+                if(envio.getParteAsignadas().isEmpty()) {
+                    continue;
+                }
+
+                enviosConPartes++;
                 Integer aeropuertoDestinoId = envio.getAeropuertoDestino().getId();
 
                 for(ParteAsignada parte : envio.getParteAsignadas()) {
@@ -850,6 +865,7 @@ public class Planificador {
 
                     // Verificar que la parte tenga llegada final
                     if(parte.getLlegadaFinal() == null) {
+                        partesSinLlegadaFinal++;
                         continue;
                     }
 
@@ -870,53 +886,82 @@ public class Planificador {
 
                     // Solo procesar si llegó al destino final
                     if(!llegoADestinoFinal) {
+                        partesNoLlegaronDestino++;
                         continue;
                     }
 
-                    // Convertir tiempoActual a ZonedDateTime para comparar con llegadaFinal
+                    // Convertir tiempoSimulado a ZonedDateTime para comparar con llegadaFinal
                     // Usar el mismo timezone que la llegada final
-                    ZonedDateTime tiempoActualZoned;
+                    ZonedDateTime tiempoSimuladoZoned;
                     try {
-                        tiempoActualZoned = tiempoActual.atZone(parte.getLlegadaFinal().getZone());
+                        // Obtener la zona horaria de la llegada final
+                        java.time.ZoneId zonaLlegada = parte.getLlegadaFinal().getZone();
+                        // Convertir tiempoSimulado a la misma zona horaria
+                        tiempoSimuladoZoned = tiempoSimulado.atZone(zonaLlegada);
                     } catch(Exception e) {
-                        // Si hay problema con el timezone, usar UTC
-                        tiempoActualZoned = tiempoActual.atZone(java.time.ZoneOffset.UTC)
+                        // Si hay problema con el timezone, usar UTC y luego convertir
+                        tiempoSimuladoZoned = tiempoSimulado.atZone(java.time.ZoneOffset.UTC)
                             .withZoneSameInstant(parte.getLlegadaFinal().getZone());
                     }
 
                     // Verificar si han pasado más de 2 horas desde la llegada final
+                    // Usar toInstant() para comparar correctamente independientemente de la zona horaria
+                    // tiempoSimulado debe ser POSTERIOR a llegadaFinal para que las horas sean positivas
                     long horasTranscurridas = java.time.Duration.between(
-                        parte.getLlegadaFinal(), tiempoActualZoned).toHours();
+                        parte.getLlegadaFinal().toInstant(), tiempoSimuladoZoned.toInstant()).toHours();
+
+                    System.out.printf("🔍 [LiberarProductos] Parte ID %d - Envío ID %d - Llegada: %s - Horas transcurridas: %d%n",
+                        parte.getId(), envio.getId(),
+                        parte.getLlegadaFinal().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                        horasTranscurridas);
 
                     if(horasTranscurridas >= 2) {
                         // Liberar capacidad del aeropuerto destino
-                        Optional<Aeropuerto> aeropuertoOpt =
-                            aeropuertoService.obtenerAeropuertoPorId(aeropuertoDestinoId);
-
-                        if(aeropuertoOpt.isPresent()) {
-                            Aeropuerto aeropuerto = aeropuertoOpt.get();
-
-                            // Usar la instancia del mapa si ya existe, para mantener los cambios
-                            if(!aeropuertosActualizados.containsKey(aeropuertoDestinoId)) {
-                                aeropuertosActualizados.put(aeropuertoDestinoId, aeropuerto);
+                        // Obtener el aeropuerto desde el mapa si ya fue actualizado, o desde la BD
+                        Aeropuerto aeropuertoParaActualizar;
+                        if(aeropuertosActualizados.containsKey(aeropuertoDestinoId)) {
+                            // Usar la instancia del mapa si ya existe, para mantener los cambios acumulados
+                            aeropuertoParaActualizar = aeropuertosActualizados.get(aeropuertoDestinoId);
+                        } else {
+                            // Obtener desde la BD
+                            Optional<Aeropuerto> aeropuertoOpt =
+                                aeropuertoService.obtenerAeropuertoPorId(aeropuertoDestinoId);
+                            if(!aeropuertoOpt.isPresent()) {
+                                System.err.printf("⚠️  Aeropuerto ID %d no encontrado para liberar productos%n", aeropuertoDestinoId);
+                                continue;
                             }
-
-                            Aeropuerto aeropuertoParaActualizar = aeropuertosActualizados.get(aeropuertoDestinoId);
-                            aeropuertoParaActualizar.desasignarCapacidad(parte.getCantidad());
-
-                            productosLiberados += parte.getCantidad();
-                            parte.setEntregado(true);
-                            partesParaActualizar.add(parte);
-                            partesEntregadas++;
-
-                            System.out.printf("📦 Productos entregados: Parte ID %d del Envío ID %d - " +
-                                "%d productos liberados del aeropuerto %s después de %d horas%n",
-                                parte.getId(), envio.getId(), parte.getCantidad(),
-                                aeropuerto.getCodigo(), horasTranscurridas);
+                            aeropuertoParaActualizar = aeropuertoOpt.get();
+                            aeropuertosActualizados.put(aeropuertoDestinoId, aeropuertoParaActualizar);
                         }
+
+                        // Guardar capacidad antes de desasignar para logging
+                        Integer capacidadAntes = aeropuertoParaActualizar.getCapacidadOcupada();
+
+                        // Desasignar capacidad
+                        aeropuertoParaActualizar.desasignarCapacidad(parte.getCantidad());
+
+                        System.out.printf("✅ [LiberarProductos] Desasignando %d productos del aeropuerto %s (ID: %d) - Capacidad: %d -> %d%n",
+                            parte.getCantidad(), aeropuertoParaActualizar.getCodigo(),
+                            aeropuertoDestinoId, capacidadAntes, aeropuertoParaActualizar.getCapacidadOcupada());
+
+                        productosLiberados += parte.getCantidad();
+                        parte.setEntregado(true);
+                        partesParaActualizar.add(parte);
+                        partesEntregadas++;
+
+                        System.out.printf("📦 Productos entregados: Parte ID %d del Envío ID %d - " +
+                            "%d productos liberados del aeropuerto %s después de %d horas%n",
+                            parte.getId(), envio.getId(), parte.getCantidad(),
+                            aeropuertoParaActualizar.getCodigo(), horasTranscurridas);
+                    } else {
+                        partesMenosDe2Horas++;
                     }
                 }
             }
+
+            System.out.printf("🔍 [LiberarProductos] Resumen: %d envíos con partes, %d partes sin llegadaFinal, " +
+                "%d partes no llegaron a destino, %d partes con menos de 2 horas%n",
+                enviosConPartes, partesSinLlegadaFinal, partesNoLlegaronDestino, partesMenosDe2Horas);
 
             // Persistir los cambios
             if(!partesParaActualizar.isEmpty()) {
@@ -959,6 +1004,8 @@ public class Planificador {
 
                 System.out.printf("✅ Liberación de productos: %d partes entregadas, " +
                     "%d productos liberados de aeropuertos%n", partesEntregadas, productosLiberados);
+            } else {
+                System.out.printf("ℹ️  [LiberarProductos] No se encontraron partes para liberar en este ciclo%n");
             }
 
         } catch(Exception e) {
