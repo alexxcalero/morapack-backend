@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 @AllArgsConstructor
 public class Grasp {
 
-    private static final int MAX_ITERACIONES = 1000;
+    private static final int MAX_ITERACIONES = 500;
     private static final int MAX_SIN_MEJORA = 5;
     private static final int DIAS_A_INSTANCIAR = 3;
 
@@ -450,7 +450,7 @@ public class Grasp {
             // Estamos en el aeropuerto de origen, sin vuelos tomados y espacio infinito
             beam.add(new PathState(origen, null, new ArrayList<>(), null, Integer.MAX_VALUE));
 
-            for(int nivel = 0; nivel < 5; nivel++) {
+            for(int nivel = 0; nivel < 3; nivel++) {
                 List<PathState> nuevosEstados = new ArrayList<>();
 
                 for(PathState ps : beam) {  // Iteramos en cada estado
