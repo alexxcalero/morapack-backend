@@ -28,8 +28,14 @@ public class Planificador {
 
     // Configuración de planificación programada
     private static final int SA_MINUTOS = 2; // Salto del algoritmo - ejecutar cada 2 minutos
-    private static final int K = 120; // Factor de consumo - planificar 240 minutos adelante
+    private static final int K_NORMAL = 120; // Factor de consumo - planificar 240 minutos adelante (modo normal y semanal)
+    private static final int K_COLAPSO = 240; // Factor de consumo - planificar 480 minutos adelante (modo colapso)
     private static final int TA_SEGUNDOS = 90; // Tiempo máximo de ejecución GRASP - 1.5 minutos
+
+    // Método para obtener el valor de K según el modo de simulación
+    private int obtenerK() {
+        return modoSimulacion == ModoSimulacion.COLAPSO ? K_COLAPSO : K_NORMAL;
+    }
 
     // Estado del planificador
     private AtomicInteger cicloActual = new AtomicInteger(0);
@@ -82,6 +88,12 @@ public class Planificador {
         enEjecucion = true;
         cicloActual.set(0);
         scheduler = Executors.newScheduledThreadPool(1);
+        if(scheduler == null) {
+            System.err.println("❌ Error crítico: No se pudo crear el ScheduledExecutorService");
+            enEjecucion = false;
+            return;
+        }
+        System.out.println("✅ Scheduler inicializado correctamente");
         this.modoSimulacion = modo;
         this.fechaInicioSimulacion = fechaInicio;
         this.fechaFinSimulacion = fechaFin;
@@ -90,34 +102,82 @@ public class Planificador {
         webSocketService.enviarEstadoPlanificador(true, cicloActual.get(), "inmediato");
 
         System.out.println("🚀 INICIANDO PLANIFICADOR PROGRAMADO");
-        System.out.printf("⚙️ Configuración: Sa=%d min, K=%d, Ta=%d seg, Sc=%d min%n", SA_MINUTOS, K, TA_SEGUNDOS, SA_MINUTOS * K);
+        int kActual = obtenerK();
+        System.out.printf("⚙️ Configuración: Sa=%d min, K=%d, Ta=%d seg, Sc=%d min%n", SA_MINUTOS, kActual, TA_SEGUNDOS, SA_MINUTOS * kActual);
         System.out.printf("📋 Modo de simulación: %s%n", modo);
 
         this.enviosOriginales = envioService.obtenerEnvios(); //this.grasp.getEnvios();  // Guardo todos los envios
 
         // Determinar tiempo de inicio según el modo
-        if(modo == ModoSimulacion.SEMANAL || modo == ModoSimulacion.COLAPSO) {
-            this.tiempoInicioSimulacion = fechaInicio;
-            this.ultimoHorizontePlanificado = fechaInicio;
-            System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", fechaInicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
-            if(modo == ModoSimulacion.SEMANAL) {
-                System.out.printf("⏰ Tiempo de fin de simulación: %s%n", fechaFin.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+        try {
+            if(modo == ModoSimulacion.SEMANAL || modo == ModoSimulacion.COLAPSO) {
+                if(fechaInicio == null) {
+                    System.err.println("❌ Error: fechaInicio es null en modo " + modo);
+                    enEjecucion = false;
+                    if(scheduler != null) {
+                        scheduler.shutdown();
+                        scheduler = null;
+                    }
+                    return;
+                }
+                this.tiempoInicioSimulacion = fechaInicio;
+                this.ultimoHorizontePlanificado = fechaInicio;
+                System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", fechaInicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                if(modo == ModoSimulacion.SEMANAL) {
+                    if(fechaFin == null) {
+                        System.err.println("❌ Error: fechaFin es null en modo SEMANAL");
+                        enEjecucion = false;
+                        if(scheduler != null) {
+                            scheduler.shutdown();
+                            scheduler = null;
+                        }
+                        return;
+                    }
+                    System.out.printf("⏰ Tiempo de fin de simulación: %s%n", fechaFin.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                }
+            } else {
+                // Modo normal - obtener el primer pedido como referencia temporal
+                this.tiempoInicioSimulacion = obtenerPrimerPedidoTiempo();
+                this.ultimoHorizontePlanificado = this.tiempoInicioSimulacion;
+                System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
             }
-        } else {
-            // Modo normal - obtener el primer pedido como referencia temporal
-            this.tiempoInicioSimulacion = obtenerPrimerPedidoTiempo();
-            this.ultimoHorizontePlanificado = this.tiempoInicioSimulacion;
-            System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+        } catch(Exception e) {
+            System.err.printf("❌ Error al determinar tiempo de inicio: %s%n", e.getMessage());
+            e.printStackTrace();
+            enEjecucion = false;
+            if(scheduler != null) {
+                scheduler.shutdown();
+                scheduler = null;
+            }
+            return;
+        }
+
+        // Validar que el scheduler se haya inicializado correctamente
+        if(scheduler == null) {
+            System.err.println("❌ Error: scheduler no se inicializó correctamente");
+            enEjecucion = false;
+            return;
         }
 
         // Ejecutar el primer ciclo inmediatamente
-        ejecutarCicloPlanificacion(tiempoInicioSimulacion);
+        try {
+            ejecutarCicloPlanificacion(tiempoInicioSimulacion);
+        } catch(Exception e) {
+            System.err.printf("❌ Error al ejecutar el primer ciclo: %s%n", e.getMessage());
+            e.printStackTrace();
+            // Continuar con la programación aunque haya error en el primer ciclo
+        }
 
         // Programar ejecuciones posteriores cada SA_MINUTOS minutos
-        tareaProgramada = scheduler.scheduleAtFixedRate(() -> {
-            LocalDateTime tiempoActual = obtenerTiempoActualSimulacion();
-            ejecutarCicloPlanificacion(tiempoActual);
-        }, SA_MINUTOS, SA_MINUTOS, TimeUnit.MINUTES);
+        if(scheduler != null) {
+            tareaProgramada = scheduler.scheduleAtFixedRate(() -> {
+                LocalDateTime tiempoActual = obtenerTiempoActualSimulacion();
+                ejecutarCicloPlanificacion(tiempoActual);
+            }, SA_MINUTOS, SA_MINUTOS, TimeUnit.MINUTES);
+        } else {
+            System.err.println("❌ Error: scheduler es null, no se puede programar la tarea");
+            enEjecucion = false;
+        }
     }
 
     public void detenerPlanificacion() {
@@ -203,7 +263,8 @@ public class Planificador {
 
             // 2. Calcular horizonte temporal (Sc)
             LocalDateTime inicioHorizonte = this.ultimoHorizontePlanificado;
-            LocalDateTime finHorizonte = inicioHorizonte.plusMinutes(SA_MINUTOS * K);
+            int kActual = obtenerK();
+            LocalDateTime finHorizonte = inicioHorizonte.plusMinutes(SA_MINUTOS * kActual);
 
             // En modo SEMANAL, limitar el horizonte a la fecha fin
             if(modoSimulacion == ModoSimulacion.SEMANAL && fechaFinSimulacion != null) {
@@ -735,7 +796,8 @@ public class Planificador {
         Map<String, Object> estado = new HashMap<>();
         estado.put("tiempoInicioSimulacion", tiempoInicioSimulacion);
         estado.put("ultimoHorizontePlanificado", ultimoHorizontePlanificado);
-        estado.put("proximoHorizonte", ultimoHorizontePlanificado.plusMinutes(SA_MINUTOS * K));
+        int kActual = obtenerK();
+        estado.put("proximoHorizonte", ultimoHorizontePlanificado.plusMinutes(SA_MINUTOS * kActual));
         //estado.put("pedidosYaPlanificados", pedidosYaPlanificados.size());
         return estado;
     }
