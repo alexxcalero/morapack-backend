@@ -24,7 +24,9 @@ public class Planificador {
     private final AeropuertoServiceImp aeropuertoService;
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> tareaProgramada;
+    private ScheduledFuture<?> tareaLiberacionProductos;
     private boolean enEjecucion = false;
+    private LocalDateTime tiempoSimuladoActual; // Tiempo simulado actual para verificaciones de liberación
 
     // Configuración de planificación programada
     private static final int SA_MINUTOS = 2; // Salto del algoritmo - ejecutar cada 2 minutos
@@ -122,6 +124,7 @@ public class Planificador {
                 }
                 this.tiempoInicioSimulacion = fechaInicio;
                 this.ultimoHorizontePlanificado = fechaInicio;
+                this.tiempoSimuladoActual = fechaInicio; // Inicializar tiempo simulado para verificaciones
                 System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", fechaInicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                 if(modo == ModoSimulacion.SEMANAL) {
                     if(fechaFin == null) {
@@ -139,6 +142,7 @@ public class Planificador {
                 // Modo normal - obtener el primer pedido como referencia temporal
                 this.tiempoInicioSimulacion = obtenerPrimerPedidoTiempo();
                 this.ultimoHorizontePlanificado = this.tiempoInicioSimulacion;
+                this.tiempoSimuladoActual = this.tiempoInicioSimulacion; // Inicializar tiempo simulado para verificaciones
                 System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
             }
         } catch(Exception e) {
@@ -174,6 +178,29 @@ public class Planificador {
                 LocalDateTime tiempoActual = obtenerTiempoActualSimulacion();
                 ejecutarCicloPlanificacion(tiempoActual);
             }, SA_MINUTOS, SA_MINUTOS, TimeUnit.MINUTES);
+
+            // ✅ Programar tarea separada para verificar liberación de productos cada hora simulada
+            // Esta tarea se ejecuta más frecuentemente para verificar liberaciones exactamente cuando pasen 2 horas
+            // Mapeo: 1 hora simulada = 30 segundos reales (ajustable según necesidad)
+            tareaLiberacionProductos = scheduler.scheduleAtFixedRate(() -> {
+                if(!enEjecucion) return;
+
+                // Avanzar el tiempo simulado en 1 hora para verificaciones
+                LocalDateTime nuevoTiempoSimulado = tiempoSimuladoActual.plusHours(1);
+
+                // No avanzar más allá del horizonte actual de planificación
+                // Esto asegura que no verificamos tiempos futuros que aún no han sido planificados
+                if(nuevoTiempoSimulado.isAfter(ultimoHorizontePlanificado)) {
+                    // Si el tiempo simulado alcanzó el horizonte, no avanzar más
+                    // La verificación se hará cuando el horizonte avance en el siguiente ciclo
+                    return;
+                }
+
+                tiempoSimuladoActual = nuevoTiempoSimulado;
+
+                // Verificar y liberar productos que llegaron hace más de 2 horas
+                liberarProductosEntregados(tiempoSimuladoActual);
+            }, 30, 30, TimeUnit.SECONDS); // Ejecutar cada 30 segundos reales = 1 hora simulada
         } else {
             System.err.println("❌ Error: scheduler es null, no se puede programar la tarea");
             enEjecucion = false;
@@ -185,6 +212,12 @@ public class Planificador {
         if(tareaProgramada != null && !tareaProgramada.isCancelled()) {
             tareaProgramada.cancel(false);
             tareaProgramada = null;
+        }
+
+        // Cancelar la tarea de liberación de productos
+        if(tareaLiberacionProductos != null && !tareaLiberacionProductos.isCancelled()) {
+            tareaLiberacionProductos.cancel(false);
+            tareaLiberacionProductos = null;
         }
 
         if(scheduler != null) {
@@ -282,6 +315,23 @@ public class Planificador {
 
             System.out.printf("📦 Pedidos a planificar en el ciclo %d: %d%n", ciclo, pedidosParaPlanificar.size());
 
+            this.inicioHorizonteUltimoCiclo = inicioHorizonte;
+            this.finHorizonteUltimoCiclo = finHorizonte;
+
+            // ✅ Sincronizar tiempo simulado para verificaciones con el inicio del horizonte
+            // Esto asegura que el tiempo simulado no se quede atrás del horizonte
+            if(tiempoSimuladoActual == null || inicioHorizonte.isAfter(tiempoSimuladoActual)) {
+                tiempoSimuladoActual = inicioHorizonte;
+            }
+
+            // ✅ Liberar productos que llegaron al destino final hace más de 2 horas
+            // IMPORTANTE: Esta validación debe ejecutarse SIEMPRE, incluso si no hay pedidos para planificar
+            // Usar el tiempo simulado actual (que avanza más granularmente) en lugar del inicio del horizonte
+            // Esto permite verificar liberaciones exactamente cuando pasen 2 horas, no solo al inicio de cada ciclo
+            if(tiempoSimuladoActual != null) {
+                liberarProductosEntregados(tiempoSimuladoActual);
+            }
+
             if(pedidosParaPlanificar.isEmpty()) {
                 System.out.println("✅ No hay pedidos pendientes en este horizonte");
 
@@ -300,13 +350,6 @@ public class Planificador {
 
                 return;
             }
-
-            this.inicioHorizonteUltimoCiclo = inicioHorizonte;
-            this.finHorizonteUltimoCiclo = finHorizonte;
-
-            // ✅ Liberar productos que llegaron al destino final hace más de 2 horas
-            // Usar el tiempo simulado (inicioHorizonte) en lugar del tiempo real
-            liberarProductosEntregados(inicioHorizonte);
 
             // ✅ Recargar estado actual de vuelos y aeropuertos para este ciclo
             recargarDatosBase(inicioHorizonte, finHorizonte);

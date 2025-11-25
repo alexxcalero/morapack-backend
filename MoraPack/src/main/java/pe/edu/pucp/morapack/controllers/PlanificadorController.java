@@ -137,19 +137,9 @@ public class PlanificadorController {
                 return response;
             }
 
-            // Parsear fechas (asumiendo que vienen en hora de Lima UTC-5)
-            // Convertir de Lima a UTC
-            ZoneId zonaLima = ZoneId.of("America/Lima"); // UTC-5
-            LocalDateTime fechaInicioLima = LocalDateTime.parse(fechaInicioStr);
-            LocalDateTime fechaFinLima = LocalDateTime.parse(fechaFinStr);
-
-            // Convertir a ZonedDateTime en Lima y luego a UTC
-            ZonedDateTime fechaInicioZoned = fechaInicioLima.atZone(zonaLima);
-            ZonedDateTime fechaFinZoned = fechaFinLima.atZone(zonaLima);
-
-            // Convertir a UTC y obtener LocalDateTime
-            LocalDateTime fechaInicio = fechaInicioZoned.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
-            LocalDateTime fechaFin = fechaFinZoned.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+            // Parsear fechas (el frontend ya envía las fechas en UTC)
+            LocalDateTime fechaInicio = LocalDateTime.parse(fechaInicioStr);
+            LocalDateTime fechaFin = LocalDateTime.parse(fechaFinStr);
 
             if(fechaInicio.isAfter(fechaFin)) {
                 response.put("estado", "error");
@@ -240,19 +230,9 @@ public class PlanificadorController {
                 return response;
             }
 
-            // Parsear fechas (asumiendo que vienen en hora de Lima UTC-5)
-            // Convertir de Lima a UTC
-            ZoneId zonaLima = ZoneId.of("America/Lima"); // UTC-5
-            LocalDateTime fechaInicioLima = LocalDateTime.parse(fechaInicioStr);
-            LocalDateTime fechaFinLima = LocalDateTime.parse(fechaFinStr);
-
-            // Convertir a ZonedDateTime en Lima y luego a UTC
-            ZonedDateTime fechaInicioZoned = fechaInicioLima.atZone(zonaLima);
-            ZonedDateTime fechaFinZoned = fechaFinLima.atZone(zonaLima);
-
-            // Convertir a UTC y obtener LocalDateTime
-            LocalDateTime fechaInicio = fechaInicioZoned.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
-            LocalDateTime fechaFin = fechaFinZoned.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+            // Parsear fechas (el frontend ya envía las fechas en UTC)
+            LocalDateTime fechaInicio = LocalDateTime.parse(fechaInicioStr);
+            LocalDateTime fechaFin = LocalDateTime.parse(fechaFinStr);
 
             if(fechaInicio.isAfter(fechaFin)) {
                 response.put("estado", "error");
@@ -355,16 +335,8 @@ public class PlanificadorController {
                 return response;
             }
 
-            // Parsear fecha (asumiendo que viene en hora de Lima UTC-5)
-            // Convertir de Lima a UTC
-            ZoneId zonaLima = ZoneId.of("America/Lima"); // UTC-5
-            LocalDateTime fechaInicioLima = LocalDateTime.parse(fechaInicioStr);
-
-            // Convertir a ZonedDateTime en Lima y luego a UTC
-            ZonedDateTime fechaInicioZoned = fechaInicioLima.atZone(zonaLima);
-
-            // Convertir a UTC y obtener LocalDateTime
-            LocalDateTime fechaInicio = fechaInicioZoned.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+            // Parsear fecha (el frontend ya envía la fecha en UTC)
+            LocalDateTime fechaInicio = LocalDateTime.parse(fechaInicioStr);
 
             // Cargar datos necesarios
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
