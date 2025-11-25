@@ -1099,14 +1099,22 @@ public class Planificador {
                         // Copiar la ruta transient - cargar los planes de vuelo reales de BD
                         if(parteCopia.getRuta() != null && !parteCopia.getRuta().isEmpty()) {
                             List<PlanDeVuelo> rutaReal = new ArrayList<>();
-                            for(PlanDeVuelo vueloCopia : parteCopia.getRuta()) {
+                            for(int i = 0; i < parteCopia.getRuta().size(); i++) {
+                                PlanDeVuelo vueloCopia = parteCopia.getRuta().get(i);
                                 if(vueloCopia.getId() != null) {
                                     Optional<PlanDeVuelo> vueloOpt = planDeVueloService.obtenerPlanDeVueloPorId(vueloCopia.getId());
                                     if(vueloOpt.isPresent()) {
                                         rutaReal.add(vueloOpt.get());
                                         planesDeVueloModificados.add(vueloCopia.getId());
+
+                                        // Agregar aeropuerto destino (siempre se asigna capacidad cuando llega)
                                         if(vueloCopia.getCiudadDestino() != null) {
                                             aeropuertosModificados.add(vueloCopia.getCiudadDestino());
+                                        }
+
+                                        // Agregar aeropuerto origen (si NO es el primer vuelo, se desasigna capacidad cuando despega)
+                                        if(i > 0 && vueloCopia.getCiudadOrigen() != null) {
+                                            aeropuertosModificados.add(vueloCopia.getCiudadOrigen());
                                         }
                                     }
                                 }

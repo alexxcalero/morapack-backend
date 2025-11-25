@@ -370,8 +370,23 @@ public class Grasp {
                 for(PlanDeVuelo v : escogido.getTramos())
                     v.asignar(cant);  // Se va a asignar esa cantidad de productos a los vuelos de las rutas
 
-                // Asignar capacidad en aeropuertos (los productos llegan cuando el vuelo llega)
-                for(PlanDeVuelo vuelo : escogido.getTramos()) {
+                // Asignar/desasignar capacidad en aeropuertos
+                // Para cada vuelo en la ruta:
+                // - Si NO es el primer vuelo: desasignar capacidad del aeropuerto de origen (los productos salen cuando el vuelo despega)
+                // - Siempre: asignar capacidad en el aeropuerto de destino (los productos llegan cuando el vuelo aterriza)
+                for(int i = 0; i < escogido.getTramos().size(); i++) {
+                    PlanDeVuelo vuelo = escogido.getTramos().get(i);
+
+                    // Si NO es el primer vuelo, desasignar capacidad del aeropuerto de origen
+                    // (los productos salen del aeropuerto cuando el vuelo despega)
+                    if(i > 0) {
+                        Aeropuerto origenAeropuerto = getAeropuertoById(vuelo.getCiudadOrigen());
+                        if(origenAeropuerto != null) {
+                            origenAeropuerto.desasignarCapacidad(cant);
+                        }
+                    }
+
+                    // Asignar capacidad en el aeropuerto de destino (los productos llegan cuando el vuelo aterriza)
                     Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
                     if(destinoAeropuerto != null) {
                         destinoAeropuerto.asignarCapacidad(cant);
@@ -550,11 +565,26 @@ public class Grasp {
                     for(PlanDeVuelo vuelo : rutaActual)
                         vuelo.desasignar(parte.getCantidad());
 
-                    // Desasignar capacidad de aeropuertos (los productos salen cuando el vuelo sale)
-                    for(PlanDeVuelo vuelo : rutaActual) {
+                    // Desasignar/restaurar capacidad de aeropuertos
+                    // Para cada vuelo en la ruta (en orden inverso para restaurar correctamente):
+                    // - Desasignar capacidad del aeropuerto de destino (los productos ya no están ahí)
+                    // - Si NO es el primer vuelo: restaurar capacidad del aeropuerto de origen (los productos vuelven a estar ahí)
+                    for(int i = rutaActual.size() - 1; i >= 0; i--) {
+                        PlanDeVuelo vuelo = rutaActual.get(i);
+
+                        // Desasignar capacidad del aeropuerto de destino
                         Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
                         if(destinoAeropuerto != null) {
                             destinoAeropuerto.desasignarCapacidad(parte.getCantidad());
+                        }
+
+                        // Si NO es el primer vuelo, restaurar capacidad del aeropuerto de origen
+                        // (los productos vuelven a estar en ese aeropuerto)
+                        if(i > 0) {
+                            Aeropuerto origenAeropuerto = getAeropuertoById(vuelo.getCiudadOrigen());
+                            if(origenAeropuerto != null) {
+                                origenAeropuerto.asignarCapacidad(parte.getCantidad());
+                            }
                         }
                     }
                 }
@@ -588,9 +618,24 @@ public class Grasp {
                     for (PlanDeVuelo v : c.getTramos())
                         v.asignar(parte.getCantidad());
 
-                    // Asignar capacidad en aeropuertos
-                    for (PlanDeVuelo v : c.getTramos()) {
-                        Aeropuerto destinoAeropuerto = getAeropuertoById(v.getCiudadDestino());
+                    // Asignar/desasignar capacidad en aeropuertos
+                    // Para cada vuelo en la ruta:
+                    // - Si NO es el primer vuelo: desasignar capacidad del aeropuerto de origen (los productos salen cuando el vuelo despega)
+                    // - Siempre: asignar capacidad en el aeropuerto de destino (los productos llegan cuando el vuelo aterriza)
+                    for(int i = 0; i < c.getTramos().size(); i++) {
+                        PlanDeVuelo vuelo = c.getTramos().get(i);
+
+                        // Si NO es el primer vuelo, desasignar capacidad del aeropuerto de origen
+                        // (los productos salen del aeropuerto cuando el vuelo despega)
+                        if(i > 0) {
+                            Aeropuerto origenAeropuerto = getAeropuertoById(vuelo.getCiudadOrigen());
+                            if(origenAeropuerto != null) {
+                                origenAeropuerto.desasignarCapacidad(parte.getCantidad());
+                            }
+                        }
+
+                        // Asignar capacidad en el aeropuerto de destino (los productos llegan cuando el vuelo aterriza)
+                        Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
                         if(destinoAeropuerto != null) {
                             destinoAeropuerto.asignarCapacidad(parte.getCantidad());
                         }
@@ -611,10 +656,25 @@ public class Grasp {
                             v.asignar(parte.getCantidad());
 
                         // Restaurar capacidad en aeropuertos
-                        for (PlanDeVuelo v : rutaActual) {
-                            Aeropuerto destinoAeropuerto = getAeropuertoById(v.getCiudadDestino());
+                        // Para cada vuelo en la ruta:
+                        // - Restaurar capacidad del aeropuerto de destino (los productos vuelven a estar ahí)
+                        // - Si NO es el primer vuelo: desasignar capacidad del aeropuerto de origen (los productos salen cuando el vuelo despega)
+                        for(int i = 0; i < rutaActual.size(); i++) {
+                            PlanDeVuelo vuelo = rutaActual.get(i);
+
+                            // Restaurar capacidad del aeropuerto de destino
+                            Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
                             if(destinoAeropuerto != null) {
                                 destinoAeropuerto.asignarCapacidad(parte.getCantidad());
+                            }
+
+                            // Si NO es el primer vuelo, desasignar capacidad del aeropuerto de origen
+                            // (los productos salen del aeropuerto cuando el vuelo despega)
+                            if(i > 0) {
+                                Aeropuerto origenAeropuerto = getAeropuertoById(vuelo.getCiudadOrigen());
+                                if(origenAeropuerto != null) {
+                                    origenAeropuerto.desasignarCapacidad(parte.getCantidad());
+                                }
                             }
                         }
                     }
