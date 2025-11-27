@@ -71,15 +71,15 @@ public class EnvioController {
         String enviosDatos = new String(arch.getBytes());
         String[] lineas = enviosDatos.split("\n");
         Integer i = 0;
-        for(String linea : lineas) {
+        for (String linea : lineas) {
             String data[] = linea.split("-");
-            if(data.length > 1) {
+            if (data.length > 1) {
                 Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[4]);
-                if(aeropuertoOptionalDest.isPresent()) {
+                if (aeropuertoOptionalDest.isPresent()) {
                     Long idEnvioPorAeropuerto = Long.valueOf(data[0]);
-                    Integer anho = Integer.parseInt(data[1].substring(0,4));
-                    Integer mes = Integer.parseInt(data[1].substring(4,6));
-                    Integer dia = Integer.parseInt(data[1].substring(6,8));
+                    Integer anho = Integer.parseInt(data[1].substring(0, 4));
+                    Integer mes = Integer.parseInt(data[1].substring(4, 6));
+                    Integer dia = Integer.parseInt(data[1].substring(6, 8));
                     Integer hora = Integer.parseInt(data[2]);
                     Integer minutos = Integer.parseInt(data[3]);
                     Integer numProductos = Integer.parseInt(data[5]);
@@ -90,7 +90,8 @@ public class EnvioController {
 
                     String husoCiudadDestino = aeropuertoOptionalDest.get().getHusoHorario();
 
-                    Envio newEnvio = new Envio(idEnvioPorAeropuerto, fechaIngreso, husoCiudadDestino, aeropuertoOptionalDest.get(), numProductos, cliente);
+                    Envio newEnvio = new Envio(idEnvioPorAeropuerto, fechaIngreso, husoCiudadDestino,
+                            aeropuertoOptionalDest.get(), numProductos, cliente);
 
                     ArrayList<Aeropuerto> hubs = new ArrayList<>();
                     String[] hubCodes = { "SPIM", "EBCI", "UBBB" };
@@ -169,7 +170,8 @@ public class EnvioController {
                     System.err.println("  - classpath:envios/pedidos-diciembre22-31.txt");
                     System.err.println("  - src/main/resources/envios/pedidos-diciembre22-31.txt");
                     System.err.println("  - envios/pedidos-diciembre22-31.txt");
-                    System.err.println("  - " + System.getProperty("user.dir") + "/src/main/resources/envios/pedidos-diciembre22-31.txt");
+                    System.err.println("  - " + System.getProperty("user.dir")
+                            + "/src/main/resources/envios/pedidos-diciembre22-31.txt");
                     return envios;
                 }
             }
@@ -200,7 +202,8 @@ public class EnvioController {
 
                         String husoCiudadDestino = aeropuertoOptionalDest.get().getHusoHorario();
 
-                        Envio newEnvio = new Envio(idEnvioPorAeropuerto, fechaIngreso, husoCiudadDestino, aeropuertoOptionalDest.get(), numProductos, cliente);
+                        Envio newEnvio = new Envio(idEnvioPorAeropuerto, fechaIngreso, husoCiudadDestino,
+                                aeropuertoOptionalDest.get(), numProductos, cliente);
 
                         ArrayList<Aeropuerto> hubs = new ArrayList<>();
                         String[] hubCodes = { "SPIM", "EBCI", "UBBB" };
@@ -241,7 +244,8 @@ public class EnvioController {
                 envioService.insertarListaEnvios(envios);
                 System.out.println("✅ Se cargaron " + envios.size() + " envíos desde el archivo");
             } else {
-                System.err.println("⚠️  El archivo se leyó pero no se generaron envíos. Verifique el formato del archivo.");
+                System.err.println(
+                        "⚠️  El archivo se leyó pero no se generaron envíos. Verifique el formato del archivo.");
             }
 
         } catch (FileNotFoundException e) {

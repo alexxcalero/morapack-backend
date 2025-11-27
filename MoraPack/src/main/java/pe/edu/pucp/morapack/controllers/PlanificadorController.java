@@ -149,13 +149,14 @@ public class PlanificadorController {
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
             ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
             ArrayList<Pais> paises = paisService.obtenerTodosPaises();
-            ArrayList<Envio> envios = envioService.obtenerEnvios();
 
-            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos dentro del rango de simulación + margen de
-            // 1 día
+            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos y envíos dentro del rango de simulación +
+            // margen
             LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
             LocalDateTime fechaFinVuelos = fechaFin.plusDays(1);
             ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosEnRango(
+                    fechaInicioVuelos, "0", fechaFinVuelos, "0");
+            ArrayList<Envio> envios = envioService.obtenerEnviosEnRango(
                     fechaInicioVuelos, "0", fechaFinVuelos, "0");
 
             System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL");
@@ -264,13 +265,14 @@ public class PlanificadorController {
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
             ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
             ArrayList<Pais> paises = paisService.obtenerTodosPaises();
-            ArrayList<Envio> envios = envioService.obtenerEnvios();
 
-            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos dentro del rango de simulación + margen de
-            // 1 día
+            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos y envíos dentro del rango de simulación +
+            // margen
             LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
             LocalDateTime fechaFinVuelos = fechaFin.plusDays(1);
             ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosEnRango(
+                    fechaInicioVuelos, "0", fechaFinVuelos, "0");
+            ArrayList<Envio> envios = envioService.obtenerEnviosEnRango(
                     fechaInicioVuelos, "0", fechaFinVuelos, "0");
 
             System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL V2 (con generación de vuelos)");
@@ -356,12 +358,12 @@ public class PlanificadorController {
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
             ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
             ArrayList<Pais> paises = paisService.obtenerTodosPaises();
-            ArrayList<Envio> envios = envioService.obtenerEnvios();
 
-            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos desde la fecha de inicio (simulación
-            // colapso sin límite)
+            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos y envíos desde la fecha de inicio
+            // (simulación colapso sin límite)
             LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
             ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosDesdeFecha(fechaInicioVuelos, "0");
+            ArrayList<Envio> envios = envioService.obtenerEnviosDesdeFecha(fechaInicioVuelos, "0");
 
             System.out.println("🚀 INICIANDO SIMULACIÓN DE COLAPSO");
             System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +

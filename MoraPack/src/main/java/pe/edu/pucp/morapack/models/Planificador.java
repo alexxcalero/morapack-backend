@@ -110,7 +110,9 @@ public class Planificador {
                 SA_MINUTOS * kActual);
         System.out.printf("📋 Modo de simulación: %s%n", modo);
 
-        this.enviosOriginales = envioService.obtenerEnvios(); // this.grasp.getEnvios(); // Guardo todos los envios
+        // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados del GRASP en lugar de cargar todos
+        // desde DB
+        this.enviosOriginales = grasp.getEnvios(); // Ya están filtrados por fecha en el controller
 
         // Determinar tiempo de inicio según el modo
         try {
@@ -770,7 +772,8 @@ public class Planificador {
      */
     private int calcularTotalPedidosPlanificados() {
         try {
-            List<Envio> envios = envioService.obtenerEnvios();
+            // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados en memoria
+            List<Envio> envios = this.enviosOriginales != null ? this.enviosOriginales : envioService.obtenerEnvios();
             int totalPlanificados = 0;
 
             for (Envio envio : envios) {
@@ -972,8 +975,8 @@ public class Planificador {
             System.out.printf("🔍 [LiberarProductos] Iniciando verificación a las %s (tiempo simulado)%n",
                     tiempoSimulado.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
-            // Obtener todos los envíos de la BD
-            List<Envio> envios = envioService.obtenerEnvios();
+            // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados en memoria
+            List<Envio> envios = this.enviosOriginales != null ? this.enviosOriginales : envioService.obtenerEnvios();
             System.out.printf("🔍 [LiberarProductos] Total de envíos obtenidos: %d%n", envios.size());
 
             Map<Integer, Aeropuerto> aeropuertosActualizados = new HashMap<>();
@@ -1381,8 +1384,8 @@ public class Planificador {
     public Map<String, Object> obtenerResumenUltimaSimulacion() {
         Map<String, Object> resumen = new HashMap<>();
 
-        // Obtener todos los envíos de la BD
-        List<Envio> envios = envioService.obtenerEnvios();
+        // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados en memoria
+        List<Envio> envios = this.enviosOriginales != null ? this.enviosOriginales : envioService.obtenerEnvios();
 
         // Calcular estadísticas de pedidos
         int totalPedidos = envios.size();
@@ -1428,8 +1431,9 @@ public class Planificador {
 
         productosSinAsignar = totalProductos - productosAsignados;
 
-        // Calcular productos entregados por vuelo
-        List<PlanDeVuelo> vuelos = planDeVueloService.obtenerListaPlanesDeVuelo();
+        // ⚡ OPTIMIZACIÓN: Usar vuelos ya filtrados en memoria para estadísticas
+        List<PlanDeVuelo> vuelos = grasp.getPlanesDeVuelo() != null ? grasp.getPlanesDeVuelo()
+                : planDeVueloService.obtenerListaPlanesDeVuelo();
         Map<Integer, Integer> productosPorVuelo = new HashMap<>();
         int totalProductosEnVuelos = 0;
         int vuelosUtilizados = 0;

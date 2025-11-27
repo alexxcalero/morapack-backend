@@ -99,10 +99,13 @@ public class EnvioServiceImp implements EnvioService {
     }
 
     /**
-     * Determina en qué aeropuerto está físicamente una parte asignada basándose en su ruta de vuelos
+     * Determina en qué aeropuerto está físicamente una parte asignada basándose en
+     * su ruta de vuelos
+     * 
      * @param parte La parte asignada
      * @param ahora La hora actual
-     * @return El ID del aeropuerto donde está físicamente la parte, o null si está entregada
+     * @return El ID del aeropuerto donde está físicamente la parte, o null si está
+     *         entregada
      */
     private Integer determinarAeropuertoActual(ParteAsignada parte, ZonedDateTime ahora) {
         List<ParteAsignadaPlanDeVuelo> vuelosRuta = parte.getVuelosRuta();
@@ -128,7 +131,7 @@ public class EnvioServiceImp implements EnvioService {
                 ZonedDateTime llegadaVuelo = vuelo.getZonedHoraDestino();
                 // Comparar en UTC para ser consistente
                 if (llegadaVuelo.toInstant().isBefore(ahora.toInstant()) ||
-                    llegadaVuelo.toInstant().equals(ahora.toInstant())) {
+                        llegadaVuelo.toInstant().equals(ahora.toInstant())) {
                     ultimoVueloCompletado = vuelo;
                 } else {
                     // Este vuelo aún no ha llegado, así que paramos aquí
@@ -187,16 +190,16 @@ public class EnvioServiceImp implements EnvioService {
             }
 
             if (parte.getRuta() != null && !parte.getRuta().isEmpty() &&
-                envio.getAeropuertoDestino() != null) {
+                    envio.getAeropuertoDestino() != null) {
                 // Verificar que la ruta termine en el aeropuerto destino final
                 PlanDeVuelo ultimoVuelo = parte.getRuta().get(parte.getRuta().size() - 1);
                 if (ultimoVuelo != null && ultimoVuelo.getCiudadDestino() != null &&
-                    ultimoVuelo.getCiudadDestino().equals(envio.getAeropuertoDestino().getId())) {
+                        ultimoVuelo.getCiudadDestino().equals(envio.getAeropuertoDestino().getId())) {
                     // La ruta termina en el destino, verificar si ya llegó
                     if (parte.getLlegadaFinal() != null) {
                         // Comparar si la llegada final ya pasó
                         if (parte.getLlegadaFinal().toInstant().isBefore(ahora.toInstant()) ||
-                            parte.getLlegadaFinal().toInstant().equals(ahora.toInstant())) {
+                                parte.getLlegadaFinal().toInstant().equals(ahora.toInstant())) {
                             llegoADestino = true;
                         }
                     }
@@ -243,10 +246,9 @@ public class EnvioServiceImp implements EnvioService {
 
             if (envio.getAeropuertoDestino() != null) {
                 pedidoInfo.put("aeropuertoDestino", Map.of(
-                    "id", envio.getAeropuertoDestino().getId(),
-                    "codigo", envio.getAeropuertoDestino().getCodigo(),
-                    "ciudad", envio.getAeropuertoDestino().getCiudad()
-                ));
+                        "id", envio.getAeropuertoDestino().getId(),
+                        "codigo", envio.getAeropuertoDestino().getCodigo(),
+                        "ciudad", envio.getAeropuertoDestino().getCiudad()));
             }
 
             pedidoInfo.put("estado", estado);
@@ -298,7 +300,8 @@ public class EnvioServiceImp implements EnvioService {
         ZonedDateTime fechaInicioUTC = zonedFechaInicio.withZoneSameInstant(ZoneOffset.UTC);
         ZonedDateTime fechaFinUTC = zonedFechaFin.withZoneSameInstant(ZoneOffset.UTC);
 
-        // Ampliar el rango para considerar todas las zonas horarias posibles (-12 a +14 horas)
+        // Ampliar el rango para considerar todas las zonas horarias posibles (-12 a +14
+        // horas)
         // Esto asegura que no perdamos envíos debido a diferencias de zona horaria
         LocalDateTime fechaInicioConsulta = fechaInicioUTC.toLocalDateTime().minusHours(14);
         LocalDateTime fechaFinConsulta = fechaFinUTC.toLocalDateTime().plusHours(14);
@@ -307,14 +310,15 @@ public class EnvioServiceImp implements EnvioService {
         ArrayList<Envio> enviosCandidatos = envioRepository.findByFechaIngresoBetween(
                 fechaInicioConsulta, fechaFinConsulta);
 
-        // Filtrar en memoria considerando las zonas horarias reales (sobre un conjunto mucho menor)
+        // Filtrar en memoria considerando las zonas horarias reales (sobre un conjunto
+        // mucho menor)
         ArrayList<Envio> enviosEnRango = new ArrayList<>();
         for (Envio envio : enviosCandidatos) {
             ZonedDateTime zonedFechaIngreso = obtenerZonedFechaIngreso(envio);
 
             // Un envío está en el rango si su fecha de ingreso está dentro del rango
             boolean ingresoEnRango = !zonedFechaIngreso.isBefore(zonedFechaInicio) &&
-                                    !zonedFechaIngreso.isAfter(zonedFechaFin);
+                    !zonedFechaIngreso.isAfter(zonedFechaFin);
 
             if (ingresoEnRango) {
                 enviosEnRango.add(envio);
@@ -334,7 +338,8 @@ public class EnvioServiceImp implements EnvioService {
         // Convertir a UTC para hacer la consulta más precisa
         ZonedDateTime fechaInicioUTC = zonedFechaInicio.withZoneSameInstant(ZoneOffset.UTC);
 
-        // Ampliar el rango para considerar todas las zonas horarias posibles (-12 a +14 horas)
+        // Ampliar el rango para considerar todas las zonas horarias posibles (-12 a +14
+        // horas)
         // Esto asegura que no perdamos envíos debido a diferencias de zona horaria
         LocalDateTime fechaInicioConsulta = fechaInicioUTC.toLocalDateTime().minusHours(14);
 
@@ -342,12 +347,14 @@ public class EnvioServiceImp implements EnvioService {
         ArrayList<Envio> enviosCandidatos = envioRepository.findByFechaIngresoGreaterThanEqual(
                 fechaInicioConsulta);
 
-        // Filtrar en memoria considerando las zonas horarias reales (sobre un conjunto mucho menor)
+        // Filtrar en memoria considerando las zonas horarias reales (sobre un conjunto
+        // mucho menor)
         ArrayList<Envio> enviosDesdeFecha = new ArrayList<>();
         for (Envio envio : enviosCandidatos) {
             ZonedDateTime zonedFechaIngreso = obtenerZonedFechaIngreso(envio);
 
-            // Un envío está incluido si su fecha de ingreso es igual o posterior a la fecha de inicio
+            // Un envío está incluido si su fecha de ingreso es igual o posterior a la fecha
+            // de inicio
             boolean ingresoDesdeFecha = !zonedFechaIngreso.isBefore(zonedFechaInicio);
 
             if (ingresoDesdeFecha) {
@@ -359,7 +366,8 @@ public class EnvioServiceImp implements EnvioService {
     }
 
     /**
-     * Método auxiliar para obtener el ZonedDateTime de la fecha de ingreso del envío.
+     * Método auxiliar para obtener el ZonedDateTime de la fecha de ingreso del
+     * envío.
      * Si no está cargado, lo carga manualmente.
      */
     private ZonedDateTime obtenerZonedFechaIngreso(Envio envio) {
