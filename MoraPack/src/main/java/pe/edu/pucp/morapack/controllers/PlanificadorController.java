@@ -5,7 +5,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import pe.edu.pucp.morapack.models.*;
 import pe.edu.pucp.morapack.services.servicesImp.*;
-import pe.edu.pucp.morapack.models.Planificador;
 import pe.edu.pucp.morapack.repository.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -16,8 +15,6 @@ import java.io.InputStream;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.Optional;
-import java.util.Scanner;
 import java.util.stream.Collectors;
 
 @CrossOrigin(origins = "*")
@@ -46,7 +43,7 @@ public class PlanificadorController {
 
         try {
             // Sincronizar el flag con el estado real del planificador
-            if(planificador != null && planificador.estaEnEjecucion()) {
+            if (planificador != null && planificador.estaEnEjecucion()) {
                 planificadorIniciado = true;
                 response.put("estado", "error");
                 response.put("mensaje", "El planificador ya está en ejecución");
@@ -77,17 +74,18 @@ public class PlanificadorController {
 
             // Configurar hubs para los envíos
             ArrayList<Aeropuerto> hubs = grasp.getHubs();
-            if(hubs != null && !hubs.isEmpty()) {
+            if (hubs != null && !hubs.isEmpty()) {
                 ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
-                for(Envio e : grasp.getEnvios()) {
+                for (Envio e : grasp.getEnvios()) {
                     e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
                 }
             }
 
-            //grasp.setEnviosPorDiaPropio();
+            // grasp.setEnviosPorDiaPropio();
 
             // Crear e iniciar el planificador
-            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService, aeropuertoService);
+            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
+                    aeropuertoService);
             planificador.iniciarPlanificacionProgramada();
 
             planificadorIniciado = true;
@@ -98,11 +96,10 @@ public class PlanificadorController {
                     "sa_minutos", 5,
                     "k_factor", 24,
                     "ta_segundos", 150,
-                    "sc_minutos", 120
-            ));
+                    "sc_minutos", 120));
             response.put("timestamp", LocalDateTime.now().toString());
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             response.put("estado", "error");
             response.put("mensaje", "Error al iniciar planificador: " + e.getMessage());
             e.printStackTrace();
@@ -118,7 +115,7 @@ public class PlanificadorController {
 
         try {
             // Sincronizar el flag con el estado real del planificador
-            if(planificador != null && planificador.estaEnEjecucion()) {
+            if (planificador != null && planificador.estaEnEjecucion()) {
                 planificadorIniciado = true;
                 response.put("estado", "error");
                 response.put("mensaje", "El planificador ya está en ejecución");
@@ -131,9 +128,10 @@ public class PlanificadorController {
             String fechaInicioStr = request.get("fechaInicio");
             String fechaFinStr = request.get("fechaFin");
 
-            if(fechaInicioStr == null || fechaFinStr == null) {
+            if (fechaInicioStr == null || fechaFinStr == null) {
                 response.put("estado", "error");
-                response.put("mensaje", "Se requieren los parámetros 'fechaInicio' y 'fechaFin' en formato 'yyyy-MM-ddTHH:mm:ss'");
+                response.put("mensaje",
+                        "Se requieren los parámetros 'fechaInicio' y 'fechaFin' en formato 'yyyy-MM-ddTHH:mm:ss'");
                 return response;
             }
 
@@ -141,7 +139,7 @@ public class PlanificadorController {
             LocalDateTime fechaInicio = LocalDateTime.parse(fechaInicioStr);
             LocalDateTime fechaFin = LocalDateTime.parse(fechaFinStr);
 
-            if(fechaInicio.isAfter(fechaFin)) {
+            if (fechaInicio.isAfter(fechaFin)) {
                 response.put("estado", "error");
                 response.put("mensaje", "La fecha de inicio debe ser anterior a la fecha de fin");
                 return response;
@@ -169,15 +167,16 @@ public class PlanificadorController {
 
             // Configurar hubs para los envíos
             ArrayList<Aeropuerto> hubs = grasp.getHubs();
-            if(hubs != null && !hubs.isEmpty()) {
+            if (hubs != null && !hubs.isEmpty()) {
                 ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
-                for(Envio e : grasp.getEnvios()) {
+                for (Envio e : grasp.getEnvios()) {
                     e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
                 }
             }
 
             // Crear e iniciar el planificador en modo SEMANAL
-            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService, aeropuertoService);
+            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
+                    aeropuertoService);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.SEMANAL, fechaInicio, fechaFin);
 
             planificadorIniciado = true;
@@ -191,11 +190,10 @@ public class PlanificadorController {
                     "sa_minutos", 5,
                     "k_factor", 24,
                     "ta_segundos", 150,
-                    "sc_minutos", 120
-            ));
+                    "sc_minutos", 120));
             response.put("timestamp", LocalDateTime.now().toString());
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             response.put("estado", "error");
             response.put("mensaje", "Error al iniciar simulación semanal: " + e.getMessage());
             e.printStackTrace();
@@ -211,7 +209,7 @@ public class PlanificadorController {
 
         try {
             // Sincronizar el flag con el estado real del planificador
-            if(planificador != null && planificador.estaEnEjecucion()) {
+            if (planificador != null && planificador.estaEnEjecucion()) {
                 planificadorIniciado = true;
                 response.put("estado", "error");
                 response.put("mensaje", "El planificador ya está en ejecución");
@@ -224,9 +222,10 @@ public class PlanificadorController {
             String fechaInicioStr = request.get("fechaInicio");
             String fechaFinStr = request.get("fechaFin");
 
-            if(fechaInicioStr == null || fechaFinStr == null) {
+            if (fechaInicioStr == null || fechaFinStr == null) {
                 response.put("estado", "error");
-                response.put("mensaje", "Se requieren los parámetros 'fechaInicio' y 'fechaFin' en formato 'yyyy-MM-ddTHH:mm:ss'");
+                response.put("mensaje",
+                        "Se requieren los parámetros 'fechaInicio' y 'fechaFin' en formato 'yyyy-MM-ddTHH:mm:ss'");
                 return response;
             }
 
@@ -234,7 +233,7 @@ public class PlanificadorController {
             LocalDateTime fechaInicio = LocalDateTime.parse(fechaInicioStr);
             LocalDateTime fechaFin = LocalDateTime.parse(fechaFinStr);
 
-            if(fechaInicio.isAfter(fechaFin)) {
+            if (fechaInicio.isAfter(fechaFin)) {
                 response.put("estado", "error");
                 response.put("mensaje", "La fecha de inicio debe ser anterior a la fecha de fin");
                 return response;
@@ -245,9 +244,10 @@ public class PlanificadorController {
             LocalDate fechaBase = fechaInicio.toLocalDate();
             ArrayList<PlanDeVuelo> planesCargados = cargarVuelosParaSemanaDesdeArchivo(fechaBase);
 
-            if(planesCargados.isEmpty()) {
+            if (planesCargados.isEmpty()) {
                 response.put("estado", "error");
-                response.put("mensaje", "No se pudieron cargar vuelos desde el archivo. Verifique que el archivo existe en src/main/resources/planes/vuelos.txt");
+                response.put("mensaje",
+                        "No se pudieron cargar vuelos desde el archivo. Verifique que el archivo existe en src/main/resources/planes/vuelos.txt");
                 return response;
             }
 
@@ -275,15 +275,16 @@ public class PlanificadorController {
 
             // Configurar hubs para los envíos
             ArrayList<Aeropuerto> hubs = grasp.getHubs();
-            if(hubs != null && !hubs.isEmpty()) {
+            if (hubs != null && !hubs.isEmpty()) {
                 ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
-                for(Envio e : grasp.getEnvios()) {
+                for (Envio e : grasp.getEnvios()) {
                     e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
                 }
             }
 
             // Crear e iniciar el planificador en modo SEMANAL
-            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService, aeropuertoService);
+            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
+                    aeropuertoService);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.SEMANAL, fechaInicio, fechaFin);
 
             planificadorIniciado = true;
@@ -297,11 +298,10 @@ public class PlanificadorController {
                     "sa_minutos", 5,
                     "k_factor", 24,
                     "ta_segundos", 150,
-                    "sc_minutos", 120
-            ));
+                    "sc_minutos", 120));
             response.put("timestamp", LocalDateTime.now().toString());
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             response.put("estado", "error");
             response.put("mensaje", "Error al iniciar simulación semanal: " + e.getMessage());
             e.printStackTrace();
@@ -317,7 +317,7 @@ public class PlanificadorController {
 
         try {
             // Sincronizar el flag con el estado real del planificador
-            if(planificador != null && planificador.estaEnEjecucion()) {
+            if (planificador != null && planificador.estaEnEjecucion()) {
                 planificadorIniciado = true;
                 response.put("estado", "error");
                 response.put("mensaje", "El planificador ya está en ejecución");
@@ -329,7 +329,7 @@ public class PlanificadorController {
             // Validar parámetros
             String fechaInicioStr = request.get("fechaInicio");
 
-            if(fechaInicioStr == null) {
+            if (fechaInicioStr == null) {
                 response.put("estado", "error");
                 response.put("mensaje", "Se requiere el parámetro 'fechaInicio' en formato 'yyyy-MM-ddTHH:mm:ss'");
                 return response;
@@ -360,15 +360,16 @@ public class PlanificadorController {
 
             // Configurar hubs para los envíos
             ArrayList<Aeropuerto> hubs = grasp.getHubs();
-            if(hubs != null && !hubs.isEmpty()) {
+            if (hubs != null && !hubs.isEmpty()) {
                 ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
-                for(Envio e : grasp.getEnvios()) {
+                for (Envio e : grasp.getEnvios()) {
                     e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
                 }
             }
 
             // Crear e iniciar el planificador en modo COLAPSO
-            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService, aeropuertoService);
+            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
+                    aeropuertoService);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.COLAPSO, fechaInicio, null);
 
             planificadorIniciado = true;
@@ -381,11 +382,10 @@ public class PlanificadorController {
                     "sa_minutos", 5,
                     "k_factor", 24,
                     "ta_segundos", 150,
-                    "sc_minutos", 120
-            ));
+                    "sc_minutos", 120));
             response.put("timestamp", LocalDateTime.now().toString());
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             response.put("estado", "error");
             response.put("mensaje", "Error al iniciar simulación de colapso: " + e.getMessage());
             e.printStackTrace();
@@ -401,19 +401,24 @@ public class PlanificadorController {
 
         try {
             // Sincronizar el flag con el estado real del planificador
-            if(planificador != null && planificador.estaEnEjecucion()) {
+            if (planificador != null && planificador.estaEnEjecucion()) {
                 planificador.detenerPlanificacion();
                 planificadorIniciado = false;
+
+                // Liberar referencia para que GC recupere memoria
+                planificador = null;
+                System.gc(); // Sugerencia al GC para recuperar memoria
 
                 response.put("estado", "éxito");
                 response.put("mensaje", "Planificador detenido correctamente");
             } else {
                 planificadorIniciado = false; // Asegurar que el flag esté sincronizado
+                planificador = null; // Nullear por si quedó instancia zombie
                 response.put("estado", "error");
                 response.put("mensaje", "No hay planificador en ejecución");
             }
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             response.put("estado", "error");
             response.put("mensaje", "Error al detener planificador: " + e.getMessage());
         }
@@ -429,9 +434,10 @@ public class PlanificadorController {
 
         try {
             // Verificar si el planificador está activo
-            if(planificadorIniciado) {
+            if (planificadorIniciado) {
                 response.put("estado", "error");
-                response.put("mensaje", "No se puede limpiar la planificación mientras el planificador está activo. Detén el planificador primero.");
+                response.put("mensaje",
+                        "No se puede limpiar la planificación mientras el planificador está activo. Detén el planificador primero.");
                 return response;
             }
 
@@ -443,21 +449,21 @@ public class PlanificadorController {
 
             // 1. Vaciar capacidades ocupadas de todos los aeropuertos
             List<Aeropuerto> aeropuertos = new ArrayList<>();
-            for(Aeropuerto aeropuerto : aeropuertoRepository.findAll()) {
+            for (Aeropuerto aeropuerto : aeropuertoRepository.findAll()) {
                 aeropuerto.setCapacidadOcupada(0);
                 aeropuertos.add(aeropuerto);
             }
-            if(!aeropuertos.isEmpty()) {
+            if (!aeropuertos.isEmpty()) {
                 aeropuertoRepository.saveAll(aeropuertos);
                 aeropuertosActualizados = aeropuertos.size();
             }
 
             // 2. Vaciar capacidades ocupadas de todos los planes de vuelo
             List<PlanDeVuelo> planesDeVuelo = planDeVueloRepository.findAll();
-            for(PlanDeVuelo plan : planesDeVuelo) {
+            for (PlanDeVuelo plan : planesDeVuelo) {
                 plan.setCapacidadOcupada(0);
             }
-            if(!planesDeVuelo.isEmpty()) {
+            if (!planesDeVuelo.isEmpty()) {
                 planDeVueloRepository.saveAll(planesDeVuelo);
                 planesActualizados = planesDeVuelo.size();
             }
@@ -465,14 +471,14 @@ public class PlanificadorController {
             // 3. Limpiar las referencias de partes asignadas en los envíos
             List<Envio> envios = envioRepository.findAll();
             List<Envio> enviosParaActualizar = new ArrayList<>();
-            for(Envio envio : envios) {
-                if(envio.getParteAsignadas() != null && !envio.getParteAsignadas().isEmpty()) {
+            for (Envio envio : envios) {
+                if (envio.getParteAsignadas() != null && !envio.getParteAsignadas().isEmpty()) {
                     envio.setParteAsignadas(new ArrayList<>());
                     enviosParaActualizar.add(envio);
                     enviosActualizados++;
                 }
             }
-            if(!enviosParaActualizar.isEmpty()) {
+            if (!enviosParaActualizar.isEmpty()) {
                 envioRepository.saveAll(enviosParaActualizar);
             }
 
@@ -484,7 +490,8 @@ public class PlanificadorController {
             Query queryPartes = entityManager.createNativeQuery("DELETE FROM parte_asignada");
             partesEliminadas = queryPartes.executeUpdate();
 
-            // Nota: Los planes de vuelo ya no se eliminan, solo se resetean sus capacidades ocupadas
+            // Nota: Los planes de vuelo ya no se eliminan, solo se resetean sus capacidades
+            // ocupadas
 
             // Hacer flush para asegurar que los cambios se apliquen
             entityManager.flush();
@@ -496,11 +503,10 @@ public class PlanificadorController {
                     "planesActualizados", planesActualizados,
                     "relacionesVuelosEliminadas", relacionesVuelosEliminadas,
                     "partesEliminadas", partesEliminadas,
-                    "enviosActualizados", enviosActualizados
-            ));
+                    "enviosActualizados", enviosActualizados));
             response.put("timestamp", LocalDateTime.now().toString());
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             response.put("estado", "error");
             response.put("mensaje", "Error al limpiar planificación: " + e.getMessage());
             e.printStackTrace();
@@ -517,7 +523,7 @@ public class PlanificadorController {
         response.put("planificadorActivo", planificadorIniciado);
         response.put("ultimaActualizacion", LocalDateTime.now().toString());
 
-        if(planificador != null && planificadorIniciado) {
+        if (planificador != null && planificadorIniciado) {
             response.put("cicloActual", planificador.getCicloActual());
             response.put("proximoCiclo", planificador.getProximoCiclo());
             response.put("estadisticas", planificador.getEstadisticasActuales());
@@ -535,7 +541,7 @@ public class PlanificadorController {
     public Map<String, Object> obtenerUltimoCiclo() {
         Map<String, Object> response = new HashMap<>();
 
-        if(planificador != null && planificadorIniciado) {
+        if (planificador != null && planificadorIniciado) {
             Solucion ultimaSolucion = planificador.getUltimaSolucion();
             if (ultimaSolucion != null) {
                 response.put("ciclo", planificador.getCicloActual());
@@ -557,7 +563,7 @@ public class PlanificadorController {
     private Map<String, Object> convertirSolucionParaFrontend(Solucion solucion) {
         Map<String, Object> solucionFrontend = new HashMap<>();
 
-        if(solucion == null || solucion.getEnvios() == null) {
+        if (solucion == null || solucion.getEnvios() == null) {
             solucionFrontend.put("totalEnvios", 0);
             solucionFrontend.put("enviosCompletados", 0);
             solucionFrontend.put("llegadaMediaPonderada", "N/A");
@@ -572,7 +578,7 @@ public class PlanificadorController {
         // Agrupar por envío, no por parte
         List<Map<String, Object>> enviosFrontend = new ArrayList<>();
 
-        for(Envio envio : solucion.getEnvios()) {
+        for (Envio envio : solucion.getEnvios()) {
             Map<String, Object> envioFrontend = new HashMap<>();
             envioFrontend.put("envioId", envio.getId());
             envioFrontend.put("destino", envio.getAeropuertoDestino().getCodigo());
@@ -591,8 +597,8 @@ public class PlanificadorController {
             // ✅ PARTES como array dentro del mismo envío
             List<Map<String, Object>> partesFrontend = new ArrayList<>();
 
-            if(envio.getParteAsignadas() != null) {
-                for(ParteAsignada parte : envio.getParteAsignadas()) {
+            if (envio.getParteAsignadas() != null) {
+                for (ParteAsignada parte : envio.getParteAsignadas()) {
                     Map<String, Object> parteFrontend = new HashMap<>();
                     parteFrontend.put("cantidad", parte.getCantidad());
                     parteFrontend.put("origen", parte.getAeropuertoOrigen().getCodigo());
@@ -605,12 +611,14 @@ public class PlanificadorController {
                     // ✅ TRAMOS como array dentro de cada parte
                     List<Map<String, Object>> tramosFrontend = new ArrayList<>();
 
-                    if(parte.getRuta() != null) {
-                        for(PlanDeVuelo vuelo : parte.getRuta()) {
+                    if (parte.getRuta() != null) {
+                        for (PlanDeVuelo vuelo : parte.getRuta()) {
                             Map<String, Object> tramoFrontend = new HashMap<>();
                             tramoFrontend.put("vueloBaseId", vuelo.getId());
-                            tramoFrontend.put("origen", aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).get().getCodigo());
-                            tramoFrontend.put("destino", aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadDestino()).get().getCodigo());
+                            tramoFrontend.put("origen", aeropuertoService
+                                    .obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).get().getCodigo());
+                            tramoFrontend.put("destino", aeropuertoService
+                                    .obtenerAeropuertoPorId(vuelo.getCiudadDestino()).get().getCodigo());
                             tramoFrontend.put("salida", formatFechaConOffset(
                                     vuelo.getZonedHoraOrigen(),
                                     vuelo.getHoraOrigen(),
@@ -664,12 +672,12 @@ public class PlanificadorController {
         try {
             // Si no hay planificador en memoria, crear uno temporal para acceder al método
             // o cargar desde BD directamente
-            if(planificador == null) {
+            if (planificador == null) {
                 // Crear un planificador temporal para usar sus métodos de servicio
                 // Esto permite obtener el resumen incluso después de reiniciar la aplicación
                 Grasp grasp = new Grasp();
                 planificador = new Planificador(grasp, webSocketService, envioService,
-                    planDeVueloService, aeropuertoService);
+                        planDeVueloService, aeropuertoService);
             }
 
             Map<String, Object> resumen = planificador.obtenerResumenUltimaSimulacion();
@@ -677,7 +685,7 @@ public class PlanificadorController {
             response.put("estado", "éxito");
             response.putAll(resumen);
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             response.put("estado", "error");
             response.put("mensaje", "Error al obtener resumen de planificación: " + e.getMessage());
             e.printStackTrace();
@@ -690,7 +698,7 @@ public class PlanificadorController {
     public Map<String, Object> obtenerVuelosUltimoCiclo() {
         Map<String, Object> response = new HashMap<>();
 
-        if(planificador == null || !planificadorIniciado) {
+        if (planificador == null || !planificadorIniciado) {
             response.put("estado", "inactivo");
             response.put("mensaje", "El planificador no está activo");
             return response;
@@ -702,7 +710,7 @@ public class PlanificadorController {
                 .filter(a -> a.get("vueloId") != null)
                 .collect(Collectors.groupingBy(a -> (Integer) a.get("vueloId")));
 
-        if(vuelos == null || vuelos.isEmpty()) {
+        if (vuelos == null || vuelos.isEmpty()) {
             response.put("estado", "sin_datos");
             response.put("mensaje", "Aún no hay vuelos procesados en el último ciclo");
             return response;
@@ -716,8 +724,7 @@ public class PlanificadorController {
         response.put("cantidadVuelos", vuelos.size());
         response.put("horizonte", Map.of(
                 "inicio", inicio != null ? formatFechaConOffset(null, inicio, "0", formatter) : "N/A",
-                "fin", fin != null ? formatFechaConOffset(null, fin, "0", formatter) : "N/A"
-        ));
+                "fin", fin != null ? formatFechaConOffset(null, fin, "0", formatter) : "N/A"));
 
         List<Map<String, Object>> vuelosFrontend = vuelos.stream()
                 .map(v -> convertirVueloParaFrontend(v, asignacionesPorVuelo))
@@ -727,8 +734,9 @@ public class PlanificadorController {
 
         // Agregar lista de envíos planificados con sus partes y vuelos
         Solucion ultimaSolucion = planificador.getUltimaSolucion();
-        if(ultimaSolucion != null && ultimaSolucion.getEnvios() != null) {
-            List<Map<String, Object>> enviosPlanificados = convertirEnviosPlanificadosParaFrontend(ultimaSolucion.getEnvios(), formatter);
+        if (ultimaSolucion != null && ultimaSolucion.getEnvios() != null) {
+            List<Map<String, Object>> enviosPlanificados = convertirEnviosPlanificadosParaFrontend(
+                    ultimaSolucion.getEnvios(), formatter);
             response.put("enviosPlanificados", enviosPlanificados);
             response.put("cantidadEnvios", enviosPlanificados.size());
         } else {
@@ -755,19 +763,21 @@ public class PlanificadorController {
                     aeropuertoMap.put("codigo", a.getCodigo());
                     aeropuertoMap.put("ciudad", a.getCiudad());
                     aeropuertoMap.put("pais", a.getPais());
-                    aeropuertoMap.put("capacidadOcupada", a.getCapacidadOcupada() != null ? a.getCapacidadOcupada() : 0);
+                    aeropuertoMap.put("capacidadOcupada",
+                            a.getCapacidadOcupada() != null ? a.getCapacidadOcupada() : 0);
                     aeropuertoMap.put("capacidadMaxima", a.getCapacidadMaxima());
                     return aeropuertoMap;
                 })
                 .collect(Collectors.toList());
     }
 
-    private List<Map<String, Object>> convertirEnviosPlanificadosParaFrontend(List<Envio> envios, DateTimeFormatter formatter) {
+    private List<Map<String, Object>> convertirEnviosPlanificadosParaFrontend(List<Envio> envios,
+            DateTimeFormatter formatter) {
         List<Map<String, Object>> enviosFrontend = new ArrayList<>();
 
-        for(Envio envio : envios) {
+        for (Envio envio : envios) {
             // Solo incluir envíos que tengan partes asignadas
-            if(envio.getParteAsignadas() == null || envio.getParteAsignadas().isEmpty()) {
+            if (envio.getParteAsignadas() == null || envio.getParteAsignadas().isEmpty()) {
                 continue;
             }
 
@@ -780,12 +790,11 @@ public class PlanificadorController {
             envioMap.put("completo", envio.estaCompleto());
 
             // Información del destino
-            if(envio.getAeropuertoDestino() != null) {
+            if (envio.getAeropuertoDestino() != null) {
                 envioMap.put("destino", Map.of(
                         "id", envio.getAeropuertoDestino().getId(),
                         "codigo", envio.getAeropuertoDestino().getCodigo(),
-                        "ciudad", envio.getAeropuertoDestino().getCiudad()
-                ));
+                        "ciudad", envio.getAeropuertoDestino().getCiudad()));
             }
 
             // Información de aparición
@@ -798,17 +807,16 @@ public class PlanificadorController {
             // Lista de partes (si el pedido está dividido)
             List<Map<String, Object>> partesFrontend = new ArrayList<>();
 
-            for(ParteAsignada parte : envio.getParteAsignadas()) {
+            for (ParteAsignada parte : envio.getParteAsignadas()) {
                 Map<String, Object> parteMap = new HashMap<>();
                 parteMap.put("cantidad", parte.getCantidad());
 
                 // Aeropuerto origen de esta parte
-                if(parte.getAeropuertoOrigen() != null) {
+                if (parte.getAeropuertoOrigen() != null) {
                     parteMap.put("aeropuertoOrigen", Map.of(
                             "id", parte.getAeropuertoOrigen().getId(),
                             "codigo", parte.getAeropuertoOrigen().getCodigo(),
-                            "ciudad", parte.getAeropuertoOrigen().getCiudad()
-                    ));
+                            "ciudad", parte.getAeropuertoOrigen().getCiudad()));
                 }
 
                 // Llegada final de esta parte
@@ -821,8 +829,8 @@ public class PlanificadorController {
                 // Lista de vuelos por los que pasa esta parte (ruta completa)
                 List<Map<String, Object>> vuelosRuta = new ArrayList<>();
 
-                if(parte.getRuta() != null && !parte.getRuta().isEmpty()) {
-                    for(int i = 0; i < parte.getRuta().size(); i++) {
+                if (parte.getRuta() != null && !parte.getRuta().isEmpty()) {
+                    for (int i = 0; i < parte.getRuta().size(); i++) {
                         PlanDeVuelo vuelo = parte.getRuta().get(i);
                         Map<String, Object> vueloRutaMap = new HashMap<>();
                         vueloRutaMap.put("orden", i + 1); // Orden en la ruta (1, 2, 3...)
@@ -833,16 +841,14 @@ public class PlanificadorController {
                                 .ifPresent(a -> vueloRutaMap.put("origen", Map.of(
                                         "id", a.getId(),
                                         "codigo", a.getCodigo(),
-                                        "ciudad", a.getCiudad()
-                                )));
+                                        "ciudad", a.getCiudad())));
 
                         // Destino del vuelo
                         aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadDestino())
                                 .ifPresent(a -> vueloRutaMap.put("destino", Map.of(
                                         "id", a.getId(),
                                         "codigo", a.getCodigo(),
-                                        "ciudad", a.getCiudad()
-                                )));
+                                        "ciudad", a.getCiudad())));
 
                         vueloRutaMap.put("horaSalida", formatFechaConOffset(
                                 vuelo.getZonedHoraOrigen(),
@@ -876,13 +882,15 @@ public class PlanificadorController {
         return enviosFrontend;
     }
 
-    private Map<String, Object> convertirVueloParaFrontend(PlanDeVuelo vuelo, Map<Integer, List<Map<String, Object>>> asignacionesPorVuelo) {
+    private Map<String, Object> convertirVueloParaFrontend(PlanDeVuelo vuelo,
+            Map<Integer, List<Map<String, Object>>> asignacionesPorVuelo) {
         Map<String, Object> vueloFrontend = new HashMap<>();
         vueloFrontend.put("id", vuelo.getId());
         vueloFrontend.put("capacidadMaxima", vuelo.getCapacidadMaxima());
         vueloFrontend.put("capacidadOcupada", vuelo.getCapacidadOcupada());
         vueloFrontend.put("capacidadLibre", vuelo.getCapacidadMaxima() != null && vuelo.getCapacidadOcupada() != null
-                ? vuelo.getCapacidadMaxima() - vuelo.getCapacidadOcupada() : null);
+                ? vuelo.getCapacidadMaxima() - vuelo.getCapacidadOcupada()
+                : null);
         vueloFrontend.put("mismoContinente", vuelo.getMismoContinente());
         vueloFrontend.put("estado", vuelo.getEstado());
 
@@ -904,16 +912,14 @@ public class PlanificadorController {
                         "id", a.getId(),
                         "codigo", a.getCodigo(),
                         "ciudad", a.getCiudad(),
-                        "pais", a.getPais() != null ? a.getPais().getNombre() : null
-                )));
+                        "pais", a.getPais() != null ? a.getPais().getNombre() : null)));
 
         aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadDestino())
                 .ifPresent(a -> vueloFrontend.put("destino", Map.of(
                         "id", a.getId(),
                         "codigo", a.getCodigo(),
                         "ciudad", a.getCiudad(),
-                        "pais", a.getPais() != null ? a.getPais().getNombre() : null
-                )));
+                        "pais", a.getPais() != null ? a.getPais().getNombre() : null)));
 
         List<Map<String, Object>> asignaciones = vuelo.getId() != null
                 ? asignacionesPorVuelo.getOrDefault(vuelo.getId(), Collections.emptyList())
@@ -923,24 +929,25 @@ public class PlanificadorController {
         return vueloFrontend;
     }
 
-    private String formatFechaConOffset(ZonedDateTime zoned, LocalDateTime local, String husoHorario, DateTimeFormatter formatter) {
-        if(zoned != null) {
+    private String formatFechaConOffset(ZonedDateTime zoned, LocalDateTime local, String husoHorario,
+            DateTimeFormatter formatter) {
+        if (zoned != null) {
             ZoneOffset offset = zoned.getOffset();
             String offsetStr = offset.getId().equals("Z") ? "+00:00" : offset.getId();
             return String.format("%s (UTC%s)", zoned.format(formatter), offsetStr);
         }
 
-        if(local != null && husoHorario != null) {
+        if (local != null && husoHorario != null) {
             int offsetHoras;
             try {
                 offsetHoras = Integer.parseInt(husoHorario);
-            } catch(NumberFormatException e) {
+            } catch (NumberFormatException e) {
                 offsetHoras = 0;
             }
             return String.format("%s (UTC%+03d:00)", local.format(formatter), offsetHoras);
         }
 
-        if(local != null) {
+        if (local != null) {
             return String.format("%s (UTC%+03d:00)", local.format(formatter), 0);
         }
 
@@ -949,6 +956,7 @@ public class PlanificadorController {
 
     /**
      * Carga vuelos desde el archivo vuelos.txt para los 7 días de la semana
+     * 
      * @param fechaBase Fecha base (primer día de la semana)
      * @return Lista de planes de vuelo generados para 7 días
      */
@@ -961,25 +969,25 @@ public class PlanificadorController {
             // Intentar leer desde el classpath primero (funciona en JAR y en desarrollo)
             inputStream = getClass().getClassLoader().getResourceAsStream("planes/vuelos.txt");
 
-            if(inputStream != null) {
+            if (inputStream != null) {
                 System.out.println("📂 Leyendo archivo desde classpath: planes/vuelos.txt");
                 scanner = new Scanner(inputStream, "UTF-8");
             } else {
                 // Si no se encuentra en el classpath, intentar como archivo del sistema
                 File planesFile = new File("src/main/resources/planes/vuelos.txt");
 
-                if(!planesFile.exists()) {
+                if (!planesFile.exists()) {
                     // También intentar desde la raíz del proyecto
                     planesFile = new File("planes/vuelos.txt");
 
-                    if(!planesFile.exists()) {
+                    if (!planesFile.exists()) {
                         // Intentar con ruta absoluta relativa al directorio de trabajo
                         String workingDir = System.getProperty("user.dir");
                         planesFile = new File(workingDir + "/src/main/resources/planes/vuelos.txt");
                     }
                 }
 
-                if(planesFile.exists()) {
+                if (planesFile.exists()) {
                     System.out.println("📂 Leyendo archivo desde sistema de archivos: " + planesFile.getAbsolutePath());
                     scanner = new Scanner(planesFile, "UTF-8");
                 } else {
@@ -987,7 +995,8 @@ public class PlanificadorController {
                     System.err.println("  - classpath:planes/vuelos.txt");
                     System.err.println("  - src/main/resources/planes/vuelos.txt");
                     System.err.println("  - planes/vuelos.txt");
-                    System.err.println("  - " + System.getProperty("user.dir") + "/src/main/resources/planes/vuelos.txt");
+                    System.err
+                            .println("  - " + System.getProperty("user.dir") + "/src/main/resources/planes/vuelos.txt");
                     return planes;
                 }
             }
@@ -998,28 +1007,30 @@ public class PlanificadorController {
             System.out.println("📊 Vuelos procesados del archivo: " + planes.size());
 
             // Guardar todos los vuelos en la base de datos
-            if(!planes.isEmpty()) {
+            if (!planes.isEmpty()) {
                 planDeVueloService.insertarListaPlanesDeVuelo(planes);
-                System.out.println("✅ Se generaron " + planes.size() + " vuelos para 7 días (desde " + fechaBase + " hasta " + fechaBase.plusDays(6) + ")");
+                System.out.println("✅ Se generaron " + planes.size() + " vuelos para 7 días (desde " + fechaBase
+                        + " hasta " + fechaBase.plusDays(6) + ")");
             } else {
-                System.err.println("⚠️  El archivo se leyó pero no se generaron vuelos. Verifique el formato del archivo.");
+                System.err.println(
+                        "⚠️  El archivo se leyó pero no se generaron vuelos. Verifique el formato del archivo.");
             }
 
-        } catch(FileNotFoundException e) {
+        } catch (FileNotFoundException e) {
             System.err.println("❌ Archivo de vuelos no encontrado: " + e.getMessage());
             e.printStackTrace();
-        } catch(Exception e) {
+        } catch (Exception e) {
             System.err.println("❌ Error al cargar vuelos desde archivo: " + e.getMessage());
             e.printStackTrace();
         } finally {
             // Cerrar recursos
-            if(scanner != null) {
+            if (scanner != null) {
                 scanner.close();
             }
-            if(inputStream != null) {
+            if (inputStream != null) {
                 try {
                     inputStream.close();
-                } catch(Exception e) {
+                } catch (Exception e) {
                     System.err.println("Error al cerrar inputStream: " + e.getMessage());
                 }
             }
@@ -1030,28 +1041,29 @@ public class PlanificadorController {
 
     /**
      * Procesa el archivo de vuelos y genera planes de vuelo para 7 días
-     * @param scanner Scanner del archivo
+     * 
+     * @param scanner   Scanner del archivo
      * @param fechaBase Fecha base (primer día de la semana)
      * @return Lista de planes de vuelo generados
      */
     private ArrayList<PlanDeVuelo> procesarArchivoVuelos(Scanner scanner, LocalDate fechaBase) {
         ArrayList<PlanDeVuelo> planes = new ArrayList<>();
 
-        while(scanner.hasNextLine()) {
+        while (scanner.hasNextLine()) {
             String row = scanner.nextLine().trim();
 
-            if(row.isEmpty()) {
+            if (row.isEmpty()) {
                 continue;
             }
 
             String[] data = row.split("-");
 
             // Formato: ORIGEN-DESTINO-HORA_ORIGEN-HORA_DESTINO-CAPACIDAD
-            if(data.length >= 5) {
+            if (data.length >= 5) {
                 Optional<Aeropuerto> aeropuertoOptionalOrig = aeropuertoService.obtenerAeropuertoPorCodigo(data[0]);
                 Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[1]);
 
-                if(aeropuertoOptionalOrig.isPresent() && aeropuertoOptionalDest.isPresent()) {
+                if (aeropuertoOptionalOrig.isPresent() && aeropuertoOptionalDest.isPresent()) {
                     Aeropuerto aeropuertoOrigen = aeropuertoOptionalOrig.get();
                     Aeropuerto aeropuertoDest = aeropuertoOptionalDest.get();
 
@@ -1065,7 +1077,7 @@ public class PlanificadorController {
                     Integer capacidad = Integer.parseInt(data[4]);
 
                     // Generar vuelos para los 7 días de la semana
-                    for(int diaOffset = 0; diaOffset < 7; diaOffset++) {
+                    for (int diaOffset = 0; diaOffset < 7; diaOffset++) {
                         LocalDate fechaVuelo = fechaBase.plusDays(diaOffset);
 
                         LocalDateTime fechaInicio = LocalDateTime.of(fechaVuelo, hI);
@@ -1074,8 +1086,7 @@ public class PlanificadorController {
                         // Calcular si el vuelo acaba en el mismo o diferente día
                         Integer cantDias = planDeVueloService.planAcabaAlSiguienteDia(
                                 data[2], data[3], husoOrigen, husoDestino,
-                                fechaVuelo.getYear(), fechaVuelo.getMonthValue(), fechaVuelo.getDayOfMonth()
-                        );
+                                fechaVuelo.getYear(), fechaVuelo.getMonthValue(), fechaVuelo.getDayOfMonth());
 
                         fechaFin = LocalDateTime.of(fechaVuelo, hF).plusDays(cantDias);
 
