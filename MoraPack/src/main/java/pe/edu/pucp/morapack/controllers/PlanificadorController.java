@@ -151,15 +151,16 @@ public class PlanificadorController {
             ArrayList<Pais> paises = paisService.obtenerTodosPaises();
             ArrayList<Envio> envios = envioService.obtenerEnvios();
 
-            // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar solo vuelos del primer horizonte (4 horas)
-            // En lugar de cargar 1.5M de vuelos, cargamos ~2000-3000
-            LocalDateTime finPrimerHorizonte = fechaInicio.plusHours(4);
+            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos dentro del rango de simulación + margen de
+            // 1 día
+            LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
+            LocalDateTime fechaFinVuelos = fechaFin.plusDays(1);
             ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosEnRango(
-                    fechaInicio, "0", finPrimerHorizonte, "0");
+                    fechaInicioVuelos, "0", fechaFinVuelos, "0");
 
             System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL");
             System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
-                    ", planes=" + planes.size() + " (primer horizonte 4h)" +
+                    ", planes=" + planes.size() + " (rango: " + fechaInicioVuelos + " a " + fechaFinVuelos + ")" +
                     ", envios=" + envios.size());
 
             // Configurar GRASP
@@ -265,15 +266,16 @@ public class PlanificadorController {
             ArrayList<Pais> paises = paisService.obtenerTodosPaises();
             ArrayList<Envio> envios = envioService.obtenerEnvios();
 
-            // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar solo vuelos del primer horizonte (4 horas)
-            // En lugar de cargar 1.5M de vuelos, cargamos ~2000-3000
-            LocalDateTime finPrimerHorizonte = fechaInicio.plusHours(4);
+            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos dentro del rango de simulación + margen de
+            // 1 día
+            LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
+            LocalDateTime fechaFinVuelos = fechaFin.plusDays(1);
             ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosEnRango(
-                    fechaInicio, "0", finPrimerHorizonte, "0");
+                    fechaInicioVuelos, "0", fechaFinVuelos, "0");
 
-            System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL");
+            System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL V2 (con generación de vuelos)");
             System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
-                    ", planes=" + planes.size() + " (primer horizonte 4h)" +
+                    ", planes=" + planes.size() + " (rango: " + fechaInicioVuelos + " a " + fechaFinVuelos + ")" +
                     ", envios=" + envios.size());
 
             // Configurar GRASP
@@ -356,14 +358,15 @@ public class PlanificadorController {
             ArrayList<Pais> paises = paisService.obtenerTodosPaises();
             ArrayList<Envio> envios = envioService.obtenerEnvios();
 
-            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos desde fecha inicio (4h adelante)
-            LocalDateTime finPrimerHorizonte = fechaInicio.plusHours(4);
-            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosEnRango(
-                    fechaInicio, "0", finPrimerHorizonte, "0");
+            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos desde la fecha de inicio (simulación
+            // colapso sin límite)
+            LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
+            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosDesdeFecha(fechaInicioVuelos, "0");
 
             System.out.println("🚀 INICIANDO SIMULACIÓN DE COLAPSO");
             System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
-                    ", planes=" + planes.size() + ", envios=" + envios.size());
+                    ", planes=" + planes.size() + " (desde: " + fechaInicioVuelos + ")" +
+                    ", envios=" + envios.size());
 
             // Configurar GRASP
             Grasp grasp = new Grasp();

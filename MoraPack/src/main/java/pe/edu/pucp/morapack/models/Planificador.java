@@ -603,9 +603,7 @@ public class Planificador {
             // break;
         }
 
-        // ⚡ OPTIMIZACIÓN: Usar vuelos ya cargados en GRASP (recargados por
-        // recargarDatosBase)
-        // No recargar 1.5M vuelos desde DB cada vez
+        // ⚡ OPTIMIZACIÓN: Reutilizar vuelos ya cargados y filtrados en inicialización
         ArrayList<PlanDeVuelo> planesDeVuelo = grasp.getPlanesDeVuelo();
         if (planesDeVuelo == null || planesDeVuelo.isEmpty()) {
             return null;
@@ -1170,16 +1168,27 @@ public class Planificador {
      * respete la capacidad disponible.
      */
     private void recargarDatosBase(LocalDateTime inicioHorizonte, LocalDateTime finHorizonte) {
-        // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar solo vuelos del horizonte desde DB
-        // En lugar de cargar 1.5M vuelos y filtrar, cargamos directamente los ~2-3K del
-        // horizonte
+        // ⚡ OPTIMIZACIÓN: Cargar solo vuelos en el horizonte temporal directamente
+        // desde DB
+        LocalDateTime inicioConsulta = inicioHorizonte.minusHours(6); // margen para vuelos que cruzan
+        LocalDateTime finConsulta = finHorizonte.plusHours(6);
         ArrayList<PlanDeVuelo> planesActualizados = planDeVueloService.obtenerVuelosEnRango(
-                inicioHorizonte, "0", finHorizonte, "0");
+                inicioConsulta, "0", finConsulta, "0");
         ArrayList<Aeropuerto> aeropuertosActualizados = aeropuertoService.obtenerTodosAeropuertos();
 
-        // Ya no es necesario filtrar, obtenerVuelosEnRango ya devuelve solo los del
-        // rango
-        ArrayList<PlanDeVuelo> planesFiltrados = planesActualizados;
+        ArrayList<PlanDeVuelo> planesFiltrados = planesActualizados.stream()
+                .filter(plan -> {
+                    LocalDateTime salida = plan.getHoraOrigen();
+                    LocalDateTime llegada = plan.getHoraDestino();
+                    if (salida == null || llegada == null)
+                        return false;
+
+                    boolean salidaEnRango = !salida.isBefore(inicioHorizonte) && !salida.isAfter(finHorizonte);
+                    boolean llegadaEnRango = !llegada.isBefore(inicioHorizonte) && !llegada.isAfter(finHorizonte);
+                    boolean cruzaHorizonte = salida.isBefore(inicioHorizonte) && llegada.isAfter(inicioHorizonte);
+                    return salidaEnRango || llegadaEnRango || cruzaHorizonte;
+                })
+                .collect(Collectors.toCollection(ArrayList::new));
 
         this.vuelosUltimoCiclo = planesFiltrados;
 
