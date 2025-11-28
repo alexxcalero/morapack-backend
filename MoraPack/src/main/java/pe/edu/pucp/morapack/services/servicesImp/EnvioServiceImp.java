@@ -287,6 +287,8 @@ public class EnvioServiceImp implements EnvioService {
     @Override
     public ArrayList<Envio> obtenerEnviosEnRango(LocalDateTime fechaInicio, String husoHorarioInicio,
             LocalDateTime fechaFin, String husoHorarioFin) {
+        System.out.println("🔍 [EnvioService] obtenerEnviosEnRango: inicio=" + fechaInicio + ", fin=" + fechaFin);
+
         // Convertir las fechas de entrada a ZonedDateTime
         Integer offsetInicio = Integer.parseInt(husoHorarioInicio);
         Integer offsetFin = Integer.parseInt(husoHorarioFin);
@@ -306,9 +308,14 @@ public class EnvioServiceImp implements EnvioService {
         LocalDateTime fechaInicioConsulta = fechaInicioUTC.toLocalDateTime().minusHours(14);
         LocalDateTime fechaFinConsulta = fechaFinUTC.toLocalDateTime().plusHours(14);
 
+        System.out
+                .println("🔍 [EnvioService] Ejecutando consulta BD: " + fechaInicioConsulta + " a " + fechaFinConsulta);
+
         // Consulta optimizada en la BD (solo trae envíos relevantes)
         ArrayList<Envio> enviosCandidatos = envioRepository.findByFechaIngresoBetween(
                 fechaInicioConsulta, fechaFinConsulta);
+
+        System.out.println("🔍 [EnvioService] Candidatos de BD: " + enviosCandidatos.size());
 
         // Filtrar en memoria considerando las zonas horarias reales (sobre un conjunto
         // mucho menor)
@@ -325,6 +332,7 @@ public class EnvioServiceImp implements EnvioService {
             }
         }
 
+        System.out.println("🔍 [EnvioService] Envíos filtrados en rango: " + enviosEnRango.size());
         return enviosEnRango;
     }
 

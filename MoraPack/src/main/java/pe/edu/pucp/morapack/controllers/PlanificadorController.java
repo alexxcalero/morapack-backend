@@ -146,18 +146,32 @@ public class PlanificadorController {
             }
 
             // Cargar datos necesarios
+            System.out.println("📂 Cargando aeropuertos...");
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+            System.out.println("✅ Aeropuertos cargados: " + aeropuertos.size());
+
+            System.out.println("📂 Cargando continentes...");
             ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
+            System.out.println("✅ Continentes cargados: " + continentes.size());
+
+            System.out.println("📂 Cargando países...");
             ArrayList<Pais> paises = paisService.obtenerTodosPaises();
+            System.out.println("✅ Países cargados: " + paises.size());
 
             // ⚡ OPTIMIZACIÓN: Cargar solo vuelos y envíos dentro del rango de simulación +
             // margen
             LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
             LocalDateTime fechaFinVuelos = fechaFin.plusDays(1);
+
+            System.out.println("📂 Cargando vuelos en rango " + fechaInicioVuelos + " a " + fechaFinVuelos + "...");
             ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosEnRango(
                     fechaInicioVuelos, "0", fechaFinVuelos, "0");
+            System.out.println("✅ Vuelos cargados: " + planes.size());
+
+            System.out.println("📂 Cargando envíos en rango...");
             ArrayList<Envio> envios = envioService.obtenerEnviosEnRango(
                     fechaInicioVuelos, "0", fechaFinVuelos, "0");
+            System.out.println("✅ Envíos cargados: " + envios.size());
 
             System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL");
             System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
@@ -165,6 +179,7 @@ public class PlanificadorController {
                     ", envios=" + envios.size());
 
             // Configurar GRASP
+            System.out.println("⚙️ Configurando GRASP...");
             Grasp grasp = new Grasp();
             grasp.setAeropuertos(aeropuertos);
             grasp.setContinentes(continentes);
@@ -172,8 +187,10 @@ public class PlanificadorController {
             grasp.setEnvios(envios);
             grasp.setPlanesDeVuelo(planes);
             grasp.setHubsPropio();
+            System.out.println("✅ GRASP configurado");
 
             // Configurar hubs para los envíos
+            System.out.println("⚙️ Configurando hubs para " + envios.size() + " envíos...");
             ArrayList<Aeropuerto> hubs = grasp.getHubs();
             if (hubs != null && !hubs.isEmpty()) {
                 ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
@@ -181,8 +198,10 @@ public class PlanificadorController {
                     e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
                 }
             }
+            System.out.println("✅ Hubs configurados");
 
             // Crear e iniciar el planificador en modo SEMANAL
+            System.out.println("⚙️ Creando planificador...");
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
                     aeropuertoService);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.SEMANAL, fechaInicio, fechaFin);
