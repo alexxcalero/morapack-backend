@@ -970,31 +970,53 @@ public class Planificador {
             System.out.printf("🔍 [LiberarProductos] Iniciando verificación a las %s (tiempo simulado)%n",
                     tiempoSimulado.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
-            // ⚡ OPTIMIZACIÓN: Solo procesar envíos que tienen partes asignadas
-            List<Envio> enviosBase = this.enviosOriginales != null ? this.enviosOriginales
-                    : envioService.obtenerEnvios();
+            // ⚡ OPTIMIZACIÓN: Obtener envíos CON partes asignadas desde BD para evitar
+            // LazyInitializationException
+            // Calculamos el rango de fechas basado en el tiempo simulado actual
+            LocalDateTime fechaInicio = this.tiempoInicioSimulacion != null ? this.tiempoInicioSimulacion
+                    : tiempoSimulado.minusDays(1);
+            LocalDateTime fechaFin = tiempoSimulado.plusDays(1);
 
-            // Filtrar solo envíos con partes asignadas para evitar iterar sobre todos
-            List<Envio> envios = enviosBase.stream()
-                    .filter(e -> e.getParteAsignadas() != null && !e.getParteAsignadas().isEmpty()
-                            && e.getAeropuertoDestino() != null)
+            // Usar el método con JOIN FETCH para cargar las partes asignadas
+            List<Envio> enviosConPartes;
+            try {
+                enviosConPartes = new ArrayList<>(envioService.obtenerEnviosEnRangoConPartes(
+                        fechaInicio, "0", fechaFin, "0"));
+            } catch (Exception e) {
+                System.err.println("⚠️ Error al obtener envíos con partes, usando lista en memoria: " + e.getMessage());
+                // Fallback: usar envíos en memoria (pueden causar lazy exception)
+                enviosConPartes = this.enviosOriginales != null ? new ArrayList<>(this.enviosOriginales)
+                        : new ArrayList<>();
+            }
+
+            // Filtrar solo envíos con partes asignadas no vacías
+            List<Envio> envios = enviosConPartes.stream()
+                    .filter(e -> {
+                        try {
+                            return e.getParteAsignadas() != null && !e.getParteAsignadas().isEmpty()
+                                    && e.getAeropuertoDestino() != null;
+                        } catch (Exception ex) {
+                            return false; // Si hay error de lazy loading, ignorar este envío
+                        }
+                    })
                     .collect(java.util.stream.Collectors.toList());
 
-            System.out.printf("🔍 [LiberarProductos] Envíos con partes asignadas: %d (de %d total)%n", envios.size(),
-                    enviosBase.size());
+            System.out.printf("🔍 [LiberarProductos] Envíos con partes asignadas: %d (de %d consultados)%n",
+                    envios.size(),
+                    enviosConPartes.size());
 
             Map<Integer, Aeropuerto> aeropuertosActualizados = new HashMap<>();
             List<ParteAsignada> partesParaActualizar = new ArrayList<>();
             int productosLiberados = 0;
             int partesEntregadas = 0;
-            int enviosConPartes = 0;
+            int enviosConPartesCount = 0;
             int partesSinLlegadaFinal = 0;
             int partesNoLlegaronDestino = 0;
             int partesMenosDe2Horas = 0;
 
             for (Envio envio : envios) {
                 // Ya filtrados: tienen partes asignadas y aeropuerto destino
-                enviosConPartes++;
+                enviosConPartesCount++;
                 Integer aeropuertoDestinoId = envio.getAeropuertoDestino().getId();
 
                 for (ParteAsignada parte : envio.getParteAsignadas()) {
@@ -1107,7 +1129,7 @@ public class Planificador {
 
             System.out.printf("🔍 [LiberarProductos] Resumen: %d envíos con partes, %d partes sin llegadaFinal, " +
                     "%d partes no llegaron a destino, %d partes con menos de 2 horas%n",
-                    enviosConPartes, partesSinLlegadaFinal, partesNoLlegaronDestino, partesMenosDe2Horas);
+                    enviosConPartesCount, partesSinLlegadaFinal, partesNoLlegaronDestino, partesMenosDe2Horas);
 
             // Persistir los cambios
             if (!partesParaActualizar.isEmpty()) {
