@@ -772,18 +772,13 @@ public class Planificador {
      */
     private int calcularTotalPedidosPlanificados() {
         try {
-            // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados en memoria
+            // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados en memoria con stream filter
             List<Envio> envios = this.enviosOriginales != null ? this.enviosOriginales : envioService.obtenerEnvios();
-            int totalPlanificados = 0;
 
-            for (Envio envio : envios) {
-                // Un pedido está planificado si tiene al menos una parte asignada
-                if (envio.getParteAsignadas() != null && !envio.getParteAsignadas().isEmpty()) {
-                    totalPlanificados++;
-                }
-            }
-
-            return totalPlanificados;
+            // Contar usando stream para evitar iteración completa
+            return (int) envios.stream()
+                    .filter(e -> e.getParteAsignadas() != null && !e.getParteAsignadas().isEmpty())
+                    .count();
         } catch (Exception e) {
             System.err.printf("❌ Error al calcular pedidos planificados: %s%n", e.getMessage());
             return 0;
@@ -975,9 +970,18 @@ public class Planificador {
             System.out.printf("🔍 [LiberarProductos] Iniciando verificación a las %s (tiempo simulado)%n",
                     tiempoSimulado.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
-            // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados en memoria
-            List<Envio> envios = this.enviosOriginales != null ? this.enviosOriginales : envioService.obtenerEnvios();
-            System.out.printf("🔍 [LiberarProductos] Total de envíos obtenidos: %d%n", envios.size());
+            // ⚡ OPTIMIZACIÓN: Solo procesar envíos que tienen partes asignadas
+            List<Envio> enviosBase = this.enviosOriginales != null ? this.enviosOriginales
+                    : envioService.obtenerEnvios();
+
+            // Filtrar solo envíos con partes asignadas para evitar iterar sobre todos
+            List<Envio> envios = enviosBase.stream()
+                    .filter(e -> e.getParteAsignadas() != null && !e.getParteAsignadas().isEmpty()
+                            && e.getAeropuertoDestino() != null)
+                    .collect(java.util.stream.Collectors.toList());
+
+            System.out.printf("🔍 [LiberarProductos] Envíos con partes asignadas: %d (de %d total)%n", envios.size(),
+                    enviosBase.size());
 
             Map<Integer, Aeropuerto> aeropuertosActualizados = new HashMap<>();
             List<ParteAsignada> partesParaActualizar = new ArrayList<>();
@@ -989,14 +993,7 @@ public class Planificador {
             int partesMenosDe2Horas = 0;
 
             for (Envio envio : envios) {
-                if (envio.getParteAsignadas() == null || envio.getAeropuertoDestino() == null) {
-                    continue;
-                }
-
-                if (envio.getParteAsignadas().isEmpty()) {
-                    continue;
-                }
-
+                // Ya filtrados: tienen partes asignadas y aeropuerto destino
                 enviosConPartes++;
                 Integer aeropuertoDestinoId = envio.getAeropuertoDestino().getId();
 
