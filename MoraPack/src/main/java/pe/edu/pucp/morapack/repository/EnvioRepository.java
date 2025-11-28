@@ -28,13 +28,32 @@ public interface EnvioRepository extends JpaRepository<Envio, Integer> {
     @Query("SELECT e FROM Envio e WHERE e.fechaIngreso >= :fechaInicio AND e.fechaIngreso <= :fechaFin")
     ArrayList<Envio> findByFechaIngresoBetween(
             @Param("fechaInicio") LocalDateTime fechaInicio,
-            @Param("fechaFin") LocalDateTime fechaFin
-    );
+            @Param("fechaFin") LocalDateTime fechaFin);
 
     /**
-     * Obtiene envíos cuya fecha de ingreso es igual o posterior a la fecha especificada.
+     * Obtiene envíos cuya fecha de ingreso es igual o posterior a la fecha
+     * especificada.
      * Esta consulta es optimizada para trabajar con índices en fechaIngreso.
      */
     @Query("SELECT e FROM Envio e WHERE e.fechaIngreso >= :fechaInicio")
     ArrayList<Envio> findByFechaIngresoGreaterThanEqual(@Param("fechaInicio") LocalDateTime fechaInicio);
+
+    /**
+     * ⚡ OPTIMIZACIÓN: Obtiene solo los campos básicos de envíos sin cargar
+     * ParteAsignadas.
+     * Usa EntityGraph para evitar el EAGER fetch que consume memoria.
+     * Ideal para inicialización donde las ParteAsignadas están vacías.
+     */
+    @Query("SELECT e FROM Envio e WHERE e.fechaIngreso >= :fechaInicio AND e.fechaIngreso <= :fechaFin")
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = { "aeropuertoDestino", "aeropuertoOrigen" })
+    ArrayList<Envio> findBasicByFechaIngresoBetween(
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin);
+
+    /**
+     * ⚡ OPTIMIZACIÓN: Versión sin relaciones pesadas para colapso (desde fecha).
+     */
+    @Query("SELECT e FROM Envio e WHERE e.fechaIngreso >= :fechaInicio")
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = { "aeropuertoDestino", "aeropuertoOrigen" })
+    ArrayList<Envio> findBasicByFechaIngresoGreaterThanEqual(@Param("fechaInicio") LocalDateTime fechaInicio);
 }
