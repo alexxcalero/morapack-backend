@@ -5,7 +5,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import pe.edu.pucp.morapack.models.*;
 import pe.edu.pucp.morapack.services.servicesImp.*;
-import pe.edu.pucp.morapack.repository.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 
@@ -28,10 +27,9 @@ public class PlanificadorController {
     private final EnvioServiceImp envioService;
     private final PlanDeVueloServiceImp planDeVueloService;
     private final PlanificacionWebSocketServiceImp webSocketService;
-    private final AeropuertoRepository aeropuertoRepository;
-    private final PlanDeVueloRepository planDeVueloRepository;
-    private final EnvioRepository envioRepository;
     private final EntityManager entityManager;
+    // Nota: Se eliminaron los repositorios directos - ahora usamos SQL nativo vía
+    // EntityManager
 
     private Planificador planificador;
     private boolean planificadorIniciado = false;
@@ -469,10 +467,13 @@ public class PlanificadorController {
     }
 
     // Endpoint para limpiar todas las planificaciones anteriores
+    // ⚡ OPTIMIZADO: Usa solo SQL nativo para evitar cargar 43K+ envíos en memoria
     @PostMapping("/limpiar-planificacion")
     @Transactional
     public Map<String, Object> limpiarPlanificacion() {
         Map<String, Object> response = new HashMap<>();
+        long startTime = System.currentTimeMillis();
+        System.out.println("🧹 [LIMPIAR] Iniciando limpieza de planificación...");
 
         try {
             // Verificar si el planificador está activo
@@ -487,56 +488,38 @@ public class PlanificadorController {
             int planesActualizados = 0;
             int relacionesVuelosEliminadas = 0;
             int partesEliminadas = 0;
-            int enviosActualizados = 0;
 
-            // 1. Vaciar capacidades ocupadas de todos los aeropuertos
-            List<Aeropuerto> aeropuertos = new ArrayList<>();
-            for (Aeropuerto aeropuerto : aeropuertoRepository.findAll()) {
-                aeropuerto.setCapacidadOcupada(0);
-                aeropuertos.add(aeropuerto);
-            }
-            if (!aeropuertos.isEmpty()) {
-                aeropuertoRepository.saveAll(aeropuertos);
-                aeropuertosActualizados = aeropuertos.size();
-            }
+            // ⚡ OPTIMIZACIÓN: Usar SQL nativo para TODO, evitar cargar entidades en memoria
 
-            // 2. Vaciar capacidades ocupadas de todos los planes de vuelo
-            List<PlanDeVuelo> planesDeVuelo = planDeVueloRepository.findAll();
-            for (PlanDeVuelo plan : planesDeVuelo) {
-                plan.setCapacidadOcupada(0);
-            }
-            if (!planesDeVuelo.isEmpty()) {
-                planDeVueloRepository.saveAll(planesDeVuelo);
-                planesActualizados = planesDeVuelo.size();
-            }
+            // 1. Resetear capacidades de aeropuertos con SQL nativo
+            System.out.println("🧹 [LIMPIAR] Reseteando capacidades de aeropuertos...");
+            Query queryAeropuertos = entityManager.createNativeQuery("UPDATE aeropuerto SET capacidad_ocupada = 0");
+            aeropuertosActualizados = queryAeropuertos.executeUpdate();
+            System.out.println("✅ Aeropuertos actualizados: " + aeropuertosActualizados);
 
-            // 3. Limpiar las referencias de partes asignadas en los envíos
-            List<Envio> envios = envioRepository.findAll();
-            List<Envio> enviosParaActualizar = new ArrayList<>();
-            for (Envio envio : envios) {
-                if (envio.getParteAsignadas() != null && !envio.getParteAsignadas().isEmpty()) {
-                    envio.setParteAsignadas(new ArrayList<>());
-                    enviosParaActualizar.add(envio);
-                    enviosActualizados++;
-                }
-            }
-            if (!enviosParaActualizar.isEmpty()) {
-                envioRepository.saveAll(enviosParaActualizar);
-            }
+            // 2. Resetear capacidades de planes de vuelo con SQL nativo
+            System.out.println("🧹 [LIMPIAR] Reseteando capacidades de vuelos...");
+            Query queryPlanes = entityManager.createNativeQuery("UPDATE plan_de_vuelo SET capacidad_ocupada = 0");
+            planesActualizados = queryPlanes.executeUpdate();
+            System.out.println("✅ Planes actualizados: " + planesActualizados);
 
-            // 4. Eliminar primero las relaciones ParteAsignadaPlanDeVuelo usando SQL nativo
+            // 3. Eliminar relaciones ParteAsignadaPlanDeVuelo (tabla intermedia)
+            System.out.println("🧹 [LIMPIAR] Eliminando relaciones vuelo-parte...");
             Query queryRelaciones = entityManager.createNativeQuery("DELETE FROM parte_asignada_plan_de_vuelo");
             relacionesVuelosEliminadas = queryRelaciones.executeUpdate();
+            System.out.println("✅ Relaciones eliminadas: " + relacionesVuelosEliminadas);
 
-            // 5. Eliminar todas las partes asignadas usando SQL nativo
+            // 4. Eliminar todas las partes asignadas
+            System.out.println("🧹 [LIMPIAR] Eliminando partes asignadas...");
             Query queryPartes = entityManager.createNativeQuery("DELETE FROM parte_asignada");
             partesEliminadas = queryPartes.executeUpdate();
-
-            // Nota: Los planes de vuelo ya no se eliminan, solo se resetean sus capacidades
-            // ocupadas
+            System.out.println("✅ Partes eliminadas: " + partesEliminadas);
 
             // Hacer flush para asegurar que los cambios se apliquen
             entityManager.flush();
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            System.out.println("🧹 [LIMPIAR] ✅ Limpieza completada en " + elapsed + "ms");
 
             response.put("estado", "exito");
             response.put("mensaje", "Planificación limpiada correctamente");
@@ -545,7 +528,7 @@ public class PlanificadorController {
                     "planesActualizados", planesActualizados,
                     "relacionesVuelosEliminadas", relacionesVuelosEliminadas,
                     "partesEliminadas", partesEliminadas,
-                    "enviosActualizados", enviosActualizados));
+                    "tiempoEjecucionMs", elapsed));
             response.put("timestamp", LocalDateTime.now().toString());
 
         } catch (Exception e) {
