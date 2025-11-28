@@ -70,22 +70,4 @@ public interface EnvioRepository extends JpaRepository<Envio, Integer> {
                         "LEFT JOIN FETCH pa.vuelosRuta vr " +
                         "LEFT JOIN FETCH vr.planDeVuelo")
         ArrayList<Envio> findEnviosConPartesAsignadas();
-
-        /**
-         * ⚡ CONTEOS RÁPIDOS: Cuenta total de envíos sin cargar entidades
-         */
-        @Query("SELECT COUNT(e) FROM Envio e")
-        long countTotalEnvios();
-
-        /**
-         * ⚡ CONTEOS RÁPIDOS: Cuenta envíos sin partes asignadas (sin planificar)
-         */
-        @Query("SELECT COUNT(DISTINCT e) FROM Envio e WHERE e.parteAsignadas IS EMPTY")
-        long countEnviosSinPlanificar();
-
-        /**
-         * ⚡ CONTEOS RÁPIDOS: Cuenta envíos con al menos una parte asignada
-         */
-        @Query("SELECT COUNT(DISTINCT e) FROM Envio e WHERE e.parteAsignadas IS NOT EMPTY")
-        long countEnviosConPartes();
 }

@@ -50,11 +50,4 @@ public interface EnvioService {
          * Ideal para el catálogo de envíos pendientes en el frontend.
          */
         List<Envio> obtenerEnviosConPartesAsignadas();
-
-        /**
-         * ⚡ OPTIMIZADO: Obtiene solo los CONTEOS de pedidos por estado.
-         * NO carga los 43K+ envíos, solo ejecuta queries COUNT.
-         * Ideal para el endpoint /estado que se llama frecuentemente.
-         */
-        Map<String, Object> obtenerConteosPedidosRapido();
 }

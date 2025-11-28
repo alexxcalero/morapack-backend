@@ -541,7 +541,6 @@ public class PlanificadorController {
     }
 
     // Endpoint para obtener estado actual del planificador
-    // ⚡ OPTIMIZADO: Solo devuelve conteos, no las listas completas de pedidos
     @GetMapping("/estado")
     public Map<String, Object> obtenerEstado() {
         Map<String, Object> response = new HashMap<>();
@@ -555,20 +554,11 @@ public class PlanificadorController {
             response.put("estadisticas", planificador.getEstadisticasActuales());
         }
 
-        // ⚡ OPTIMIZADO: Solo devolver conteos rápidos, NO cargar 43K+ envíos
-        // Si el frontend necesita la lista completa, debe usar /obtenerPedidosConEstado
-        Map<String, Object> conteos = envioService.obtenerConteosPedidosRapido();
-        response.put("pedidosClasificados", conteos);
+        // Agregar información de pedidos clasificados por estado
+        Map<String, Object> pedidosConEstado = envioService.obtenerPedidosConEstado();
+        response.put("pedidosClasificados", pedidosConEstado);
 
         return response;
-    }
-
-    // Endpoint para obtener pedidos clasificados por estado (con listas completas)
-    // ⚠️ NOTA: Este endpoint es lento porque carga todos los envíos. Usar solo
-    // cuando se necesiten las listas.
-    @GetMapping("/pedidos-clasificados")
-    public Map<String, Object> obtenerPedidosClasificados() {
-        return envioService.obtenerPedidosConEstado();
     }
 
     // Endpoint para obtener resultados del último ciclo
