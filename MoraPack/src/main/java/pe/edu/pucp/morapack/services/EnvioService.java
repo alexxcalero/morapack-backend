@@ -36,10 +36,4 @@ public interface EnvioService {
             String husoHorarioFin);
 
     ArrayList<Envio> obtenerEnviosDesdeFecha(LocalDateTime fechaInicio, String husoHorarioInicio);
-
-    // ⚡ Métodos optimizados sin cargar ParteAsignadas para inicialización
-    ArrayList<Envio> obtenerEnviosSinPartesEnRango(LocalDateTime fechaInicio, String husoHorarioInicio,
-            LocalDateTime fechaFin, String husoHorarioFin);
-
-    ArrayList<Envio> obtenerEnviosSinPartesDesdeFecha(LocalDateTime fechaInicio, String husoHorarioInicio);
 }
