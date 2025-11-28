@@ -365,6 +365,78 @@ public class EnvioServiceImp implements EnvioService {
         return enviosDesdeFecha;
     }
 
+    @Override
+    public ArrayList<Envio> obtenerEnviosEnRangoConPartes(LocalDateTime fechaInicio, String husoHorarioInicio,
+            LocalDateTime fechaFin, String husoHorarioFin) {
+        // Convertir las fechas de entrada a ZonedDateTime
+        Integer offsetInicio = Integer.parseInt(husoHorarioInicio);
+        Integer offsetFin = Integer.parseInt(husoHorarioFin);
+        ZoneOffset zoneInicio = ZoneOffset.ofHours(offsetInicio);
+        ZoneOffset zoneFin = ZoneOffset.ofHours(offsetFin);
+
+        ZonedDateTime zonedFechaInicio = fechaInicio.atZone(zoneInicio);
+        ZonedDateTime zonedFechaFin = fechaFin.atZone(zoneFin);
+
+        // Convertir a UTC para hacer la consulta más precisa
+        ZonedDateTime fechaInicioUTC = zonedFechaInicio.withZoneSameInstant(ZoneOffset.UTC);
+        ZonedDateTime fechaFinUTC = zonedFechaFin.withZoneSameInstant(ZoneOffset.UTC);
+
+        // Ampliar el rango para considerar todas las zonas horarias posibles
+        LocalDateTime fechaInicioConsulta = fechaInicioUTC.toLocalDateTime().minusHours(14);
+        LocalDateTime fechaFinConsulta = fechaFinUTC.toLocalDateTime().plusHours(14);
+
+        // ⚡ Consulta con JOIN FETCH para cargar parteAsignadas de forma eficiente
+        ArrayList<Envio> enviosCandidatos = envioRepository.findByFechaIngresoBetweenWithPartes(
+                fechaInicioConsulta, fechaFinConsulta);
+
+        // Filtrar en memoria considerando las zonas horarias reales
+        ArrayList<Envio> enviosEnRango = new ArrayList<>();
+        for (Envio envio : enviosCandidatos) {
+            ZonedDateTime zonedFechaIngreso = obtenerZonedFechaIngreso(envio);
+
+            boolean ingresoEnRango = !zonedFechaIngreso.isBefore(zonedFechaInicio) &&
+                    !zonedFechaIngreso.isAfter(zonedFechaFin);
+
+            if (ingresoEnRango) {
+                enviosEnRango.add(envio);
+            }
+        }
+
+        return enviosEnRango;
+    }
+
+    @Override
+    public ArrayList<Envio> obtenerEnviosDesdeFechaConPartes(LocalDateTime fechaInicio, String husoHorarioInicio) {
+        // Convertir la fecha de entrada a ZonedDateTime
+        Integer offsetInicio = Integer.parseInt(husoHorarioInicio);
+        ZoneOffset zoneInicio = ZoneOffset.ofHours(offsetInicio);
+        ZonedDateTime zonedFechaInicio = fechaInicio.atZone(zoneInicio);
+
+        // Convertir a UTC para hacer la consulta más precisa
+        ZonedDateTime fechaInicioUTC = zonedFechaInicio.withZoneSameInstant(ZoneOffset.UTC);
+
+        // Ampliar el rango para considerar todas las zonas horarias posibles
+        LocalDateTime fechaInicioConsulta = fechaInicioUTC.toLocalDateTime().minusHours(14);
+
+        // ⚡ Consulta con JOIN FETCH para cargar parteAsignadas de forma eficiente
+        ArrayList<Envio> enviosCandidatos = envioRepository.findByFechaIngresoGreaterThanEqualWithPartes(
+                fechaInicioConsulta);
+
+        // Filtrar en memoria considerando las zonas horarias reales
+        ArrayList<Envio> enviosDesdeFecha = new ArrayList<>();
+        for (Envio envio : enviosCandidatos) {
+            ZonedDateTime zonedFechaIngreso = obtenerZonedFechaIngreso(envio);
+
+            boolean ingresoDesdeFecha = !zonedFechaIngreso.isBefore(zonedFechaInicio);
+
+            if (ingresoDesdeFecha) {
+                enviosDesdeFecha.add(envio);
+            }
+        }
+
+        return enviosDesdeFecha;
+    }
+
     /**
      * Método auxiliar para obtener el ZonedDateTime de la fecha de ingreso del
      * envío.

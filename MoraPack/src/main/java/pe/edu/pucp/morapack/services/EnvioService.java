@@ -36,4 +36,10 @@ public interface EnvioService {
             String husoHorarioFin);
 
     ArrayList<Envio> obtenerEnviosDesdeFecha(LocalDateTime fechaInicio, String husoHorarioInicio);
+
+    // Nuevos métodos para el planificador que necesitan parteAsignadas cargadas
+    ArrayList<Envio> obtenerEnviosEnRangoConPartes(LocalDateTime fechaInicio, String husoHorarioInicio,
+            LocalDateTime fechaFin, String husoHorarioFin);
+
+    ArrayList<Envio> obtenerEnviosDesdeFechaConPartes(LocalDateTime fechaInicio, String husoHorarioInicio);
 }

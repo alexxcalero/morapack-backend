@@ -37,4 +37,22 @@ public interface EnvioRepository extends JpaRepository<Envio, Integer> {
      */
     @Query("SELECT e FROM Envio e WHERE e.fechaIngreso >= :fechaInicio")
     ArrayList<Envio> findByFechaIngresoGreaterThanEqual(@Param("fechaInicio") LocalDateTime fechaInicio);
+
+    /**
+     * Obtiene envíos CON sus parteAsignadas para inicialización del planificador.
+     * Usa JOIN FETCH para cargar relaciones en una sola query.
+     * ⚠️ Solo usar cuando realmente se necesiten las partes asignadas.
+     */
+    @Query("SELECT DISTINCT e FROM Envio e LEFT JOIN FETCH e.parteAsignadas WHERE e.fechaIngreso >= :fechaInicio AND e.fechaIngreso <= :fechaFin")
+    ArrayList<Envio> findByFechaIngresoBetweenWithPartes(
+            @Param("fechaInicio") LocalDateTime fechaInicio,
+            @Param("fechaFin") LocalDateTime fechaFin);
+
+    /**
+     * Obtiene envíos CON sus parteAsignadas desde una fecha específica.
+     * Usa JOIN FETCH para cargar relaciones en una sola query.
+     * ⚠️ Solo usar cuando realmente se necesiten las partes asignadas.
+     */
+    @Query("SELECT DISTINCT e FROM Envio e LEFT JOIN FETCH e.parteAsignadas WHERE e.fechaIngreso >= :fechaInicio")
+    ArrayList<Envio> findByFechaIngresoGreaterThanEqualWithPartes(@Param("fechaInicio") LocalDateTime fechaInicio);
 }

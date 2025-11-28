@@ -272,7 +272,8 @@ public class PlanificadorController {
             LocalDateTime fechaFinVuelos = fechaFin.plusDays(1);
             ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosEnRango(
                     fechaInicioVuelos, "0", fechaFinVuelos, "0");
-            ArrayList<Envio> envios = envioService.obtenerEnviosEnRango(
+            // Cargar envíos CON parteAsignadas porque el planificador las necesita
+            ArrayList<Envio> envios = envioService.obtenerEnviosEnRangoConPartes(
                     fechaInicioVuelos, "0", fechaFinVuelos, "0");
 
             System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL V2 (con generación de vuelos)");
@@ -363,7 +364,7 @@ public class PlanificadorController {
             // (simulación colapso sin límite)
             LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
             ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosDesdeFecha(fechaInicioVuelos, "0");
-            ArrayList<Envio> envios = envioService.obtenerEnviosDesdeFecha(fechaInicioVuelos, "0");
+            ArrayList<Envio> envios = envioService.obtenerEnviosDesdeFechaConPartes(fechaInicioVuelos, "0");
 
             System.out.println("🚀 INICIANDO SIMULACIÓN DE COLAPSO");
             System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
