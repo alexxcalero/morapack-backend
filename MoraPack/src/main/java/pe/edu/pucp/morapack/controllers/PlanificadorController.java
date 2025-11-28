@@ -111,6 +111,7 @@ public class PlanificadorController {
     // Endpoint para iniciar simulación semanal (sin generar vuelos)
     @PostMapping("/iniciar-simulacion-semanal")
     public Map<String, Object> iniciarSimulacionSemanal(@RequestBody Map<String, String> request) {
+        System.out.println("🎯 [ENDPOINT] iniciar-simulacion-semanal - PETICIÓN RECIBIDA a las " + LocalDateTime.now());
         Map<String, Object> response = new HashMap<>();
 
         try {

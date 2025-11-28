@@ -62,9 +62,10 @@ public class EnvioController {
     }
 
     @PostMapping("lecturaArchivo")
-    public ArrayList<Envio> cargarEnvios(@RequestParam("arch") MultipartFile arch) throws IOException {
+    public Map<String, Object> cargarEnvios(@RequestParam("arch") MultipartFile arch) throws IOException {
         long startTime = System.currentTimeMillis();
         ArrayList<Envio> envios = new ArrayList<>();
+        Map<String, Object> resultado = new java.util.HashMap<>();
 
         // ⚡ OPTIMIZACIÓN: Cargar todos los aeropuertos UNA SOLA VEZ y crear un mapa
         System.out.println("📂 Cargando aeropuertos en caché...");
@@ -145,15 +146,23 @@ public class EnvioController {
         long durationInMillis = endTime - startTime;
         double durationInSeconds = durationInMillis / 1000.0;
         System.out.println("⏱️ Tiempo de ejecución: " + durationInSeconds + " segundos");
-        return envios;
+
+        // ⚡ OPTIMIZACIÓN: Devolver solo un resumen en lugar de todos los envíos
+        resultado.put("estado", "éxito");
+        resultado.put("mensaje", "Envíos cargados correctamente");
+        resultado.put("enviosCargados", envios.size());
+        resultado.put("errores", errores);
+        resultado.put("tiempoEjecucionSegundos", durationInSeconds);
+        return resultado;
     }
 
     @PostMapping("leerArchivoBack")
-    public ArrayList<Envio> leerArchivoBack() {
+    public Map<String, Object> leerArchivoBack() {
         long startTime = System.currentTimeMillis();
         ArrayList<Envio> envios = new ArrayList<>();
         Scanner scanner = null;
         InputStream inputStream = null;
+        Map<String, Object> resultado = new java.util.HashMap<>();
 
         try {
             // ⚡ OPTIMIZACIÓN: Cargar todos los aeropuertos UNA SOLA VEZ y crear un mapa
@@ -209,7 +218,10 @@ public class EnvioController {
                     System.err.println("  - envios/pedidos-diciembre22-31.txt");
                     System.err.println("  - " + System.getProperty("user.dir")
                             + "/src/main/resources/envios/pedidos-diciembre22-31.txt");
-                    return envios;
+                    resultado.put("estado", "error");
+                    resultado.put("mensaje", "Archivo no encontrado");
+                    resultado.put("enviosCargados", 0);
+                    return resultado;
                 }
             }
 
@@ -301,7 +313,13 @@ public class EnvioController {
         long durationInMillis = endTime - startTime;
         double durationInSeconds = durationInMillis / 1000.0;
         System.out.println("⏱️ Tiempo de ejecución: " + durationInSeconds + " segundos");
-        return envios;
+
+        // ⚡ OPTIMIZACIÓN: Devolver solo un resumen en lugar de todos los envíos
+        resultado.put("estado", "éxito");
+        resultado.put("mensaje", "Envíos cargados correctamente");
+        resultado.put("enviosCargados", envios.size());
+        resultado.put("tiempoEjecucionSegundos", durationInSeconds);
+        return resultado;
     }
 
 }
