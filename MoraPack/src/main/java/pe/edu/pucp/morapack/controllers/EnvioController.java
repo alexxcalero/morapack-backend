@@ -4,9 +4,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import pe.edu.pucp.morapack.models.*;
-import pe.edu.pucp.morapack.services.AeropuertoService;
-import pe.edu.pucp.morapack.services.EnvioService;
-import pe.edu.pucp.morapack.services.PaisService;
 import pe.edu.pucp.morapack.services.servicesImp.AeropuertoServiceImp;
 import pe.edu.pucp.morapack.services.servicesImp.EnvioServiceImp;
 import pe.edu.pucp.morapack.services.servicesImp.PaisServiceImp;
@@ -68,68 +65,86 @@ public class EnvioController {
     public ArrayList<Envio> cargarEnvios(@RequestParam("arch") MultipartFile arch) throws IOException {
         long startTime = System.currentTimeMillis();
         ArrayList<Envio> envios = new ArrayList<>();
+
+        // ⚡ OPTIMIZACIÓN: Cargar todos los aeropuertos UNA SOLA VEZ y crear un mapa
+        System.out.println("📂 Cargando aeropuertos en caché...");
+        ArrayList<Aeropuerto> todosAeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+        java.util.Map<String, Aeropuerto> aeropuertosPorCodigo = new java.util.HashMap<>();
+        for (Aeropuerto a : todosAeropuertos) {
+            aeropuertosPorCodigo.put(a.getCodigo(), a);
+        }
+        System.out.println("✅ " + todosAeropuertos.size() + " aeropuertos en caché");
+
+        // ⚡ OPTIMIZACIÓN: Obtener los hubs UNA SOLA VEZ
+        ArrayList<Aeropuerto> hubs = new ArrayList<>();
+        String[] hubCodes = { "SPIM", "EBCI", "UBBB" };
+        for (String code : hubCodes) {
+            Aeropuerto hub = aeropuertosPorCodigo.get(code);
+            if (hub != null) {
+                hubs.add(hub);
+            }
+        }
+        System.out.println("✅ " + hubs.size() + " hubs configurados");
+
         String enviosDatos = new String(arch.getBytes());
         String[] lineas = enviosDatos.split("\n");
-        Integer i = 0;
+        int i = 0;
+        int errores = 0;
+
         for (String linea : lineas) {
             String data[] = linea.split("-");
             if (data.length > 1) {
-                Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[4]);
-                if (aeropuertoOptionalDest.isPresent()) {
-                    Long idEnvioPorAeropuerto = Long.valueOf(data[0]);
-                    Integer anho = Integer.parseInt(data[1].substring(0, 4));
-                    Integer mes = Integer.parseInt(data[1].substring(4, 6));
-                    Integer dia = Integer.parseInt(data[1].substring(6, 8));
-                    Integer hora = Integer.parseInt(data[2]);
-                    Integer minutos = Integer.parseInt(data[3]);
-                    Integer numProductos = Integer.parseInt(data[5]);
-                    String cliente = data[6];
+                // ⚡ OPTIMIZACIÓN: Usar el mapa en lugar de consultar la BD
+                Aeropuerto aeropuertoDestino = aeropuertosPorCodigo.get(data[4]);
+                if (aeropuertoDestino != null) {
+                    try {
+                        Long idEnvioPorAeropuerto = Long.valueOf(data[0]);
+                        Integer anho = Integer.parseInt(data[1].substring(0, 4));
+                        Integer mes = Integer.parseInt(data[1].substring(4, 6));
+                        Integer dia = Integer.parseInt(data[1].substring(6, 8));
+                        Integer hora = Integer.parseInt(data[2]);
+                        Integer minutos = Integer.parseInt(data[3]);
+                        Integer numProductos = Integer.parseInt(data[5]);
+                        String cliente = data[6];
 
-                    LocalDateTime fechaIngreso = LocalDateTime.of(LocalDate.of(anho, mes, dia),
-                            LocalTime.of(hora, minutos, 0));
+                        LocalDateTime fechaIngreso = LocalDateTime.of(LocalDate.of(anho, mes, dia),
+                                LocalTime.of(hora, minutos, 0));
 
-                    String husoCiudadDestino = aeropuertoOptionalDest.get().getHusoHorario();
+                        String husoCiudadDestino = aeropuertoDestino.getHusoHorario();
 
-                    Envio newEnvio = new Envio(idEnvioPorAeropuerto, fechaIngreso, husoCiudadDestino,
-                            aeropuertoOptionalDest.get(), numProductos, cliente);
+                        Envio newEnvio = new Envio(idEnvioPorAeropuerto, fechaIngreso, husoCiudadDestino,
+                                aeropuertoDestino, numProductos, cliente);
 
-                    ArrayList<Aeropuerto> hubs = new ArrayList<>();
-                    String[] hubCodes = { "SPIM", "EBCI", "UBBB" };
-
-                    for (String code : hubCodes) {
-                        Optional<Aeropuerto> hub = aeropuertoService.obtenerAeropuertoPorCodigo(code);
-                        if (hub.isPresent()) {
-                            hubs.add(hub.get());
-                            System.out.println("DEBUG: Agregando hub " + code + " para envío " + i);
-                        } else {
-                            System.out.println("ERROR: Hub " + code + " no encontrado!");
+                        // ⚡ OPTIMIZACIÓN: Usar los hubs ya cargados
+                        if (!hubs.isEmpty()) {
+                            newEnvio.setAeropuertosOrigen(new ArrayList<>(hubs));
                         }
-                    }
 
-                    if (hubs.isEmpty()) {
-                        System.out.println("ERROR: No se encontraron hubs!");
-                    } else {
-                        System.out.println("DEBUG: Seteando " + hubs.size() + " hubs como origen para envío " + i);
-                        newEnvio.setAeropuertosOrigen(hubs);
+                        envios.add(newEnvio);
+                    } catch (Exception e) {
+                        errores++;
                     }
-
-                    // Verificar después de setear
-                    if (newEnvio.getAeropuertosOrigen() == null || newEnvio.getAeropuertosOrigen().isEmpty()) {
-                        System.out.println("ERROR: aeropuertosOrigen quedó vacío después de setear!");
-                    }
-                    envios.add(newEnvio);
                 }
             }
             i++;
-            System.out.println("Envio #" + i);
+            // ⚡ OPTIMIZACIÓN: Log cada 5000 envíos
+            if (i % 5000 == 0) {
+                System.out.println("📊 Procesados " + i + " líneas, " + envios.size() + " envíos válidos");
+            }
         }
 
-        envioService.insertarListaEnvios(envios);
+        System.out.println("📊 Envíos procesados: " + envios.size() + " (errores: " + errores + ")");
+
+        if (!envios.isEmpty()) {
+            System.out.println("💾 Guardando " + envios.size() + " envíos en BD...");
+            envioService.insertarListaEnvios(envios);
+            System.out.println("✅ Envíos guardados");
+        }
 
         long endTime = System.currentTimeMillis();
         long durationInMillis = endTime - startTime;
         double durationInSeconds = durationInMillis / 1000.0;
-        System.out.println("Tiempo de ejecucion: " + durationInSeconds + " segundos");
+        System.out.println("⏱️ Tiempo de ejecución: " + durationInSeconds + " segundos");
         return envios;
     }
 
@@ -141,6 +156,28 @@ public class EnvioController {
         InputStream inputStream = null;
 
         try {
+            // ⚡ OPTIMIZACIÓN: Cargar todos los aeropuertos UNA SOLA VEZ y crear un mapa
+            System.out.println("📂 Cargando aeropuertos en caché...");
+            ArrayList<Aeropuerto> todosAeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+            java.util.Map<String, Aeropuerto> aeropuertosPorCodigo = new java.util.HashMap<>();
+            for (Aeropuerto a : todosAeropuertos) {
+                aeropuertosPorCodigo.put(a.getCodigo(), a);
+            }
+            System.out.println("✅ " + todosAeropuertos.size() + " aeropuertos en caché");
+
+            // ⚡ OPTIMIZACIÓN: Obtener los hubs UNA SOLA VEZ
+            ArrayList<Aeropuerto> hubs = new ArrayList<>();
+            String[] hubCodes = { "SPIM", "EBCI", "UBBB" };
+            for (String code : hubCodes) {
+                Aeropuerto hub = aeropuertosPorCodigo.get(code);
+                if (hub != null) {
+                    hubs.add(hub);
+                } else {
+                    System.out.println("⚠️ Hub " + code + " no encontrado!");
+                }
+            }
+            System.out.println("✅ " + hubs.size() + " hubs configurados");
+
             // Intentar leer desde el classpath primero (funciona en JAR y en desarrollo)
             inputStream = getClass().getClassLoader().getResourceAsStream("envios/pedidos-diciembre22-31.txt");
 
@@ -176,8 +213,11 @@ public class EnvioController {
                 }
             }
 
-            // Procesar el archivo (misma lógica que lecturaArchivo)
-            Integer i = 0;
+            // Procesar el archivo
+            int i = 0;
+            int errores = 0;
+            System.out.println("📂 Procesando envíos del archivo...");
+
             while (scanner.hasNextLine()) {
                 String linea = scanner.nextLine().trim();
                 if (linea.isEmpty()) {
@@ -186,61 +226,50 @@ public class EnvioController {
 
                 String data[] = linea.split("-");
                 if (data.length > 1) {
-                    Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[4]);
-                    if (aeropuertoOptionalDest.isPresent()) {
-                        Long idEnvioPorAeropuerto = Long.valueOf(data[0]);
-                        Integer anho = Integer.parseInt(data[1].substring(0, 4));
-                        Integer mes = Integer.parseInt(data[1].substring(4, 6));
-                        Integer dia = Integer.parseInt(data[1].substring(6, 8));
-                        Integer hora = Integer.parseInt(data[2]);
-                        Integer minutos = Integer.parseInt(data[3]);
-                        Integer numProductos = Integer.parseInt(data[5]);
-                        String cliente = data[6];
+                    // ⚡ OPTIMIZACIÓN: Usar el mapa en lugar de consultar la BD
+                    Aeropuerto aeropuertoDestino = aeropuertosPorCodigo.get(data[4]);
+                    if (aeropuertoDestino != null) {
+                        try {
+                            Long idEnvioPorAeropuerto = Long.valueOf(data[0]);
+                            Integer anho = Integer.parseInt(data[1].substring(0, 4));
+                            Integer mes = Integer.parseInt(data[1].substring(4, 6));
+                            Integer dia = Integer.parseInt(data[1].substring(6, 8));
+                            Integer hora = Integer.parseInt(data[2]);
+                            Integer minutos = Integer.parseInt(data[3]);
+                            Integer numProductos = Integer.parseInt(data[5]);
+                            String cliente = data[6];
 
-                        LocalDateTime fechaIngreso = LocalDateTime.of(LocalDate.of(anho, mes, dia),
-                                LocalTime.of(hora, minutos, 0));
+                            LocalDateTime fechaIngreso = LocalDateTime.of(LocalDate.of(anho, mes, dia),
+                                    LocalTime.of(hora, minutos, 0));
 
-                        String husoCiudadDestino = aeropuertoOptionalDest.get().getHusoHorario();
+                            String husoCiudadDestino = aeropuertoDestino.getHusoHorario();
 
-                        Envio newEnvio = new Envio(idEnvioPorAeropuerto, fechaIngreso, husoCiudadDestino,
-                                aeropuertoOptionalDest.get(), numProductos, cliente);
+                            Envio newEnvio = new Envio(idEnvioPorAeropuerto, fechaIngreso, husoCiudadDestino,
+                                    aeropuertoDestino, numProductos, cliente);
 
-                        ArrayList<Aeropuerto> hubs = new ArrayList<>();
-                        String[] hubCodes = { "SPIM", "EBCI", "UBBB" };
-
-                        for (String code : hubCodes) {
-                            Optional<Aeropuerto> hub = aeropuertoService.obtenerAeropuertoPorCodigo(code);
-                            if (hub.isPresent()) {
-                                hubs.add(hub.get());
-                                System.out.println("DEBUG: Agregando hub " + code + " para envío " + i);
-                            } else {
-                                System.out.println("ERROR: Hub " + code + " no encontrado!");
+                            // ⚡ OPTIMIZACIÓN: Usar los hubs ya cargados
+                            if (!hubs.isEmpty()) {
+                                newEnvio.setAeropuertosOrigen(new ArrayList<>(hubs));
                             }
-                        }
 
-                        if (hubs.isEmpty()) {
-                            System.out.println("ERROR: No se encontraron hubs!");
-                        } else {
-                            System.out.println("DEBUG: Seteando " + hubs.size() + " hubs como origen para envío " + i);
-                            newEnvio.setAeropuertosOrigen(hubs);
+                            envios.add(newEnvio);
+                        } catch (Exception e) {
+                            errores++;
                         }
-
-                        // Verificar después de setear
-                        if (newEnvio.getAeropuertosOrigen() == null || newEnvio.getAeropuertosOrigen().isEmpty()) {
-                            System.out.println("ERROR: aeropuertosOrigen quedó vacío después de setear!");
-                        }
-
-                        envios.add(newEnvio);
                     }
                 }
                 i++;
-                System.out.println("Envio #" + i);
+                // ⚡ OPTIMIZACIÓN: Log cada 5000 envíos en lugar de cada uno
+                if (i % 5000 == 0) {
+                    System.out.println("📊 Procesados " + i + " líneas, " + envios.size() + " envíos válidos");
+                }
             }
 
-            System.out.println("📊 Envíos procesados del archivo: " + envios.size());
+            System.out.println("📊 Envíos procesados del archivo: " + envios.size() + " (errores: " + errores + ")");
 
             // Guardar todos los envíos en la base de datos
             if (!envios.isEmpty()) {
+                System.out.println("💾 Guardando " + envios.size() + " envíos en BD...");
                 envioService.insertarListaEnvios(envios);
                 System.out.println("✅ Se cargaron " + envios.size() + " envíos desde el archivo");
             } else {
