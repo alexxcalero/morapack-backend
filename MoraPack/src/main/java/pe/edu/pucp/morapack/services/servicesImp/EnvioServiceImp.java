@@ -459,4 +459,14 @@ public class EnvioServiceImp implements EnvioService {
         ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
         return envio.getFechaIngreso().atZone(zoneDestino);
     }
+
+    /**
+     * ⚡ OPTIMIZADO: Obtiene solo envíos que tienen partes asignadas.
+     * Usa JOIN FETCH para cargar todas las relaciones necesarias en una sola query.
+     * Esto evita cargar los 43K+ envíos y el problema de N+1 queries.
+     */
+    @Override
+    public List<Envio> obtenerEnviosConPartesAsignadas() {
+        return envioRepository.findEnviosConPartesAsignadas();
+    }
 }

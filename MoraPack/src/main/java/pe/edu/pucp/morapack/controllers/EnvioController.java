@@ -15,6 +15,8 @@ import java.io.InputStream;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Scanner;
@@ -59,6 +61,126 @@ public class EnvioController {
     @GetMapping("obtenerPedidosConEstado")
     public Map<String, Object> obtenerPedidosConEstado() {
         return envioService.obtenerPedidosConEstado();
+    }
+
+    /**
+     * ⚡ ENDPOINT OPTIMIZADO: Retorna solo envíos pendientes con partes asignadas
+     * NO entregadas, con datos mínimos para el frontend.
+     * Esto evita cargar 43,000+ envíos y serializar 28MB de JSON.
+     */
+    @GetMapping("obtenerPendientes")
+    public List<Map<String, Object>> obtenerEnviosPendientes() {
+        long startTime = System.currentTimeMillis();
+        System.out.println("📦 [obtenerPendientes] Iniciando consulta optimizada...");
+
+        // Obtener solo envíos que tienen partes asignadas con JOIN FETCH
+        List<Envio> enviosConPartes = envioService.obtenerEnviosConPartesAsignadas();
+        System.out.println("📦 Envíos con partes encontrados: " + enviosConPartes.size());
+
+        List<Map<String, Object>> resultado = new ArrayList<>();
+
+        for (Envio envio : enviosConPartes) {
+            if (envio.getParteAsignadas() == null || envio.getParteAsignadas().isEmpty()) {
+                continue;
+            }
+
+            // Filtrar partes NO entregadas
+            List<ParteAsignada> partesNoEntregadas = new ArrayList<>();
+            for (ParteAsignada parte : envio.getParteAsignadas()) {
+                if (!Boolean.TRUE.equals(parte.getEntregado())) {
+                    partesNoEntregadas.add(parte);
+                }
+            }
+
+            // Si todas las partes están entregadas, no incluir este envío
+            if (partesNoEntregadas.isEmpty()) {
+                continue;
+            }
+
+            Map<String, Object> envioMap = new HashMap<>();
+            envioMap.put("id", envio.getId());
+            envioMap.put("idEnvioPorAeropuerto", envio.getIdEnvioPorAeropuerto());
+            envioMap.put("numProductos", envio.getNumProductos());
+            envioMap.put("cliente", envio.getCliente());
+            envioMap.put("fechaIngreso", envio.getFechaIngreso());
+
+            // Aeropuerto destino (simplificado)
+            if (envio.getAeropuertoDestino() != null) {
+                Map<String, Object> destino = new HashMap<>();
+                destino.put("id", envio.getAeropuertoDestino().getId());
+                destino.put("codigo", envio.getAeropuertoDestino().getCodigo());
+                destino.put("ciudad", envio.getAeropuertoDestino().getCiudad());
+                destino.put("latitud", envio.getAeropuertoDestino().getLatitud());
+                destino.put("longitud", envio.getAeropuertoDestino().getLongitud());
+                envioMap.put("aeropuertoDestino", destino);
+            }
+
+            // Calcular productos asignados
+            int productosAsignados = 0;
+            for (ParteAsignada parte : envio.getParteAsignadas()) {
+                productosAsignados += parte.getCantidad() != null ? parte.getCantidad() : 0;
+            }
+            envioMap.put("productosAsignados", productosAsignados);
+            envioMap.put("totalPartes", envio.getParteAsignadas().size());
+
+            // Partes asignadas con vuelos (simplificado)
+            List<Map<String, Object>> partesMap = new ArrayList<>();
+            for (ParteAsignada parte : partesNoEntregadas) {
+                Map<String, Object> parteMap = new HashMap<>();
+                parteMap.put("id", parte.getId());
+                parteMap.put("cantidad", parte.getCantidad());
+                parteMap.put("entregado", parte.getEntregado());
+                parteMap.put("llegadaFinal", parte.getLlegadaFinal());
+
+                // Aeropuerto origen de la parte
+                if (parte.getAeropuertoOrigen() != null) {
+                    Map<String, Object> origen = new HashMap<>();
+                    origen.put("id", parte.getAeropuertoOrigen().getId());
+                    origen.put("codigo", parte.getAeropuertoOrigen().getCodigo());
+                    origen.put("ciudad", parte.getAeropuertoOrigen().getCiudad());
+                    origen.put("latitud", parte.getAeropuertoOrigen().getLatitud());
+                    origen.put("longitud", parte.getAeropuertoOrigen().getLongitud());
+                    parteMap.put("aeropuertoOrigen", origen);
+                }
+
+                // Vuelos de la ruta (simplificado)
+                List<Map<String, Object>> vuelosMap = new ArrayList<>();
+                if (parte.getVuelosRuta() != null) {
+                    // Ordenar por orden
+                    List<ParteAsignadaPlanDeVuelo> vuelosOrdenados = new ArrayList<>(parte.getVuelosRuta());
+                    vuelosOrdenados.sort((a, b) -> {
+                        int ordenA = a.getOrden() != null ? a.getOrden() : 0;
+                        int ordenB = b.getOrden() != null ? b.getOrden() : 0;
+                        return ordenA - ordenB;
+                    });
+
+                    for (ParteAsignadaPlanDeVuelo papv : vuelosOrdenados) {
+                        PlanDeVuelo vuelo = papv.getPlanDeVuelo();
+                        if (vuelo != null) {
+                            Map<String, Object> vueloMap = new HashMap<>();
+                            vueloMap.put("id", vuelo.getId());
+                            vueloMap.put("orden", papv.getOrden());
+                            vueloMap.put("ciudadOrigen", vuelo.getCiudadOrigen());
+                            vueloMap.put("ciudadDestino", vuelo.getCiudadDestino());
+                            vueloMap.put("horaSalida", vuelo.getHoraOrigen());
+                            vueloMap.put("horaLlegada", vuelo.getHoraDestino());
+                            vuelosMap.add(vueloMap);
+                        }
+                    }
+                }
+                parteMap.put("vuelosRuta", vuelosMap);
+                partesMap.add(parteMap);
+            }
+            envioMap.put("parteAsignadas", partesMap);
+
+            resultado.add(envioMap);
+        }
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        System.out.println(
+                "📦 [obtenerPendientes] ✅ Completado en " + elapsed + "ms, " + resultado.size() + " envíos pendientes");
+
+        return resultado;
     }
 
     @PostMapping("lecturaArchivo")
