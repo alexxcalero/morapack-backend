@@ -23,8 +23,10 @@ public class Envio {
 
     private Long idEnvioPorAeropuerto;
 
-    // Cada parte tiene su propia ruta y cantidad
-    @OneToMany(mappedBy = "envio", fetch = FetchType.EAGER, cascade = CascadeType.ALL)
+    // ⚡ CAMBIO CRÍTICO: LAZY loading para evitar cargar 40K envíos con todas sus
+    // relaciones
+    // Las queries que necesiten parteAsignadas deben usar JOIN FETCH explícitamente
+    @OneToMany(mappedBy = "envio", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
     @JsonManagedReference
     private List<ParteAsignada> parteAsignadas = new ArrayList<>();
 
@@ -54,7 +56,8 @@ public class Envio {
     @Transient
     private ZonedDateTime zonedFechaLlegadaMax;
 
-    public Envio(Long idEnvioPorAeropuerto, LocalDateTime fechaIngreso, String husoHorarioDestino, Aeropuerto destino, Integer numProductos, String cliente) {
+    public Envio(Long idEnvioPorAeropuerto, LocalDateTime fechaIngreso, String husoHorarioDestino, Aeropuerto destino,
+            Integer numProductos, String cliente) {
         this.idEnvioPorAeropuerto = idEnvioPorAeropuerto;
         this.parteAsignadas = new ArrayList<>();
         this.fechaIngreso = fechaIngreso;

@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 @AllArgsConstructor
 public class Grasp {
 
-    private static final int MAX_ITERACIONES = 500;
+    private static final int MAX_ITERACIONES = 1000;
     private static final int MAX_SIN_MEJORA = 5;
     private static final int DIAS_A_INSTANCIAR = 3;
 
@@ -40,15 +40,15 @@ public class Grasp {
     // Definir fabricas principales
     public void setHubsPropio() {
         this.hubs = new ArrayList<>();
-        if(this.aeropuertos == null)
+        if (this.aeropuertos == null)
             return;
 
-        for(Aeropuerto aeropuerto : this.aeropuertos) {
-            if("SPIM".equals(aeropuerto.getCodigo())) {
+        for (Aeropuerto aeropuerto : this.aeropuertos) {
+            if ("SPIM".equals(aeropuerto.getCodigo())) {
                 this.hubs.add(aeropuerto);
-            } else if("EBCI".equals(aeropuerto.getCodigo())) {
+            } else if ("EBCI".equals(aeropuerto.getCodigo())) {
                 this.hubs.add(aeropuerto);
-            } else if("UBBB".equals(aeropuerto.getCodigo())) {
+            } else if ("UBBB".equals(aeropuerto.getCodigo())) {
                 this.hubs.add(aeropuerto);
             }
         }
@@ -60,10 +60,10 @@ public class Grasp {
         // Finalmente, lo que se va a obtener es un mapa, donde la llave es cada fecha
         // de aparicion
         // de un envio, y el valor es una lista con los pedidos realizados ese dia
-        // ✅ IMPORTANTE: Convertir a UTC para agrupar correctamente considerando husos horarios
+        // ✅ IMPORTANTE: Convertir a UTC para agrupar correctamente considerando husos
+        // horarios
         this.enviosPorDia = new HashMap<>();
-        this.enviosPorDia = envios.stream().collect(Collectors.groupingBy(e ->
-            e.getZonedFechaIngreso()
+        this.enviosPorDia = envios.stream().collect(Collectors.groupingBy(e -> e.getZonedFechaIngreso()
                 .withZoneSameInstant(java.time.ZoneOffset.UTC)
                 .toLocalDateTime()));
 
@@ -79,8 +79,10 @@ public class Grasp {
 
     /**
      * Inicializa los caches necesarios para trabajar con vuelos diarios.
-     * Este metodo debe ser llamado antes de usar getCandidatosRuta con un conjunto de vuelos.
-     * Filtra los vuelos por ventana temporal basada en los envíos para optimizar el procesamiento.
+     * Este metodo debe ser llamado antes de usar getCandidatosRuta con un conjunto
+     * de vuelos.
+     * Filtra los vuelos por ventana temporal basada en los envíos para optimizar el
+     * procesamiento.
      */
     public void inicializarCachesParaVuelos(ArrayList<PlanDeVuelo> todosLosVuelos, List<Envio> envios) {
         // Limpiar cache de rutas anteriores
@@ -89,8 +91,8 @@ public class Grasp {
 
         // Inicializar mapa de aeropuertos por ID
         this.aeropuertoById = new HashMap<>();
-        if(this.aeropuertos != null) {
-            for(Aeropuerto a : this.aeropuertos) {
+        if (this.aeropuertos != null) {
+            for (Aeropuerto a : this.aeropuertos) {
                 this.aeropuertoById.put(a.getId(), a);
             }
         }
@@ -99,7 +101,7 @@ public class Grasp {
         ArrayList<PlanDeVuelo> vuelosFiltrados = filtrarVuelosPorVentanaTemporal(todosLosVuelos, envios);
 
         // Precomputar vuelos por código de aeropuerto origen
-        if(vuelosFiltrados != null && !vuelosFiltrados.isEmpty()) {
+        if (vuelosFiltrados != null && !vuelosFiltrados.isEmpty()) {
             this.vuelosPorOrigenCache = vuelosFiltrados.stream()
                     .collect(Collectors.groupingBy(v -> {
                         Aeropuerto origen = this.aeropuertoById.get(v.getCiudadOrigen());
@@ -126,13 +128,15 @@ public class Grasp {
     }
 
     /**
-     * Filtra los vuelos para incluir solo aquellos que son relevantes para los envíos dados.
+     * Filtra los vuelos para incluir solo aquellos que son relevantes para los
+     * envíos dados.
      * Un vuelo es relevante si:
      * - Sale después de la fecha de ingreso del pedido más temprano
      * - Llega antes del deadline del pedido más tardío (fecha ingreso + 2-3 días)
      */
-    private ArrayList<PlanDeVuelo> filtrarVuelosPorVentanaTemporal(ArrayList<PlanDeVuelo> todosLosVuelos, List<Envio> envios) {
-        if(envios == null || envios.isEmpty() || todosLosVuelos == null || todosLosVuelos.isEmpty()) {
+    private ArrayList<PlanDeVuelo> filtrarVuelosPorVentanaTemporal(ArrayList<PlanDeVuelo> todosLosVuelos,
+            List<Envio> envios) {
+        if (envios == null || envios.isEmpty() || todosLosVuelos == null || todosLosVuelos.isEmpty()) {
             return todosLosVuelos != null ? todosLosVuelos : new ArrayList<>();
         }
 
@@ -140,29 +144,30 @@ public class Grasp {
         ZonedDateTime fechaInicioMinima = null;
         ZonedDateTime fechaFinMaxima = null;
 
-        for(Envio envio : envios) {
+        for (Envio envio : envios) {
             ZonedDateTime fechaIngreso = envio.getZonedFechaIngreso();
-            if(fechaInicioMinima == null || fechaIngreso.isBefore(fechaInicioMinima)) {
+            if (fechaInicioMinima == null || fechaIngreso.isBefore(fechaInicioMinima)) {
                 fechaInicioMinima = fechaIngreso;
             }
 
             // Calcular deadline para cada origen posible del envío
-            for(Aeropuerto origen : envio.getAeropuertosOrigen()) {
+            for (Aeropuerto origen : envio.getAeropuertosOrigen()) {
                 Duration deadline = envio.deadlineDesde(origen);
                 ZonedDateTime fechaLimite = fechaIngreso.plus(deadline);
-                if(fechaFinMaxima == null || fechaLimite.isAfter(fechaFinMaxima)) {
+                if (fechaFinMaxima == null || fechaLimite.isAfter(fechaFinMaxima)) {
                     fechaFinMaxima = fechaLimite;
                 }
             }
         }
 
         // Si no hay envíos válidos, retornar todos los vuelos
-        if(fechaInicioMinima == null || fechaFinMaxima == null) {
+        if (fechaInicioMinima == null || fechaFinMaxima == null) {
             return todosLosVuelos;
         }
 
         // Filtrar vuelos que están en la ventana temporal relevante
-        // Un vuelo es relevante si sale después de fechaInicioMinima y llega antes de fechaFinMaxima
+        // Un vuelo es relevante si sale después de fechaInicioMinima y llega antes de
+        // fechaFinMaxima
         final ZonedDateTime inicio = fechaInicioMinima;
         final ZonedDateTime fin = fechaFinMaxima;
 
@@ -171,7 +176,8 @@ public class Grasp {
                     ZonedDateTime salida = v.getZonedHoraOrigen();
                     ZonedDateTime llegada = v.getZonedHoraDestino();
 
-                    // El vuelo debe salir después del inicio de la ventana (o al menos no mucho antes)
+                    // El vuelo debe salir después del inicio de la ventana (o al menos no mucho
+                    // antes)
                     // y llegar antes del fin de la ventana
                     return salida.isAfter(inicio.minusHours(12)) && llegada.isBefore(fin.plusHours(12));
                 })
@@ -179,81 +185,90 @@ public class Grasp {
     }
 
     /*
-    public Solucion ejecucionDiaria() {
-        Solucion solucion = null;
-
-        for (LocalDateTime dia : this.dias) {
-            List<Envio> enviosDelDia = enviosPorDia.get(dia);
-
-            Integer offset = Integer.parseInt(getAeropuertoByCodigo("SPIM").getHusoHorario());
-            ZoneOffset zone = ZoneOffset.ofHours(offset);
-            ZonedDateTime inicio = dia.atZone(ZoneId.of("UTC"));
-            ZonedDateTime fin = inicio.plusDays(4);
-
-            //this.vuelosInstanciados = instanciarVuelosDiarios(this.planesDeVuelo, inicio, fin);
-
-            RutasDiarias rutasDiarias = new RutasDiarias(dia, vuelosInstanciados, hubs, aeropuertos);
-            solucion = ejecutarGrasp(enviosDelDia, rutasDiarias);
-
-        }
-
-        return solucion;
-    }
-    */
+     * public Solucion ejecucionDiaria() {
+     * Solucion solucion = null;
+     * 
+     * for (LocalDateTime dia : this.dias) {
+     * List<Envio> enviosDelDia = enviosPorDia.get(dia);
+     * 
+     * Integer offset =
+     * Integer.parseInt(getAeropuertoByCodigo("SPIM").getHusoHorario());
+     * ZoneOffset zone = ZoneOffset.ofHours(offset);
+     * ZonedDateTime inicio = dia.atZone(ZoneId.of("UTC"));
+     * ZonedDateTime fin = inicio.plusDays(4);
+     * 
+     * //this.vuelosInstanciados = instanciarVuelosDiarios(this.planesDeVuelo,
+     * inicio, fin);
+     * 
+     * RutasDiarias rutasDiarias = new RutasDiarias(dia, vuelosInstanciados, hubs,
+     * aeropuertos);
+     * solucion = ejecutarGrasp(enviosDelDia, rutasDiarias);
+     * 
+     * }
+     * 
+     * return solucion;
+     * }
+     */
 
     public Aeropuerto getAeropuertoByCodigo(String codigo) {
-        for(Aeropuerto aeropuerto : this.aeropuertos) {
-            if(aeropuerto.getCodigo().equals(codigo))
+        for (Aeropuerto aeropuerto : this.aeropuertos) {
+            if (aeropuerto.getCodigo().equals(codigo))
                 return aeropuerto;
         }
         return null;
     }
 
     /*
-    public ArrayList<VueloInstanciado> instanciarVuelosDiarios(ArrayList<PlanDeVuelo> planesDeVuelo,
-            ZonedDateTime inicio, ZonedDateTime fin) {
-
-        ArrayList<VueloInstanciado> vuelos = new ArrayList<>();
-
-        Long diasTotales = ChronoUnit.DAYS.between(inicio, fin) + 1;
-        int diasInstanciar = (int) Math.min(DIAS_A_INSTANCIAR, diasTotales);
-
-        for(PlanDeVuelo plan : planesDeVuelo) {
-            if(!esVueloUtil(plan))
-                continue;
-            for(int i = 0; i < diasInstanciar; i++) {
-                // Replico el vuelo, para cada fecha especifica
-                LocalDateTime fecha = inicio.toLocalDateTime().plusDays(i);
-                LocalTime horaSalida = plan.getHoraOrigen().toLocalTime();
-                LocalTime horaLlegada = plan.getHoraDestino().toLocalTime();
-
-                Integer offsetOrigen = Integer.parseInt(plan.getHusoHorarioOrigen());
-                Integer offsetDestino = Integer.parseInt(plan.getHusoHorarioDestino());
-                ZoneOffset zoneOrigen = ZoneOffset.ofHours(offsetOrigen);
-                ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
-
-                // Se calcula la hora de salida y llegada
-                ZonedDateTime salida = fecha.atZone(zoneOrigen).withZoneSameInstant(zoneOrigen)
-                        .withHour(horaSalida.getHour()).withMinute(horaSalida.getMinute());
-                ZonedDateTime llegada = fecha.atZone(zoneOrigen).withZoneSameInstant(zoneOrigen)
-                        .withHour(horaLlegada.getHour()).withMinute(horaLlegada.getMinute());
-
-                // Si la hora de llegada es antes que la de salida, significa que ha pasado una
-                // noche, por lo que se suma un dia
-                if (!llegada.isAfter(salida))
-                    llegada = llegada.plusDays(1);
-
-                ZonedDateTime llegadaDestino = llegada.withZoneSameInstant(zoneDestino);
-                vuelos.add(new VueloInstanciado(plan, salida, llegadaDestino)); // Se agrega el vuelo a la lista de
-                                                                                // vuelos instanciados
-            }
-        }
-
-        // Se ordenan los vuelos por hora de salida
-        vuelos.sort(Comparator.comparing(v -> v.getZonedHoraOrigen().toLocalDateTime()));
-        return vuelos;
-    }
-    */
+     * public ArrayList<VueloInstanciado>
+     * instanciarVuelosDiarios(ArrayList<PlanDeVuelo> planesDeVuelo,
+     * ZonedDateTime inicio, ZonedDateTime fin) {
+     * 
+     * ArrayList<VueloInstanciado> vuelos = new ArrayList<>();
+     * 
+     * Long diasTotales = ChronoUnit.DAYS.between(inicio, fin) + 1;
+     * int diasInstanciar = (int) Math.min(DIAS_A_INSTANCIAR, diasTotales);
+     * 
+     * for(PlanDeVuelo plan : planesDeVuelo) {
+     * if(!esVueloUtil(plan))
+     * continue;
+     * for(int i = 0; i < diasInstanciar; i++) {
+     * // Replico el vuelo, para cada fecha especifica
+     * LocalDateTime fecha = inicio.toLocalDateTime().plusDays(i);
+     * LocalTime horaSalida = plan.getHoraOrigen().toLocalTime();
+     * LocalTime horaLlegada = plan.getHoraDestino().toLocalTime();
+     * 
+     * Integer offsetOrigen = Integer.parseInt(plan.getHusoHorarioOrigen());
+     * Integer offsetDestino = Integer.parseInt(plan.getHusoHorarioDestino());
+     * ZoneOffset zoneOrigen = ZoneOffset.ofHours(offsetOrigen);
+     * ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
+     * 
+     * // Se calcula la hora de salida y llegada
+     * ZonedDateTime salida =
+     * fecha.atZone(zoneOrigen).withZoneSameInstant(zoneOrigen)
+     * .withHour(horaSalida.getHour()).withMinute(horaSalida.getMinute());
+     * ZonedDateTime llegada =
+     * fecha.atZone(zoneOrigen).withZoneSameInstant(zoneOrigen)
+     * .withHour(horaLlegada.getHour()).withMinute(horaLlegada.getMinute());
+     * 
+     * // Si la hora de llegada es antes que la de salida, significa que ha pasado
+     * una
+     * // noche, por lo que se suma un dia
+     * if (!llegada.isAfter(salida))
+     * llegada = llegada.plusDays(1);
+     * 
+     * ZonedDateTime llegadaDestino = llegada.withZoneSameInstant(zoneDestino);
+     * vuelos.add(new VueloInstanciado(plan, salida, llegadaDestino)); // Se agrega
+     * el vuelo a la lista de
+     * // vuelos instanciados
+     * }
+     * }
+     * 
+     * // Se ordenan los vuelos por hora de salida
+     * vuelos.sort(Comparator.comparing(v ->
+     * v.getZonedHoraOrigen().toLocalDateTime()));
+     * return vuelos;
+     * }
+     */
 
     private boolean esVueloUtil(PlanDeVuelo plan) {
         // Al menos origen o destino debe ser hub
@@ -268,29 +283,36 @@ public class Grasp {
         Solucion mejor = null;
         int iteracionesSinMejora = 0;
 
-        //ArrayList<PlanDeVuelo> vuelos = rutasDiarias.getVuelos();
+        // ArrayList<PlanDeVuelo> vuelos = rutasDiarias.getVuelos();
 
         Map<PlanDeVuelo, Integer> capacidadBaseVuelos = planesDeVuelo.stream()
                 .collect(Collectors.toMap(v -> v, v -> v.getCapacidadOcupada() != null ? v.getCapacidadOcupada() : 0));
         Map<Aeropuerto, Integer> capacidadBaseAeropuertos = this.aeropuertos != null
                 ? this.aeropuertos.stream()
-                    .collect(Collectors.toMap(a -> a, a -> a.getCapacidadOcupada() != null ? a.getCapacidadOcupada() : 0))
+                        .collect(Collectors.toMap(a -> a,
+                                a -> a.getCapacidadOcupada() != null ? a.getCapacidadOcupada() : 0))
                 : Collections.emptyMap();
 
-        for(int i = 0; i < MAX_ITERACIONES && iteracionesSinMejora < MAX_SIN_MEJORA; i++) {
+        for (int i = 0; i < MAX_ITERACIONES && iteracionesSinMejora < MAX_SIN_MEJORA; i++) {
             // Reset capacidades
-            planesDeVuelo.forEach(v -> v.setCapacidadOcupada(capacidadBaseVuelos.getOrDefault(v, 0)));  // Se reinicia respetando ocupación base
-            if(this.aeropuertos != null) {
-                this.aeropuertos.forEach(a -> a.setCapacidadOcupada(capacidadBaseAeropuertos.getOrDefault(a, 0)));  // Se reinicia respetando ocupación base
+            planesDeVuelo.forEach(v -> v.setCapacidadOcupada(capacidadBaseVuelos.getOrDefault(v, 0))); // Se reinicia
+                                                                                                       // respetando
+                                                                                                       // ocupación base
+            if (this.aeropuertos != null) {
+                this.aeropuertos.forEach(a -> a.setCapacidadOcupada(capacidadBaseAeropuertos.getOrDefault(a, 0))); // Se
+                                                                                                                   // reinicia
+                                                                                                                   // respetando
+                                                                                                                   // ocupación
+                                                                                                                   // base
             }
-            envios.forEach(e -> e.getParteAsignadas().clear());  // Se elimina cualquier asignacion que tenga un envio
+            envios.forEach(e -> e.getParteAsignadas().clear()); // Se elimina cualquier asignacion que tenga un envio
 
             faseConstruccion(envios, planesDeVuelo);
             busquedaLocal(envios, planesDeVuelo);
 
             Solucion cur = new Solucion(new ArrayList<>(envios), planesDeVuelo);
 
-            if(mejor == null || esMejor(cur, mejor)) {
+            if (mejor == null || esMejor(cur, mejor)) {
                 mejor = cur;
                 iteracionesSinMejora = 0;
             } else {
@@ -303,11 +325,11 @@ public class Grasp {
     }
 
     public Boolean esMejor(Solucion a, Solucion b) {
-        if(b == null)
+        if (b == null)
             return true;
 
         // Se verifica si a tiene mas envios completados que b
-        if(a.getEnviosCompletados() != b.getEnviosCompletados())
+        if (a.getEnviosCompletados() != b.getEnviosCompletados())
             return a.getEnviosCompletados() > b.getEnviosCompletados();
 
         // Se verifica si la llegada media ponderada de a es menor que la de b
@@ -322,13 +344,13 @@ public class Grasp {
 
         Collections.shuffle(enviosCopia, ThreadLocalRandom.current());
 
-        for(Envio envio : enviosCopia) {
+        for (Envio envio : enviosCopia) {
             Integer partesUsadas = 0;
 
-            while(envio.cantidadRestante() > 0 && partesUsadas < 3) {
+            while (envio.cantidadRestante() > 0 && partesUsadas < 3) {
                 List<CandidatoRuta> rutaCandidata = getCandidatosRuta(envio, planesDeVuelo);
 
-                if(rutaCandidata.isEmpty()) {
+                if (rutaCandidata.isEmpty()) {
                     break;
                 }
                 Long mejor = rutaCandidata.get(0).getScore();
@@ -344,17 +366,17 @@ public class Grasp {
 
                 // Verificación de capacidad REAL (importante: asegurar la no sobreasignacion)
                 Integer capacidadReal = Integer.MAX_VALUE;
-                for(PlanDeVuelo v : escogido.getTramos()) {
+                for (PlanDeVuelo v : escogido.getTramos()) {
                     // Por cada vuelo de la ruta candidata elegida, se va a identificar la minima
                     // capacidad de los vuelos
                     capacidadReal = Math.min(capacidadReal, v.getCapacidadLibre());
                 }
 
                 // Verificar también capacidad de aeropuertos intermedios y destino
-                for(int i = 0; i < escogido.getTramos().size(); i++) {
+                for (int i = 0; i < escogido.getTramos().size(); i++) {
                     PlanDeVuelo vuelo = escogido.getTramos().get(i);
                     Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
-                    if(destinoAeropuerto != null) {
+                    if (destinoAeropuerto != null) {
                         // Los productos llegan al aeropuerto destino cuando el vuelo llega
                         // Verificar capacidad disponible en el aeropuerto destino
                         int capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadLibre();
@@ -363,43 +385,47 @@ public class Grasp {
                 }
 
                 Integer cant = Math.min(envio.cantidadRestante(), capacidadReal);
-                if(cant <= 0)
+                if (cant <= 0)
                     break;
 
                 // Asignar capacidad en vuelos
-                for(PlanDeVuelo v : escogido.getTramos())
-                    v.asignar(cant);  // Se va a asignar esa cantidad de productos a los vuelos de las rutas
+                for (PlanDeVuelo v : escogido.getTramos())
+                    v.asignar(cant); // Se va a asignar esa cantidad de productos a los vuelos de las rutas
 
                 // Asignar/desasignar capacidad en aeropuertos
                 // Para cada vuelo en la ruta:
-                // - Si NO es el primer vuelo: desasignar capacidad del aeropuerto de origen (los productos salen cuando el vuelo despega)
-                // - Siempre: asignar capacidad en el aeropuerto de destino (los productos llegan cuando el vuelo aterriza)
-                for(int i = 0; i < escogido.getTramos().size(); i++) {
+                // - Si NO es el primer vuelo: desasignar capacidad del aeropuerto de origen
+                // (los productos salen cuando el vuelo despega)
+                // - Siempre: asignar capacidad en el aeropuerto de destino (los productos
+                // llegan cuando el vuelo aterriza)
+                for (int i = 0; i < escogido.getTramos().size(); i++) {
                     PlanDeVuelo vuelo = escogido.getTramos().get(i);
 
                     // Si NO es el primer vuelo, desasignar capacidad del aeropuerto de origen
                     // (los productos salen del aeropuerto cuando el vuelo despega)
-                    if(i > 0) {
+                    if (i > 0) {
                         Aeropuerto origenAeropuerto = getAeropuertoById(vuelo.getCiudadOrigen());
-                        if(origenAeropuerto != null) {
+                        if (origenAeropuerto != null) {
                             origenAeropuerto.desasignarCapacidad(cant);
                         }
                     }
 
-                    // Asignar capacidad en el aeropuerto de destino (los productos llegan cuando el vuelo aterriza)
+                    // Asignar capacidad en el aeropuerto de destino (los productos llegan cuando el
+                    // vuelo aterriza)
                     Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
-                    if(destinoAeropuerto != null) {
+                    if (destinoAeropuerto != null) {
                         destinoAeropuerto.asignarCapacidad(cant);
                     }
                 }
 
-                // Crear la parte asignada y vincularla al envio para mantener la relación bidireccional
+                // Crear la parte asignada y vincularla al envio para mantener la relación
+                // bidireccional
                 ParteAsignada parte = new ParteAsignada(escogido.getTramos(), escogido.getLlegada(), cant,
                         escogido.getOrigen());
                 parte.setEnvio(envio);
                 envio.getParteAsignadas().add(parte);
 
-                if(envio.getAeropuertoOrigen() == null && parte.getAeropuertoOrigen() != null) {
+                if (envio.getAeropuertoOrigen() == null && parte.getAeropuertoOrigen() != null) {
                     envio.setAeropuertoOrigen(parte.getAeropuertoOrigen());
                 }
                 partesUsadas++;
@@ -410,7 +436,7 @@ public class Grasp {
     public ArrayList<CandidatoRuta> getCandidatosRuta(Envio envio, ArrayList<PlanDeVuelo> planesDeVuelo) {
         String clave = generarClave(envio);
 
-        if(!rutas.containsKey(clave)) {
+        if (!rutas.containsKey(clave)) {
             // Generar candidatos para este envio
             ArrayList<CandidatoRuta> candidatos = generarCandidatos(envio, planesDeVuelo);
             rutas.put(clave, candidatos);
@@ -428,7 +454,7 @@ public class Grasp {
                 + "_" +
                 envio.getNumProductos();
 
-        if(envio.getId() != null) {
+        if (envio.getId() != null) {
             return base + "_ID_" + envio.getId();
         }
 
@@ -440,59 +466,65 @@ public class Grasp {
     private ArrayList<CandidatoRuta> generarCandidatos(Envio envio, ArrayList<PlanDeVuelo> vuelos) {
         ArrayList<CandidatoRuta> candidatos = new ArrayList<>();
 
-        for(Aeropuerto origen : envio.getAeropuertosOrigen()) {
+        for (Aeropuerto origen : envio.getAeropuertosOrigen()) {
             Duration deadline = deadlineCache.computeIfAbsent(
                     origen.getCodigo() + "_" + envio.getAeropuertoDestino().getCodigo(),
-                    k -> envio.deadlineDesde(origen));  // Se ve si es tramo intercontinente o intracontinente
-            Instant limite = envio.getZonedFechaIngreso().toInstant().plus(deadline);  // Fecha limite de llegada
-            List<PathState> beam = new ArrayList<>();  // Estado inicial
+                    k -> envio.deadlineDesde(origen)); // Se ve si es tramo intercontinente o intracontinente
+            Instant limite = envio.getZonedFechaIngreso().toInstant().plus(deadline); // Fecha limite de llegada
+            List<PathState> beam = new ArrayList<>(); // Estado inicial
 
             // Estamos en el aeropuerto de origen, sin vuelos tomados y espacio infinito
             beam.add(new PathState(origen, null, new ArrayList<>(), null, Integer.MAX_VALUE));
 
-            for(int nivel = 0; nivel < 3; nivel++) {
+            for (int nivel = 0; nivel < 5; nivel++) {
                 List<PathState> nuevosEstados = new ArrayList<>();
 
-                for(PathState ps : beam) {  // Iteramos en cada estado
-                    // Para cada estado, se seleccionan los vuelos que salen del aeropuerto en donde se encuentra ese estado
+                for (PathState ps : beam) { // Iteramos en cada estado
+                    // Para cada estado, se seleccionan los vuelos que salen del aeropuerto en donde
+                    // se encuentra ese estado
                     Aeropuerto aeropuertoActual = ps.getUbicacion();
-                    List<PlanDeVuelo> salidas = this.vuelosPorOrigenCache.getOrDefault(aeropuertoActual.getCodigo(), Collections.emptyList());
+                    List<PlanDeVuelo> salidas = this.vuelosPorOrigenCache.getOrDefault(aeropuertoActual.getCodigo(),
+                            Collections.emptyList());
 
-                    for(PlanDeVuelo v : salidas) {
+                    for (PlanDeVuelo v : salidas) {
                         // El vuelo sale antes de que aparezca el pedido
-                        if(v.getZonedHoraOrigen().isBefore(envio.getZonedFechaIngreso()))
+                        if (v.getZonedHoraOrigen().isBefore(envio.getZonedFechaIngreso()))
                             continue;
 
                         // La hora de llegada del ultimo estado es diferente de null
-                        // Y la salida del vuelo es antes que la llegada del ultimo vuelo del estado actual
-                        if(ps.getLlegadaUltimoVuelo() != null && v.getZonedHoraOrigen()
+                        // Y la salida del vuelo es antes que la llegada del ultimo vuelo del estado
+                        // actual
+                        if (ps.getLlegadaUltimoVuelo() != null && v.getZonedHoraOrigen()
                                 .isBefore(ps.getLlegadaUltimoVuelo().plus(Duration.ofMinutes(30))))
                             continue;
 
                         // La llegada del vuelo es luego del plazo limite
-                        if(v.getZonedHoraDestino().toInstant().isAfter(limite))
+                        if (v.getZonedHoraDestino().toInstant().isAfter(limite))
                             continue;
 
                         int capLibre = v.getCapacidadLibre();
-                        if(capLibre <= 0)
-                            continue;  // Verificar capacidad libre
+                        if (capLibre <= 0)
+                            continue; // Verificar capacidad libre
 
                         ArrayList<PlanDeVuelo> ruta = new ArrayList<>(ps.getTramos());
-                        ruta.add(v);  // Se agrega el vuelo a la ruta
-                        int capRuta = Math.min(ps.getCapacidadRuta(), capLibre); // Minima cantidad disponible de algun avion de la ruta
+                        ruta.add(v); // Se agrega el vuelo a la ruta
+                        int capRuta = Math.min(ps.getCapacidadRuta(), capLibre); // Minima cantidad disponible de algun
+                                                                                 // avion de la ruta
 
                         Aeropuerto destinoAeropuerto = getAeropuertoById(v.getCiudadDestino());
-                        if(destinoAeropuerto == null)
+                        if (destinoAeropuerto == null)
                             continue;
 
                         // Verificar capacidad del aeropuerto destino
-                        // El aeropuerto debe tener espacio suficiente para recibir la cantidad de productos
-                        int capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadMaxima() - destinoAeropuerto.getCapacidadOcupada();
-                        if(capacidadLibreAeropuerto < envio.getNumProductos()) {
+                        // El aeropuerto debe tener espacio suficiente para recibir la cantidad de
+                        // productos
+                        int capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadMaxima()
+                                - destinoAeropuerto.getCapacidadOcupada();
+                        if (capacidadLibreAeropuerto < envio.getNumProductos()) {
                             // Si el aeropuerto destino no tiene capacidad suficiente para todo el envio
                             // verificamos si al menos puede recibir la capacidad mínima de la ruta
-                            if(capacidadLibreAeropuerto < Math.min(ps.getCapacidadRuta(), capLibre)) {
-                                continue;  // No hay espacio suficiente en el aeropuerto destino
+                            if (capacidadLibreAeropuerto < Math.min(ps.getCapacidadRuta(), capLibre)) {
+                                continue; // No hay espacio suficiente en el aeropuerto destino
                             }
                             // Ajustar la capacidad de la ruta al espacio disponible en el aeropuerto
                             capRuta = Math.min(capRuta, capacidadLibreAeropuerto);
@@ -501,11 +533,18 @@ public class Grasp {
                         PathState nuevo = new PathState(destinoAeropuerto, v.getZonedHoraDestino(), ruta, v, capRuta);
 
                         // Verificar si llegamos al destino
-                        if(destinoAeropuerto.getCodigo().equals(envio.getAeropuertoDestino().getCodigo())) {
-                            long score = scoreRuta(ruta, v.getZonedHoraDestino(), envio, origen);  // Se calcula el score de la ruta
-                            candidatos.add(new CandidatoRuta(ruta, v.getZonedHoraDestino(), score, capRuta, origen));  // Se agrega la ruta a los candidatos
+                        if (destinoAeropuerto.getCodigo().equals(envio.getAeropuertoDestino().getCodigo())) {
+                            long score = scoreRuta(ruta, v.getZonedHoraDestino(), envio, origen); // Se calcula el score
+                                                                                                  // de la ruta
+                            candidatos.add(new CandidatoRuta(ruta, v.getZonedHoraDestino(), score, capRuta, origen)); // Se
+                                                                                                                      // agrega
+                                                                                                                      // la
+                                                                                                                      // ruta
+                                                                                                                      // a
+                                                                                                                      // los
+                                                                                                                      // candidatos
                         } else {
-                            nuevosEstados.add(nuevo);  // Se sigue expandiendo
+                            nuevosEstados.add(nuevo); // Se sigue expandiendo
                         }
                     }
                 }
@@ -533,7 +572,8 @@ public class Grasp {
     }
 
     private long scoreRuta(List<PlanDeVuelo> tramos, ZonedDateTime llegada, Envio e, Aeropuerto origenElegido) {
-        // Si la ruta esta vacia o no tiene llegada, se asigna un score muy alto (score malo)
+        // Si la ruta esta vacia o no tiene llegada, se asigna un score muy alto (score
+        // malo)
         if (tramos.isEmpty() || llegada == null)
             return Long.MAX_VALUE / 4;
 
@@ -560,29 +600,31 @@ public class Grasp {
             for (ParteAsignada parte : snapshot) {
                 // Se elimina los productos solicitados en el pedido en cada vuelo de la ruta
                 List<PlanDeVuelo> rutaActual = parte.getRuta();
-                if(rutaActual != null) {
+                if (rutaActual != null) {
                     // Desasignar capacidad de vuelos
-                    for(PlanDeVuelo vuelo : rutaActual)
+                    for (PlanDeVuelo vuelo : rutaActual)
                         vuelo.desasignar(parte.getCantidad());
 
                     // Desasignar/restaurar capacidad de aeropuertos
                     // Para cada vuelo en la ruta (en orden inverso para restaurar correctamente):
-                    // - Desasignar capacidad del aeropuerto de destino (los productos ya no están ahí)
-                    // - Si NO es el primer vuelo: restaurar capacidad del aeropuerto de origen (los productos vuelven a estar ahí)
-                    for(int i = rutaActual.size() - 1; i >= 0; i--) {
+                    // - Desasignar capacidad del aeropuerto de destino (los productos ya no están
+                    // ahí)
+                    // - Si NO es el primer vuelo: restaurar capacidad del aeropuerto de origen (los
+                    // productos vuelven a estar ahí)
+                    for (int i = rutaActual.size() - 1; i >= 0; i--) {
                         PlanDeVuelo vuelo = rutaActual.get(i);
 
                         // Desasignar capacidad del aeropuerto de destino
                         Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
-                        if(destinoAeropuerto != null) {
+                        if (destinoAeropuerto != null) {
                             destinoAeropuerto.desasignarCapacidad(parte.getCantidad());
                         }
 
                         // Si NO es el primer vuelo, restaurar capacidad del aeropuerto de origen
                         // (los productos vuelven a estar en ese aeropuerto)
-                        if(i > 0) {
+                        if (i > 0) {
                             Aeropuerto origenAeropuerto = getAeropuertoById(vuelo.getCiudadOrigen());
-                            if(origenAeropuerto != null) {
+                            if (origenAeropuerto != null) {
                                 origenAeropuerto.asignarCapacidad(parte.getCantidad());
                             }
                         }
@@ -602,7 +644,8 @@ public class Grasp {
                             // Verificar capacidad de aeropuertos destino
                             for (PlanDeVuelo v : c.getTramos()) {
                                 Aeropuerto destinoAeropuerto = getAeropuertoById(v.getCiudadDestino());
-                                if(destinoAeropuerto != null && destinoAeropuerto.getCapacidadLibre() < parte.getCantidad()) {
+                                if (destinoAeropuerto != null
+                                        && destinoAeropuerto.getCapacidadLibre() < parte.getCantidad()) {
                                     return false;
                                 }
                             }
@@ -620,23 +663,26 @@ public class Grasp {
 
                     // Asignar/desasignar capacidad en aeropuertos
                     // Para cada vuelo en la ruta:
-                    // - Si NO es el primer vuelo: desasignar capacidad del aeropuerto de origen (los productos salen cuando el vuelo despega)
-                    // - Siempre: asignar capacidad en el aeropuerto de destino (los productos llegan cuando el vuelo aterriza)
-                    for(int i = 0; i < c.getTramos().size(); i++) {
+                    // - Si NO es el primer vuelo: desasignar capacidad del aeropuerto de origen
+                    // (los productos salen cuando el vuelo despega)
+                    // - Siempre: asignar capacidad en el aeropuerto de destino (los productos
+                    // llegan cuando el vuelo aterriza)
+                    for (int i = 0; i < c.getTramos().size(); i++) {
                         PlanDeVuelo vuelo = c.getTramos().get(i);
 
                         // Si NO es el primer vuelo, desasignar capacidad del aeropuerto de origen
                         // (los productos salen del aeropuerto cuando el vuelo despega)
-                        if(i > 0) {
+                        if (i > 0) {
                             Aeropuerto origenAeropuerto = getAeropuertoById(vuelo.getCiudadOrigen());
-                            if(origenAeropuerto != null) {
+                            if (origenAeropuerto != null) {
                                 origenAeropuerto.desasignarCapacidad(parte.getCantidad());
                             }
                         }
 
-                        // Asignar capacidad en el aeropuerto de destino (los productos llegan cuando el vuelo aterriza)
+                        // Asignar capacidad en el aeropuerto de destino (los productos llegan cuando el
+                        // vuelo aterriza)
                         Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
-                        if(destinoAeropuerto != null) {
+                        if (destinoAeropuerto != null) {
                             destinoAeropuerto.asignarCapacidad(parte.getCantidad());
                         }
                     }
@@ -657,22 +703,24 @@ public class Grasp {
 
                         // Restaurar capacidad en aeropuertos
                         // Para cada vuelo en la ruta:
-                        // - Restaurar capacidad del aeropuerto de destino (los productos vuelven a estar ahí)
-                        // - Si NO es el primer vuelo: desasignar capacidad del aeropuerto de origen (los productos salen cuando el vuelo despega)
-                        for(int i = 0; i < rutaActual.size(); i++) {
+                        // - Restaurar capacidad del aeropuerto de destino (los productos vuelven a
+                        // estar ahí)
+                        // - Si NO es el primer vuelo: desasignar capacidad del aeropuerto de origen
+                        // (los productos salen cuando el vuelo despega)
+                        for (int i = 0; i < rutaActual.size(); i++) {
                             PlanDeVuelo vuelo = rutaActual.get(i);
 
                             // Restaurar capacidad del aeropuerto de destino
                             Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
-                            if(destinoAeropuerto != null) {
+                            if (destinoAeropuerto != null) {
                                 destinoAeropuerto.asignarCapacidad(parte.getCantidad());
                             }
 
                             // Si NO es el primer vuelo, desasignar capacidad del aeropuerto de origen
                             // (los productos salen del aeropuerto cuando el vuelo despega)
-                            if(i > 0) {
+                            if (i > 0) {
                                 Aeropuerto origenAeropuerto = getAeropuertoById(vuelo.getCiudadOrigen());
-                                if(origenAeropuerto != null) {
+                                if (origenAeropuerto != null) {
                                     origenAeropuerto.desasignarCapacidad(parte.getCantidad());
                                 }
                             }

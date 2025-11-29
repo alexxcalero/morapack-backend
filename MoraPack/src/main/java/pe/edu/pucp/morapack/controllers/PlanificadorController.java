@@ -5,7 +5,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import pe.edu.pucp.morapack.models.*;
 import pe.edu.pucp.morapack.services.servicesImp.*;
-import pe.edu.pucp.morapack.repository.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 
@@ -28,10 +27,9 @@ public class PlanificadorController {
     private final EnvioServiceImp envioService;
     private final PlanDeVueloServiceImp planDeVueloService;
     private final PlanificacionWebSocketServiceImp webSocketService;
-    private final AeropuertoRepository aeropuertoRepository;
-    private final PlanDeVueloRepository planDeVueloRepository;
-    private final EnvioRepository envioRepository;
     private final EntityManager entityManager;
+    // Nota: Se eliminaron los repositorios directos - ahora usamos SQL nativo vía
+    // EntityManager
 
     private Planificador planificador;
     private boolean planificadorIniciado = false;
@@ -111,6 +109,7 @@ public class PlanificadorController {
     // Endpoint para iniciar simulación semanal (sin generar vuelos)
     @PostMapping("/iniciar-simulacion-semanal")
     public Map<String, Object> iniciarSimulacionSemanal(@RequestBody Map<String, String> request) {
+        System.out.println("🎯 [ENDPOINT] iniciar-simulacion-semanal - PETICIÓN RECIBIDA a las " + LocalDateTime.now());
         Map<String, Object> response = new HashMap<>();
 
         try {
@@ -146,17 +145,40 @@ public class PlanificadorController {
             }
 
             // Cargar datos necesarios
+            System.out.println("📂 Cargando aeropuertos...");
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+            System.out.println("✅ Aeropuertos cargados: " + aeropuertos.size());
+
+            System.out.println("📂 Cargando continentes...");
             ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
+            System.out.println("✅ Continentes cargados: " + continentes.size());
+
+            System.out.println("📂 Cargando países...");
             ArrayList<Pais> paises = paisService.obtenerTodosPaises();
-            ArrayList<Envio> envios = envioService.obtenerEnvios();
-            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerListaPlanesDeVuelo();
+            System.out.println("✅ Países cargados: " + paises.size());
+
+            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos y envíos dentro del rango de simulación +
+            // margen
+            LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
+            LocalDateTime fechaFinVuelos = fechaFin.plusDays(1);
+
+            System.out.println("📂 Cargando vuelos en rango " + fechaInicioVuelos + " a " + fechaFinVuelos + "...");
+            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosEnRango(
+                    fechaInicioVuelos, "0", fechaFinVuelos, "0");
+            System.out.println("✅ Vuelos cargados: " + planes.size());
+
+            System.out.println("📂 Cargando envíos en rango...");
+            ArrayList<Envio> envios = envioService.obtenerEnviosEnRango(
+                    fechaInicioVuelos, "0", fechaFinVuelos, "0");
+            System.out.println("✅ Envíos cargados: " + envios.size());
 
             System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL");
             System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
-                    ", planes=" + planes.size() + ", envios=" + envios.size());
+                    ", planes=" + planes.size() + " (rango: " + fechaInicioVuelos + " a " + fechaFinVuelos + ")" +
+                    ", envios=" + envios.size());
 
             // Configurar GRASP
+            System.out.println("⚙️ Configurando GRASP...");
             Grasp grasp = new Grasp();
             grasp.setAeropuertos(aeropuertos);
             grasp.setContinentes(continentes);
@@ -164,8 +186,10 @@ public class PlanificadorController {
             grasp.setEnvios(envios);
             grasp.setPlanesDeVuelo(planes);
             grasp.setHubsPropio();
+            System.out.println("✅ GRASP configurado");
 
             // Configurar hubs para los envíos
+            System.out.println("⚙️ Configurando hubs para " + envios.size() + " envíos...");
             ArrayList<Aeropuerto> hubs = grasp.getHubs();
             if (hubs != null && !hubs.isEmpty()) {
                 ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
@@ -173,8 +197,10 @@ public class PlanificadorController {
                     e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
                 }
             }
+            System.out.println("✅ Hubs configurados");
 
             // Crear e iniciar el planificador en modo SEMANAL
+            System.out.println("⚙️ Creando planificador...");
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
                     aeropuertoService);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.SEMANAL, fechaInicio, fechaFin);
@@ -257,12 +283,21 @@ public class PlanificadorController {
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
             ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
             ArrayList<Pais> paises = paisService.obtenerTodosPaises();
-            ArrayList<Envio> envios = envioService.obtenerEnvios();
-            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerListaPlanesDeVuelo();
 
-            System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL");
+            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos y envíos dentro del rango de simulación +
+            // margen
+            LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
+            LocalDateTime fechaFinVuelos = fechaFin.plusDays(1);
+            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosEnRango(
+                    fechaInicioVuelos, "0", fechaFinVuelos, "0");
+            // Cargar envíos CON parteAsignadas porque el planificador las necesita
+            ArrayList<Envio> envios = envioService.obtenerEnviosEnRangoConPartes(
+                    fechaInicioVuelos, "0", fechaFinVuelos, "0");
+
+            System.out.println("🚀 INICIANDO SIMULACIÓN SEMANAL V2 (con generación de vuelos)");
             System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
-                    ", planes=" + planes.size() + ", envios=" + envios.size());
+                    ", planes=" + planes.size() + " (rango: " + fechaInicioVuelos + " a " + fechaFinVuelos + ")" +
+                    ", envios=" + envios.size());
 
             // Configurar GRASP
             Grasp grasp = new Grasp();
@@ -342,12 +377,17 @@ public class PlanificadorController {
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
             ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
             ArrayList<Pais> paises = paisService.obtenerTodosPaises();
-            ArrayList<Envio> envios = envioService.obtenerEnvios();
-            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerListaPlanesDeVuelo();
+
+            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos y envíos desde la fecha de inicio
+            // (simulación colapso sin límite)
+            LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
+            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosDesdeFecha(fechaInicioVuelos, "0");
+            ArrayList<Envio> envios = envioService.obtenerEnviosDesdeFechaConPartes(fechaInicioVuelos, "0");
 
             System.out.println("🚀 INICIANDO SIMULACIÓN DE COLAPSO");
             System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
-                    ", planes=" + planes.size() + ", envios=" + envios.size());
+                    ", planes=" + planes.size() + " (desde: " + fechaInicioVuelos + ")" +
+                    ", envios=" + envios.size());
 
             // Configurar GRASP
             Grasp grasp = new Grasp();
@@ -427,10 +467,13 @@ public class PlanificadorController {
     }
 
     // Endpoint para limpiar todas las planificaciones anteriores
+    // ⚡ OPTIMIZADO: Usa solo SQL nativo para evitar cargar 43K+ envíos en memoria
     @PostMapping("/limpiar-planificacion")
     @Transactional
     public Map<String, Object> limpiarPlanificacion() {
         Map<String, Object> response = new HashMap<>();
+        long startTime = System.currentTimeMillis();
+        System.out.println("🧹 [LIMPIAR] Iniciando limpieza de planificación...");
 
         try {
             // Verificar si el planificador está activo
@@ -445,56 +488,38 @@ public class PlanificadorController {
             int planesActualizados = 0;
             int relacionesVuelosEliminadas = 0;
             int partesEliminadas = 0;
-            int enviosActualizados = 0;
 
-            // 1. Vaciar capacidades ocupadas de todos los aeropuertos
-            List<Aeropuerto> aeropuertos = new ArrayList<>();
-            for (Aeropuerto aeropuerto : aeropuertoRepository.findAll()) {
-                aeropuerto.setCapacidadOcupada(0);
-                aeropuertos.add(aeropuerto);
-            }
-            if (!aeropuertos.isEmpty()) {
-                aeropuertoRepository.saveAll(aeropuertos);
-                aeropuertosActualizados = aeropuertos.size();
-            }
+            // ⚡ OPTIMIZACIÓN: Usar SQL nativo para TODO, evitar cargar entidades en memoria
 
-            // 2. Vaciar capacidades ocupadas de todos los planes de vuelo
-            List<PlanDeVuelo> planesDeVuelo = planDeVueloRepository.findAll();
-            for (PlanDeVuelo plan : planesDeVuelo) {
-                plan.setCapacidadOcupada(0);
-            }
-            if (!planesDeVuelo.isEmpty()) {
-                planDeVueloRepository.saveAll(planesDeVuelo);
-                planesActualizados = planesDeVuelo.size();
-            }
+            // 1. Resetear capacidades de aeropuertos con SQL nativo
+            System.out.println("🧹 [LIMPIAR] Reseteando capacidades de aeropuertos...");
+            Query queryAeropuertos = entityManager.createNativeQuery("UPDATE aeropuerto SET capacidad_ocupada = 0");
+            aeropuertosActualizados = queryAeropuertos.executeUpdate();
+            System.out.println("✅ Aeropuertos actualizados: " + aeropuertosActualizados);
 
-            // 3. Limpiar las referencias de partes asignadas en los envíos
-            List<Envio> envios = envioRepository.findAll();
-            List<Envio> enviosParaActualizar = new ArrayList<>();
-            for (Envio envio : envios) {
-                if (envio.getParteAsignadas() != null && !envio.getParteAsignadas().isEmpty()) {
-                    envio.setParteAsignadas(new ArrayList<>());
-                    enviosParaActualizar.add(envio);
-                    enviosActualizados++;
-                }
-            }
-            if (!enviosParaActualizar.isEmpty()) {
-                envioRepository.saveAll(enviosParaActualizar);
-            }
+            // 2. Resetear capacidades de planes de vuelo con SQL nativo
+            System.out.println("🧹 [LIMPIAR] Reseteando capacidades de vuelos...");
+            Query queryPlanes = entityManager.createNativeQuery("UPDATE plan_de_vuelo SET capacidad_ocupada = 0");
+            planesActualizados = queryPlanes.executeUpdate();
+            System.out.println("✅ Planes actualizados: " + planesActualizados);
 
-            // 4. Eliminar primero las relaciones ParteAsignadaPlanDeVuelo usando SQL nativo
+            // 3. Eliminar relaciones ParteAsignadaPlanDeVuelo (tabla intermedia)
+            System.out.println("🧹 [LIMPIAR] Eliminando relaciones vuelo-parte...");
             Query queryRelaciones = entityManager.createNativeQuery("DELETE FROM parte_asignada_plan_de_vuelo");
             relacionesVuelosEliminadas = queryRelaciones.executeUpdate();
+            System.out.println("✅ Relaciones eliminadas: " + relacionesVuelosEliminadas);
 
-            // 5. Eliminar todas las partes asignadas usando SQL nativo
+            // 4. Eliminar todas las partes asignadas
+            System.out.println("🧹 [LIMPIAR] Eliminando partes asignadas...");
             Query queryPartes = entityManager.createNativeQuery("DELETE FROM parte_asignada");
             partesEliminadas = queryPartes.executeUpdate();
-
-            // Nota: Los planes de vuelo ya no se eliminan, solo se resetean sus capacidades
-            // ocupadas
+            System.out.println("✅ Partes eliminadas: " + partesEliminadas);
 
             // Hacer flush para asegurar que los cambios se apliquen
             entityManager.flush();
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            System.out.println("🧹 [LIMPIAR] ✅ Limpieza completada en " + elapsed + "ms");
 
             response.put("estado", "exito");
             response.put("mensaje", "Planificación limpiada correctamente");
@@ -503,7 +528,7 @@ public class PlanificadorController {
                     "planesActualizados", planesActualizados,
                     "relacionesVuelosEliminadas", relacionesVuelosEliminadas,
                     "partesEliminadas", partesEliminadas,
-                    "enviosActualizados", enviosActualizados));
+                    "tiempoEjecucionMs", elapsed));
             response.put("timestamp", LocalDateTime.now().toString());
 
         } catch (Exception e) {
@@ -515,7 +540,32 @@ public class PlanificadorController {
         return response;
     }
 
-    // Endpoint para obtener estado actual del planificador
+    /**
+     * ⚡ OPTIMIZADO: Endpoint ligero para polling frecuente desde el frontend.
+     * Solo devuelve si el planificador está activo, sin cargar envíos.
+     * Usado por HoraActual.jsx y SimulationControls.jsx cada 5-10 segundos.
+     */
+    @GetMapping("/estado-simple")
+    public Map<String, Object> obtenerEstadoSimple() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("planificadorActivo", planificadorIniciado);
+        response.put("ultimaActualizacion", LocalDateTime.now().toString());
+
+        if (planificador != null && planificadorIniciado) {
+            response.put("cicloActual", planificador.getCicloActual());
+            response.put("proximoCiclo", planificador.getProximoCiclo());
+            // Solo estadísticas básicas, sin cargar todos los envíos
+            response.put("estadisticas", planificador.getEstadisticasActuales());
+        }
+        return response;
+    }
+
+    /**
+     * Endpoint completo para obtener estado con pedidos clasificados.
+     * ⚠️ NOTA: Este endpoint es pesado (carga 43K+ envíos). Usar solo cuando se
+     * necesiten
+     * los detalles de pedidos, no para polling frecuente.
+     */
     @GetMapping("/estado")
     public Map<String, Object> obtenerEstado() {
         Map<String, Object> response = new HashMap<>();

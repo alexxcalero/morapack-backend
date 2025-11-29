@@ -30,7 +30,8 @@ public class Planificador {
 
     // Configuración de planificación programada
     private static final int SA_MINUTOS = 2; // Salto del algoritmo - ejecutar cada 2 minutos
-    private static final int K_NORMAL = 120; // Factor de consumo - planificar 240 minutos adelante (modo normal y semanal)
+    private static final int K_NORMAL = 120; // Factor de consumo - planificar 240 minutos adelante (modo normal y
+                                             // semanal)
     private static final int K_COLAPSO = 240; // Factor de consumo - planificar 480 minutos adelante (modo colapso)
     private static final int TA_SEGUNDOS = 90; // Tiempo máximo de ejecución GRASP - 1.5 minutos
 
@@ -58,9 +59,9 @@ public class Planificador {
 
     // Modos de simulación
     public enum ModoSimulacion {
-        NORMAL,      // Modo original - planifica todos los pedidos
-        SEMANAL,     // Simulación semanal con fecha inicio y fin
-        COLAPSO      // Simulación de colapso - solo fecha inicio
+        NORMAL, // Modo original - planifica todos los pedidos
+        SEMANAL, // Simulación semanal con fecha inicio y fin
+        COLAPSO // Simulación de colapso - solo fecha inicio
     }
 
     private ModoSimulacion modoSimulacion = ModoSimulacion.NORMAL;
@@ -68,8 +69,8 @@ public class Planificador {
     private LocalDateTime fechaFinSimulacion;
 
     public Planificador(Grasp grasp, PlanificacionWebSocketServiceImp webSocketService,
-                       EnvioServiceImp envioService, PlanDeVueloServiceImp planDeVueloService,
-                       AeropuertoServiceImp aeropuertoService) {
+            EnvioServiceImp envioService, PlanDeVueloServiceImp planDeVueloService,
+            AeropuertoServiceImp aeropuertoService) {
         this.grasp = grasp;
         this.webSocketService = webSocketService;
         this.envioService = envioService;
@@ -82,7 +83,7 @@ public class Planificador {
     }
 
     public void iniciarPlanificacionProgramada(ModoSimulacion modo, LocalDateTime fechaInicio, LocalDateTime fechaFin) {
-        if(enEjecucion) {
+        if (enEjecucion) {
             System.out.println("⚠️ El planificador ya está en ejecución");
             return;
         }
@@ -90,7 +91,7 @@ public class Planificador {
         enEjecucion = true;
         cicloActual.set(0);
         scheduler = Executors.newScheduledThreadPool(1);
-        if(scheduler == null) {
+        if (scheduler == null) {
             System.err.println("❌ Error crítico: No se pudo crear el ScheduledExecutorService");
             enEjecucion = false;
             return;
@@ -105,18 +106,21 @@ public class Planificador {
 
         System.out.println("🚀 INICIANDO PLANIFICADOR PROGRAMADO");
         int kActual = obtenerK();
-        System.out.printf("⚙️ Configuración: Sa=%d min, K=%d, Ta=%d seg, Sc=%d min%n", SA_MINUTOS, kActual, TA_SEGUNDOS, SA_MINUTOS * kActual);
+        System.out.printf("⚙️ Configuración: Sa=%d min, K=%d, Ta=%d seg, Sc=%d min%n", SA_MINUTOS, kActual, TA_SEGUNDOS,
+                SA_MINUTOS * kActual);
         System.out.printf("📋 Modo de simulación: %s%n", modo);
 
-        this.enviosOriginales = envioService.obtenerEnvios(); //this.grasp.getEnvios();  // Guardo todos los envios
+        // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados del GRASP en lugar de cargar todos
+        // desde DB
+        this.enviosOriginales = grasp.getEnvios(); // Ya están filtrados por fecha en el controller
 
         // Determinar tiempo de inicio según el modo
         try {
-            if(modo == ModoSimulacion.SEMANAL || modo == ModoSimulacion.COLAPSO) {
-                if(fechaInicio == null) {
+            if (modo == ModoSimulacion.SEMANAL || modo == ModoSimulacion.COLAPSO) {
+                if (fechaInicio == null) {
                     System.err.println("❌ Error: fechaInicio es null en modo " + modo);
                     enEjecucion = false;
-                    if(scheduler != null) {
+                    if (scheduler != null) {
                         scheduler.shutdown();
                         scheduler = null;
                     }
@@ -125,31 +129,35 @@ public class Planificador {
                 this.tiempoInicioSimulacion = fechaInicio;
                 this.ultimoHorizontePlanificado = fechaInicio;
                 this.tiempoSimuladoActual = fechaInicio; // Inicializar tiempo simulado para verificaciones
-                System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", fechaInicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
-                if(modo == ModoSimulacion.SEMANAL) {
-                    if(fechaFin == null) {
+                System.out.printf("⏰ Tiempo de inicio de simulación: %s%n",
+                        fechaInicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                if (modo == ModoSimulacion.SEMANAL) {
+                    if (fechaFin == null) {
                         System.err.println("❌ Error: fechaFin es null en modo SEMANAL");
                         enEjecucion = false;
-                        if(scheduler != null) {
+                        if (scheduler != null) {
                             scheduler.shutdown();
                             scheduler = null;
                         }
                         return;
                     }
-                    System.out.printf("⏰ Tiempo de fin de simulación: %s%n", fechaFin.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                    System.out.printf("⏰ Tiempo de fin de simulación: %s%n",
+                            fechaFin.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                 }
             } else {
                 // Modo normal - obtener el primer pedido como referencia temporal
                 this.tiempoInicioSimulacion = obtenerPrimerPedidoTiempo();
                 this.ultimoHorizontePlanificado = this.tiempoInicioSimulacion;
-                this.tiempoSimuladoActual = this.tiempoInicioSimulacion; // Inicializar tiempo simulado para verificaciones
-                System.out.printf("⏰ Tiempo de inicio de simulación: %s%n", tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                this.tiempoSimuladoActual = this.tiempoInicioSimulacion; // Inicializar tiempo simulado para
+                                                                         // verificaciones
+                System.out.printf("⏰ Tiempo de inicio de simulación: %s%n",
+                        tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
             }
-        } catch(Exception e) {
+        } catch (Exception e) {
             System.err.printf("❌ Error al determinar tiempo de inicio: %s%n", e.getMessage());
             e.printStackTrace();
             enEjecucion = false;
-            if(scheduler != null) {
+            if (scheduler != null) {
                 scheduler.shutdown();
                 scheduler = null;
             }
@@ -157,7 +165,7 @@ public class Planificador {
         }
 
         // Validar que el scheduler se haya inicializado correctamente
-        if(scheduler == null) {
+        if (scheduler == null) {
             System.err.println("❌ Error: scheduler no se inicializó correctamente");
             enEjecucion = false;
             return;
@@ -166,31 +174,35 @@ public class Planificador {
         // Ejecutar el primer ciclo inmediatamente
         try {
             ejecutarCicloPlanificacion(tiempoInicioSimulacion);
-        } catch(Exception e) {
+        } catch (Exception e) {
             System.err.printf("❌ Error al ejecutar el primer ciclo: %s%n", e.getMessage());
             e.printStackTrace();
             // Continuar con la programación aunque haya error en el primer ciclo
         }
 
         // Programar ejecuciones posteriores cada SA_MINUTOS minutos
-        if(scheduler != null) {
+        if (scheduler != null) {
             tareaProgramada = scheduler.scheduleAtFixedRate(() -> {
                 LocalDateTime tiempoActual = obtenerTiempoActualSimulacion();
                 ejecutarCicloPlanificacion(tiempoActual);
             }, SA_MINUTOS, SA_MINUTOS, TimeUnit.MINUTES);
 
-            // ✅ Programar tarea separada para verificar liberación de productos cada hora simulada
-            // Esta tarea se ejecuta más frecuentemente para verificar liberaciones exactamente cuando pasen 2 horas
+            // ✅ Programar tarea separada para verificar liberación de productos cada hora
+            // simulada
+            // Esta tarea se ejecuta más frecuentemente para verificar liberaciones
+            // exactamente cuando pasen 2 horas
             // Mapeo: 1 hora simulada = 30 segundos reales (ajustable según necesidad)
             tareaLiberacionProductos = scheduler.scheduleAtFixedRate(() -> {
-                if(!enEjecucion) return;
+                if (!enEjecucion)
+                    return;
 
                 // Avanzar el tiempo simulado en 1 hora para verificaciones
                 LocalDateTime nuevoTiempoSimulado = tiempoSimuladoActual.plusHours(1);
 
                 // No avanzar más allá del horizonte actual de planificación
-                // Esto asegura que no verificamos tiempos futuros que aún no han sido planificados
-                if(nuevoTiempoSimulado.isAfter(ultimoHorizontePlanificado)) {
+                // Esto asegura que no verificamos tiempos futuros que aún no han sido
+                // planificados
+                if (nuevoTiempoSimulado.isAfter(ultimoHorizontePlanificado)) {
                     // Si el tiempo simulado alcanzó el horizonte, no avanzar más
                     // La verificación se hará cuando el horizonte avance en el siguiente ciclo
                     return;
@@ -209,24 +221,24 @@ public class Planificador {
 
     public void detenerPlanificacion() {
         // Cancelar la tarea programada primero para evitar RejectedExecutionException
-        if(tareaProgramada != null && !tareaProgramada.isCancelled()) {
+        if (tareaProgramada != null && !tareaProgramada.isCancelled()) {
             tareaProgramada.cancel(false);
             tareaProgramada = null;
         }
 
         // Cancelar la tarea de liberación de productos
-        if(tareaLiberacionProductos != null && !tareaLiberacionProductos.isCancelled()) {
+        if (tareaLiberacionProductos != null && !tareaLiberacionProductos.isCancelled()) {
             tareaLiberacionProductos.cancel(false);
             tareaLiberacionProductos = null;
         }
 
-        if(scheduler != null) {
+        if (scheduler != null) {
             scheduler.shutdown();
             try {
-                if(!scheduler.awaitTermination(30, TimeUnit.SECONDS)) {
+                if (!scheduler.awaitTermination(30, TimeUnit.SECONDS)) {
                     scheduler.shutdownNow();
                 }
-            } catch(InterruptedException e) {
+            } catch (InterruptedException e) {
                 scheduler.shutdownNow();
                 Thread.currentThread().interrupt();
             }
@@ -243,7 +255,7 @@ public class Planificador {
     }
 
     private LocalDateTime obtenerPrimerPedidoTiempo() {
-        if(grasp.getEnvios() == null || grasp.getEnvios().isEmpty()) {
+        if (grasp.getEnvios() == null || grasp.getEnvios().isEmpty()) {
             return LocalDateTime.now();
         }
 
@@ -273,7 +285,8 @@ public class Planificador {
     private static LocalDateTime ultimoTiempoEjecucion;
 
     private void ejecutarCicloPlanificacion(LocalDateTime tiempoEjecucion) {
-        if(!enEjecucion) return;
+        if (!enEjecucion)
+            return;
 
         long inicioCiclo = System.currentTimeMillis();
         int ciclo = cicloActual.incrementAndGet();
@@ -281,13 +294,14 @@ public class Planificador {
         proximaEjecucion = ultimaEjecucion.plusMinutes(SA_MINUTOS);
 
         System.out.printf("%n=== CICLO %d INICIADO ===%n", ciclo);
-        System.out.printf("🕒 Ejecución: %s%n", ultimaEjecucion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        System.out.printf("🕒 Ejecución: %s%n",
+                ultimaEjecucion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
         try {
             // 1. Verificar si se alcanzó la fecha fin (solo para modo SEMANAL)
-            if(modoSimulacion == ModoSimulacion.SEMANAL && fechaFinSimulacion != null) {
-                if(this.ultimoHorizontePlanificado.isAfter(fechaFinSimulacion) ||
-                   this.ultimoHorizontePlanificado.isEqual(fechaFinSimulacion)) {
+            if (modoSimulacion == ModoSimulacion.SEMANAL && fechaFinSimulacion != null) {
+                if (this.ultimoHorizontePlanificado.isAfter(fechaFinSimulacion) ||
+                        this.ultimoHorizontePlanificado.isEqual(fechaFinSimulacion)) {
                     System.out.println("🏁 Simulación semanal completada - se alcanzó la fecha fin");
                     detenerPlanificacion();
                     return;
@@ -300,8 +314,8 @@ public class Planificador {
             LocalDateTime finHorizonte = inicioHorizonte.plusMinutes(SA_MINUTOS * kActual);
 
             // En modo SEMANAL, limitar el horizonte a la fecha fin
-            if(modoSimulacion == ModoSimulacion.SEMANAL && fechaFinSimulacion != null) {
-                if(finHorizonte.isAfter(fechaFinSimulacion)) {
+            if (modoSimulacion == ModoSimulacion.SEMANAL && fechaFinSimulacion != null) {
+                if (finHorizonte.isAfter(fechaFinSimulacion)) {
                     finHorizonte = fechaFinSimulacion;
                 }
             }
@@ -320,19 +334,22 @@ public class Planificador {
 
             // ✅ Sincronizar tiempo simulado para verificaciones con el inicio del horizonte
             // Esto asegura que el tiempo simulado no se quede atrás del horizonte
-            if(tiempoSimuladoActual == null || inicioHorizonte.isAfter(tiempoSimuladoActual)) {
+            if (tiempoSimuladoActual == null || inicioHorizonte.isAfter(tiempoSimuladoActual)) {
                 tiempoSimuladoActual = inicioHorizonte;
             }
 
             // ✅ Liberar productos que llegaron al destino final hace más de 2 horas
-            // IMPORTANTE: Esta validación debe ejecutarse SIEMPRE, incluso si no hay pedidos para planificar
-            // Usar el tiempo simulado actual (que avanza más granularmente) en lugar del inicio del horizonte
-            // Esto permite verificar liberaciones exactamente cuando pasen 2 horas, no solo al inicio de cada ciclo
-            if(tiempoSimuladoActual != null) {
+            // IMPORTANTE: Esta validación debe ejecutarse SIEMPRE, incluso si no hay
+            // pedidos para planificar
+            // Usar el tiempo simulado actual (que avanza más granularmente) en lugar del
+            // inicio del horizonte
+            // Esto permite verificar liberaciones exactamente cuando pasen 2 horas, no solo
+            // al inicio de cada ciclo
+            if (tiempoSimuladoActual != null) {
                 liberarProductosEntregados(tiempoSimuladoActual);
             }
 
-            if(pedidosParaPlanificar.isEmpty()) {
+            if (pedidosParaPlanificar.isEmpty()) {
                 System.out.println("✅ No hay pedidos pendientes en este horizonte");
 
                 ultimoTiempoEjecucion = tiempoEjecucion;
@@ -341,8 +358,8 @@ public class Planificador {
                 this.ultimoHorizontePlanificado = finHorizonte;
 
                 // En modo SEMANAL, verificar si se alcanzó la fecha fin
-                if(modoSimulacion == ModoSimulacion.SEMANAL && fechaFinSimulacion != null) {
-                    if(finHorizonte.isAfter(fechaFinSimulacion) || finHorizonte.isEqual(fechaFinSimulacion)) {
+                if (modoSimulacion == ModoSimulacion.SEMANAL && fechaFinSimulacion != null) {
+                    if (finHorizonte.isAfter(fechaFinSimulacion) || finHorizonte.isEqual(fechaFinSimulacion)) {
                         System.out.println("🏁 Simulación semanal completada - se alcanzó la fecha fin");
                         detenerPlanificacion();
                     }
@@ -361,15 +378,16 @@ public class Planificador {
 
             // 5. Verificar si hay pedidos sin ruta (no completados)
             List<Envio> pedidosSinRuta = new ArrayList<>();
-            for(Envio envio : solucion.getEnvios()) {
-                if(!envio.estaCompleto()) {
+            for (Envio envio : solucion.getEnvios()) {
+                if (!envio.estaCompleto()) {
                     pedidosSinRuta.add(envio);
                 }
             }
 
-            if(!pedidosSinRuta.isEmpty()) {
-                System.out.printf("⚠️ ALERTA: %d pedido(s) no pudieron ser asignados completamente:%n", pedidosSinRuta.size());
-                for(Envio envio : pedidosSinRuta) {
+            if (!pedidosSinRuta.isEmpty()) {
+                System.out.printf("⚠️ ALERTA: %d pedido(s) no pudieron ser asignados completamente:%n",
+                        pedidosSinRuta.size());
+                for (Envio envio : pedidosSinRuta) {
                     System.out.printf("  - Pedido ID: %d, Cliente: %s, Cantidad restante: %d%n",
                             envio.getId(), envio.getCliente(), envio.cantidadRestante());
                 }
@@ -414,15 +432,17 @@ public class Planificador {
             // 6. Mostrar resultados
             mostrarResultadosCiclo(solucion, pedidosParaPlanificar, ciclo);
 
-            System.out.printf("✅ CICLO %d COMPLETADO - %d/%d envíos asignados%n", ciclo, solucion.getEnviosCompletados(), solucion.getEnvios().size());
+            System.out.printf("✅ CICLO %d COMPLETADO - %d/%d envíos asignados%n", ciclo,
+                    solucion.getEnviosCompletados(), solucion.getEnvios().size());
 
             ultimoTiempoEjecucion = tiempoEjecucion;
-//        } catch(TimeoutException e) {
-//            // ✅ ENVIAR ERROR VÍA WEBSOCKET
-//            webSocketService.enviarError("Timeout después de " + TA_SEGUNDOS + " segundos", ciclo);
-//            System.out.printf("⏰ CICLO %d - TIMEOUT%n", ciclo);
-//            actualizarEstadisticasTimeout(ciclo);
-        } catch(Exception e) {
+            // } catch(TimeoutException e) {
+            // // ✅ ENVIAR ERROR VÍA WEBSOCKET
+            // webSocketService.enviarError("Timeout después de " + TA_SEGUNDOS + "
+            // segundos", ciclo);
+            // System.out.printf("⏰ CICLO %d - TIMEOUT%n", ciclo);
+            // actualizarEstadisticasTimeout(ciclo);
+        } catch (Exception e) {
             // ✅ ENVIAR ERROR VÍA WEBSOCKET
             webSocketService.enviarError("Error: " + e.getMessage(), ciclo);
             System.err.printf("❌ CICLO %d - ERROR: %s%n", ciclo, e.getMessage());
@@ -433,24 +453,25 @@ public class Planificador {
     private List<Envio> obtenerPedidosEnVentana(LocalDateTime inicio, LocalDateTime fin) {
         List<Envio> pedidosNuevos = new ArrayList<>();
 
-        if(enviosOriginales == null) {
+        if (enviosOriginales == null) {
             return new ArrayList<>();
         }
 
-        // Convertir los límites del horizonte a ZonedDateTime en UTC para comparar correctamente
+        // Convertir los límites del horizonte a ZonedDateTime en UTC para comparar
+        // correctamente
         ZonedDateTime inicioUTC = inicio.atZone(ZoneOffset.UTC);
         ZonedDateTime finUTC = fin.atZone(ZoneOffset.UTC);
 
         ZonedDateTime fechaInicioSimulacionUTC = null;
         ZonedDateTime fechaFinSimulacionUTC = null;
-        if(fechaInicioSimulacion != null) {
+        if (fechaInicioSimulacion != null) {
             fechaInicioSimulacionUTC = fechaInicioSimulacion.atZone(ZoneOffset.UTC);
         }
-        if(fechaFinSimulacion != null) {
+        if (fechaFinSimulacion != null) {
             fechaFinSimulacionUTC = fechaFinSimulacion.atZone(ZoneOffset.UTC);
         }
 
-        for(Envio envio : enviosOriginales) {
+        for (Envio envio : enviosOriginales) {
             // Convertir la fecha de ingreso del pedido a UTC para comparar correctamente
             ZonedDateTime tiempoPedidoUTC = envio.getZonedFechaIngreso()
                     .withZoneSameInstant(ZoneOffset.UTC);
@@ -458,35 +479,36 @@ public class Planificador {
             // Filtrar según el modo de simulación
             boolean incluirPedido = false;
 
-            if(modoSimulacion == ModoSimulacion.SEMANAL) {
-                // En modo semanal, solo incluir pedidos dentro del rango fechaInicioSimulacion - fechaFinSimulacion
-                if(fechaInicioSimulacionUTC != null && fechaFinSimulacionUTC != null) {
-                    if(!tiempoPedidoUTC.isBefore(fechaInicioSimulacionUTC) &&
-                       !tiempoPedidoUTC.isAfter(fechaFinSimulacionUTC)) {
+            if (modoSimulacion == ModoSimulacion.SEMANAL) {
+                // En modo semanal, solo incluir pedidos dentro del rango fechaInicioSimulacion
+                // - fechaFinSimulacion
+                if (fechaInicioSimulacionUTC != null && fechaFinSimulacionUTC != null) {
+                    if (!tiempoPedidoUTC.isBefore(fechaInicioSimulacionUTC) &&
+                            !tiempoPedidoUTC.isAfter(fechaFinSimulacionUTC)) {
                         // Y además deben estar en el horizonte actual
-                        if(!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
+                        if (!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
                             incluirPedido = true;
                         }
                     }
                 }
-            } else if(modoSimulacion == ModoSimulacion.COLAPSO) {
+            } else if (modoSimulacion == ModoSimulacion.COLAPSO) {
                 // En modo colapso, solo incluir pedidos desde fechaInicioSimulacion en adelante
-                if(fechaInicioSimulacionUTC != null) {
-                    if(!tiempoPedidoUTC.isBefore(fechaInicioSimulacionUTC)) {
+                if (fechaInicioSimulacionUTC != null) {
+                    if (!tiempoPedidoUTC.isBefore(fechaInicioSimulacionUTC)) {
                         // Y además deben estar en el horizonte actual
-                        if(!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
+                        if (!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
                             incluirPedido = true;
                         }
                     }
                 }
             } else {
                 // Modo normal - comportamiento original
-                if(!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
+                if (!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
                     incluirPedido = true;
                 }
             }
 
-            if(incluirPedido) {
+            if (incluirPedido) {
                 // ✅ Crear COPIA del envío para este ciclo específico
                 pedidosNuevos.add(crearCopiaEnvio(envio));
             }
@@ -505,11 +527,11 @@ public class Planificador {
         copia.setIdEnvioPorAeropuerto(original.getIdEnvioPorAeropuerto());
         copia.setNumProductos(original.getNumProductos());
 
-        copia.setParteAsignadas(new ArrayList<>());  // ← Lista VACIA para este ciclo
+        copia.setParteAsignadas(new ArrayList<>()); // ← Lista VACIA para este ciclo
 
         // Si necesitas las partes asignadas previas, cópialas manualmente
-        if(original.getParteAsignadas() != null && !original.getParteAsignadas().isEmpty()) {
-            for(ParteAsignada parteOriginal : original.getParteAsignadas()) {
+        if (original.getParteAsignadas() != null && !original.getParteAsignadas().isEmpty()) {
+            for (ParteAsignada parteOriginal : original.getParteAsignadas()) {
                 ParteAsignada parteCopia = crearCopiaParteAsignada(parteOriginal);
                 parteCopia.setEnvio(copia);
                 copia.getParteAsignadas().add(parteCopia);
@@ -528,9 +550,9 @@ public class Planificador {
         copia.setEntregado(original.getEntregado());
 
         // Copiar la ruta (vuelos instanciados)
-        if(original.getRuta() != null) {
+        if (original.getRuta() != null) {
             List<PlanDeVuelo> rutaCopia = new ArrayList<>();
-            for(PlanDeVuelo vuelo : original.getRuta()) {
+            for (PlanDeVuelo vuelo : original.getRuta()) {
                 rutaCopia.add(crearCopiaVuelo(vuelo));
             }
             copia.setRuta(rutaCopia);
@@ -578,14 +600,14 @@ public class Planificador {
         long inicioEjecucion = System.currentTimeMillis();
 
         // Verificar timeout periódicamente
-        if((System.currentTimeMillis() - inicioEjecucion) > (TA_SEGUNDOS * 1000 * 0.8)) {
+        if ((System.currentTimeMillis() - inicioEjecucion) > (TA_SEGUNDOS * 1000 * 0.8)) {
             System.out.println("⏰ GRASP: Cerca del timeout, terminando iteraciones");
-            //break;
+            // break;
         }
 
-        // Los PlanDeVuelo ya representan vuelos diarios, así que los usamos directamente
-        ArrayList<PlanDeVuelo> planesDeVuelo = planDeVueloService.obtenerListaPlanesDeVuelo(); //grasp.getPlanesDeVuelo();
-        if(planesDeVuelo == null || planesDeVuelo.isEmpty()) {
+        // ⚡ OPTIMIZACIÓN: Reutilizar vuelos ya cargados y filtrados en inicialización
+        ArrayList<PlanDeVuelo> planesDeVuelo = grasp.getPlanesDeVuelo();
+        if (planesDeVuelo == null || planesDeVuelo.isEmpty()) {
             return null;
         }
 
@@ -598,41 +620,43 @@ public class Planificador {
         // Ejecutar GRASP para este día
         Solucion solucionDia = grasp.ejecutarGrasp(enviosParaProgramar, planesDeVuelo);
 
-        if(mejorSolucion == null || grasp.esMejor(solucionDia, mejorSolucion)) {
+        if (mejorSolucion == null || grasp.esMejor(solucionDia, mejorSolucion)) {
             mejorSolucion = solucionDia;
         }
 
         /*
-        for(LocalDateTime dia : grasp.getDias()) {
-            // Verificar timeout periódicamente
-            if((System.currentTimeMillis() - inicioEjecucion) > (TA_SEGUNDOS * 1000 * 0.8)) {
-                System.out.println("⏰ GRASP: Cerca del timeout, terminando iteraciones");
-                break;
-            }
-
-            List<Envio> enviosDelDia = grasp.getEnviosPorDia().get(dia);
-            if(enviosDelDia == null || enviosDelDia.isEmpty()) {
-                continue;
-            }
-
-            // Los PlanDeVuelo ya representan vuelos diarios, así que los usamos directamente
-            ArrayList<PlanDeVuelo> planesDeVuelo = grasp.getPlanesDeVuelo();
-            if(planesDeVuelo == null || planesDeVuelo.isEmpty()) {
-                continue;
-            }
-
-            // Inicializar los caches necesarios para trabajar con estos vuelos
-            // Pasar los envíos para filtrar por ventana temporal
-            grasp.inicializarCachesParaVuelos(planesDeVuelo, enviosDelDia);
-
-            // Ejecutar GRASP para este día
-            Solucion solucionDia = grasp.ejecutarGrasp(enviosDelDia, planesDeVuelo);
-
-            if(mejorSolucion == null || grasp.esMejor(solucionDia, mejorSolucion)) {
-                mejorSolucion = solucionDia;
-            }
-        }
-        */
+         * for(LocalDateTime dia : grasp.getDias()) {
+         * // Verificar timeout periódicamente
+         * if((System.currentTimeMillis() - inicioEjecucion) > (TA_SEGUNDOS * 1000 *
+         * 0.8)) {
+         * System.out.println("⏰ GRASP: Cerca del timeout, terminando iteraciones");
+         * break;
+         * }
+         * 
+         * List<Envio> enviosDelDia = grasp.getEnviosPorDia().get(dia);
+         * if(enviosDelDia == null || enviosDelDia.isEmpty()) {
+         * continue;
+         * }
+         * 
+         * // Los PlanDeVuelo ya representan vuelos diarios, así que los usamos
+         * directamente
+         * ArrayList<PlanDeVuelo> planesDeVuelo = grasp.getPlanesDeVuelo();
+         * if(planesDeVuelo == null || planesDeVuelo.isEmpty()) {
+         * continue;
+         * }
+         * 
+         * // Inicializar los caches necesarios para trabajar con estos vuelos
+         * // Pasar los envíos para filtrar por ventana temporal
+         * grasp.inicializarCachesParaVuelos(planesDeVuelo, enviosDelDia);
+         * 
+         * // Ejecutar GRASP para este día
+         * Solucion solucionDia = grasp.ejecutarGrasp(enviosDelDia, planesDeVuelo);
+         * 
+         * if(mejorSolucion == null || grasp.esMejor(solucionDia, mejorSolucion)) {
+         * mejorSolucion = solucionDia;
+         * }
+         * }
+         */
 
         return mejorSolucion != null ? mejorSolucion : crearSolucionVacia();
     }
@@ -659,8 +683,10 @@ public class Planificador {
         statsCiclo.put("duracionSegundos", duracionMs / 1000.0);
         statsCiclo.put("totalEnvios", solucion.getEnvios().size());
         statsCiclo.put("enviosCompletados", solucion.getEnviosCompletados());
-        statsCiclo.put("tasaExito", solucion.getEnvios().size() > 0 ?
-                (solucion.getEnviosCompletados() * 100.0 / solucion.getEnvios().size()) : 0);
+        statsCiclo.put("tasaExito",
+                solucion.getEnvios().size() > 0
+                        ? (solucion.getEnviosCompletados() * 100.0 / solucion.getEnvios().size())
+                        : 0);
 
         historicoCiclos.add(statsCiclo);
 
@@ -741,22 +767,19 @@ public class Planificador {
 
     /**
      * Calcula el total de pedidos planificados basándose en los envíos que tienen
-     * al menos una parte asignada (es decir, que tienen una ruta de vuelos asignada)
+     * al menos una parte asignada (es decir, que tienen una ruta de vuelos
+     * asignada)
      */
     private int calcularTotalPedidosPlanificados() {
         try {
-            List<Envio> envios = envioService.obtenerEnvios();
-            int totalPlanificados = 0;
+            // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados en memoria con stream filter
+            List<Envio> envios = this.enviosOriginales != null ? this.enviosOriginales : envioService.obtenerEnvios();
 
-            for(Envio envio : envios) {
-                // Un pedido está planificado si tiene al menos una parte asignada
-                if(envio.getParteAsignadas() != null && !envio.getParteAsignadas().isEmpty()) {
-                    totalPlanificados++;
-                }
-            }
-
-            return totalPlanificados;
-        } catch(Exception e) {
+            // Contar usando stream para evitar iteración completa
+            return (int) envios.stream()
+                    .filter(e -> e.getParteAsignadas() != null && !e.getParteAsignadas().isEmpty())
+                    .count();
+        } catch (Exception e) {
             System.err.printf("❌ Error al calcular pedidos planificados: %s%n", e.getMessage());
             return 0;
         }
@@ -773,7 +796,7 @@ public class Planificador {
         System.out.printf("   • Pedidos procesados: %d%n", pedidosProcesados.size());
         System.out.printf("   • Pedidos completados: %d%n", solucion.getEnviosCompletados());
 
-        if(!pedidosProcesados.isEmpty()) {
+        if (!pedidosProcesados.isEmpty()) {
             double tasaExito = (solucion.getEnviosCompletados() * 100.0) / pedidosProcesados.size();
             System.out.printf("   • Tasa de éxito: %.1f%%%n", tasaExito);
         }
@@ -781,14 +804,13 @@ public class Planificador {
         System.out.printf("   • Tiempo medio de entrega: %s%n",
                 formatDuracion(solucion.getLlegadaMediaPonderada()));
 
-
         System.out.printf("%n📋 DETALLE DE RUTAS ASIGNADAS - CICLO %d%n", ciclo);
         System.out.println("=".repeat(80));
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM dd HH:mm", Locale.forLanguageTag("es-ES"));
 
-        for(Envio envio : solucion.getEnvios()) {
-            if(envio.estaCompleto() || !envio.getParteAsignadas().isEmpty()) {
+        for (Envio envio : solucion.getEnvios()) {
+            if (envio.estaCompleto() || !envio.getParteAsignadas().isEmpty()) {
                 System.out.printf("📦 PEDIDO %s → %s (%d unidades)%n",
                         envio.getId(),
                         envio.getAeropuertoDestino().getCodigo(),
@@ -799,36 +821,41 @@ public class Planificador {
                                 .map(Aeropuerto::getCodigo)
                                 .collect(Collectors.joining(", ")));
 
-                System.out.printf("   ⏰ Aparición: %s%n", formatFechaConOffset(envio.getZonedFechaIngreso(), envio.getFechaIngreso(), envio.getHusoHorarioDestino(), formatter));
+                System.out.printf("   ⏰ Aparición: %s%n", formatFechaConOffset(envio.getZonedFechaIngreso(),
+                        envio.getFechaIngreso(), envio.getHusoHorarioDestino(), formatter));
 
                 int parteNum = 1;
-                for(ParteAsignada parte : envio.getParteAsignadas()) {
-                    System.out.printf("   🚚 Parte %d (%d unidades desde %s):%n", parteNum, parte.getCantidad(), parte.getAeropuertoOrigen().getCodigo());
+                for (ParteAsignada parte : envio.getParteAsignadas()) {
+                    System.out.printf("   🚚 Parte %d (%d unidades desde %s):%n", parteNum, parte.getCantidad(),
+                            parte.getAeropuertoOrigen().getCodigo());
 
-                    for(int i = 0; i < parte.getRuta().size(); i++) {
+                    for (int i = 0; i < parte.getRuta().size(); i++) {
                         PlanDeVuelo vuelo = parte.getRuta().get(i);
                         System.out.printf("      ✈️  %s → %s | %s - %s | Cap: %d/%d%n",
                                 obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo(),
                                 obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo(),
-                                formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(), vuelo.getHusoHorarioOrigen(), formatter),
-                                formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(), vuelo.getHusoHorarioDestino(), formatter),
+                                formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(),
+                                        vuelo.getHusoHorarioOrigen(), formatter),
+                                formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(),
+                                        vuelo.getHusoHorarioDestino(), formatter),
                                 vuelo.getCapacidadOcupada(),
                                 vuelo.getCapacidadMaxima());
                     }
 
-                    System.out.printf("      🏁 Llegada final: %s%n", formatFechaConOffset(parte.getLlegadaFinal(), null, null, formatter));
+                    System.out.printf("      🏁 Llegada final: %s%n",
+                            formatFechaConOffset(parte.getLlegadaFinal(), null, null, formatter));
                     parteNum++;
                 }
                 System.out.println();
             }
         }
-        System.out.println("=" .repeat(80));
+        System.out.println("=".repeat(80));
 
     }
 
     private Aeropuerto obtenerAeropuertoPorId(Integer id) {
-        for(Aeropuerto aeropuerto : this.grasp.getAeropuertos())
-            if(aeropuerto.getId().equals(id))
+        for (Aeropuerto aeropuerto : this.grasp.getAeropuertos())
+            if (aeropuerto.getId().equals(id))
                 return aeropuerto;
 
         return null;
@@ -841,35 +868,37 @@ public class Planificador {
         estado.put("ultimoHorizontePlanificado", ultimoHorizontePlanificado);
         int kActual = obtenerK();
         estado.put("proximoHorizonte", ultimoHorizontePlanificado.plusMinutes(SA_MINUTOS * kActual));
-        //estado.put("pedidosYaPlanificados", pedidosYaPlanificados.size());
+        // estado.put("pedidosYaPlanificados", pedidosYaPlanificados.size());
         return estado;
     }
 
     private String formatDuracion(Duration duration) {
-        if(duration == null) return "N/A";
+        if (duration == null)
+            return "N/A";
         long hours = duration.toHours();
         long minutes = duration.minusHours(hours).toMinutes();
         return String.format("%d h %d min", hours, minutes);
     }
 
-    private String formatFechaConOffset(ZonedDateTime zoned, LocalDateTime local, String husoHorario, DateTimeFormatter baseFormatter) {
-        if(zoned != null) {
+    private String formatFechaConOffset(ZonedDateTime zoned, LocalDateTime local, String husoHorario,
+            DateTimeFormatter baseFormatter) {
+        if (zoned != null) {
             ZoneOffset offset = zoned.getOffset();
             String offsetStr = offset.getId().equals("Z") ? "+00:00" : offset.getId();
             return String.format("%s (UTC%s)", zoned.format(baseFormatter), offsetStr);
         }
 
-        if(local != null && husoHorario != null) {
+        if (local != null && husoHorario != null) {
             int offsetHoras;
             try {
                 offsetHoras = Integer.parseInt(husoHorario);
-            } catch(NumberFormatException e) {
+            } catch (NumberFormatException e) {
                 offsetHoras = 0;
             }
             return String.format("%s (UTC%+03d:00)", local.format(baseFormatter), offsetHoras);
         }
 
-        if(local != null) {
+        if (local != null) {
             return String.format("%s (UTC%+03d:00)", local.format(baseFormatter), 0);
         }
 
@@ -881,20 +910,23 @@ public class Planificador {
     }
 
     public List<Map<String, Object>> getAsignacionesUltimoCiclo() {
-        if(ultimaSolucion == null || ultimaSolucion.getEnvios() == null) {
+        if (ultimaSolucion == null || ultimaSolucion.getEnvios() == null) {
             return Collections.emptyList();
         }
 
         List<Map<String, Object>> asignaciones = new ArrayList<>();
 
-        for(Envio envio : ultimaSolucion.getEnvios()) {
-            if(envio.getParteAsignadas() == null) continue;
+        for (Envio envio : ultimaSolucion.getEnvios()) {
+            if (envio.getParteAsignadas() == null)
+                continue;
 
-            for(ParteAsignada parte : envio.getParteAsignadas()) {
-                if(parte.getRuta() == null) continue;
+            for (ParteAsignada parte : envio.getParteAsignadas()) {
+                if (parte.getRuta() == null)
+                    continue;
 
-                for(PlanDeVuelo vuelo : parte.getRuta()) {
-                    if(vuelo.getId() == null) continue;
+                for (PlanDeVuelo vuelo : parte.getRuta()) {
+                    if (vuelo.getId() == null)
+                        continue;
 
                     Map<String, Object> registro = new HashMap<>();
                     registro.put("vueloId", vuelo.getId());
@@ -902,11 +934,11 @@ public class Planificador {
                     registro.put("cantidad", parte.getCantidad());
                     registro.put("envioIdPorAeropuerto", envio.getIdEnvioPorAeropuerto());
 
-                    if(envio.getCliente() != null) {
+                    if (envio.getCliente() != null) {
                         registro.put("cliente", envio.getCliente());
                     }
 
-                    if(parte.getAeropuertoOrigen() != null) {
+                    if (parte.getAeropuertoOrigen() != null) {
                         registro.put("aeropuertoOrigen", parte.getAeropuertoOrigen().getCodigo());
                     }
 
@@ -928,69 +960,95 @@ public class Planificador {
 
     /**
      * Libera la capacidad ocupada en aeropuertos destino final para productos
-     * que llegaron hace más de 2 horas (simulando que el cliente recogió el producto).
-     * Solo aplica para productos que llegaron al aeropuerto destino final del envío.
+     * que llegaron hace más de 2 horas (simulando que el cliente recogió el
+     * producto).
+     * Solo aplica para productos que llegaron al aeropuerto destino final del
+     * envío.
      */
     private void liberarProductosEntregados(LocalDateTime tiempoSimulado) {
         try {
             System.out.printf("🔍 [LiberarProductos] Iniciando verificación a las %s (tiempo simulado)%n",
-                tiempoSimulado.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                    tiempoSimulado.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
-            // Obtener todos los envíos de la BD
-            List<Envio> envios = envioService.obtenerEnvios();
-            System.out.printf("🔍 [LiberarProductos] Total de envíos obtenidos: %d%n", envios.size());
+            // ⚡ OPTIMIZACIÓN: Obtener envíos CON partes asignadas desde BD para evitar
+            // LazyInitializationException
+            // Calculamos el rango de fechas basado en el tiempo simulado actual
+            LocalDateTime fechaInicio = this.tiempoInicioSimulacion != null ? this.tiempoInicioSimulacion
+                    : tiempoSimulado.minusDays(1);
+            LocalDateTime fechaFin = tiempoSimulado.plusDays(1);
+
+            // Usar el método con JOIN FETCH para cargar las partes asignadas
+            List<Envio> enviosConPartes;
+            try {
+                enviosConPartes = new ArrayList<>(envioService.obtenerEnviosEnRangoConPartes(
+                        fechaInicio, "0", fechaFin, "0"));
+            } catch (Exception e) {
+                System.err.println("⚠️ Error al obtener envíos con partes, usando lista en memoria: " + e.getMessage());
+                // Fallback: usar envíos en memoria (pueden causar lazy exception)
+                enviosConPartes = this.enviosOriginales != null ? new ArrayList<>(this.enviosOriginales)
+                        : new ArrayList<>();
+            }
+
+            // Filtrar solo envíos con partes asignadas no vacías
+            List<Envio> envios = enviosConPartes.stream()
+                    .filter(e -> {
+                        try {
+                            return e.getParteAsignadas() != null && !e.getParteAsignadas().isEmpty()
+                                    && e.getAeropuertoDestino() != null;
+                        } catch (Exception ex) {
+                            return false; // Si hay error de lazy loading, ignorar este envío
+                        }
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+
+            System.out.printf("🔍 [LiberarProductos] Envíos con partes asignadas: %d (de %d consultados)%n",
+                    envios.size(),
+                    enviosConPartes.size());
 
             Map<Integer, Aeropuerto> aeropuertosActualizados = new HashMap<>();
             List<ParteAsignada> partesParaActualizar = new ArrayList<>();
             int productosLiberados = 0;
             int partesEntregadas = 0;
-            int enviosConPartes = 0;
+            int enviosConPartesCount = 0;
             int partesSinLlegadaFinal = 0;
             int partesNoLlegaronDestino = 0;
             int partesMenosDe2Horas = 0;
 
-            for(Envio envio : envios) {
-                if(envio.getParteAsignadas() == null || envio.getAeropuertoDestino() == null) {
-                    continue;
-                }
-
-                if(envio.getParteAsignadas().isEmpty()) {
-                    continue;
-                }
-
-                enviosConPartes++;
+            for (Envio envio : envios) {
+                // Ya filtrados: tienen partes asignadas y aeropuerto destino
+                enviosConPartesCount++;
                 Integer aeropuertoDestinoId = envio.getAeropuertoDestino().getId();
 
-                for(ParteAsignada parte : envio.getParteAsignadas()) {
+                for (ParteAsignada parte : envio.getParteAsignadas()) {
                     // Evitar procesar partes que ya fueron liberadas del aeropuerto
                     // (ya marcadas como entregadas al cliente en un ciclo anterior)
-                    if(parte.getEntregado() != null && parte.getEntregado()) {
+                    if (parte.getEntregado() != null && parte.getEntregado()) {
                         continue;
                     }
 
                     // Verificar que la parte tenga llegada final
-                    if(parte.getLlegadaFinal() == null) {
+                    if (parte.getLlegadaFinal() == null) {
                         partesSinLlegadaFinal++;
                         continue;
                     }
 
                     // Cargar la ruta desde BD si no está cargada
-                    if(parte.getRuta() == null || parte.getRuta().isEmpty()) {
+                    if (parte.getRuta() == null || parte.getRuta().isEmpty()) {
                         parte.cargarRutaDesdeBD();
                     }
 
                     // Verificar que la ruta termine en el aeropuerto destino final del envío
                     boolean llegoADestinoFinal = false;
-                    if(parte.getRuta() != null && !parte.getRuta().isEmpty()) {
+                    if (parte.getRuta() != null && !parte.getRuta().isEmpty()) {
                         PlanDeVuelo ultimoVuelo = parte.getRuta().get(parte.getRuta().size() - 1);
-                        if(ultimoVuelo.getCiudadDestino() != null &&
-                           ultimoVuelo.getCiudadDestino().equals(aeropuertoDestinoId)) {
+                        if (ultimoVuelo.getCiudadDestino() != null &&
+                                ultimoVuelo.getCiudadDestino().equals(aeropuertoDestinoId)) {
                             llegoADestinoFinal = true;
                         }
                     }
 
                     // Solo procesar si llegó al destino final
-                    if(!llegoADestinoFinal) {
+                    if (!llegoADestinoFinal) {
                         partesNoLlegaronDestino++;
                         continue;
                     }
@@ -1003,36 +1061,40 @@ public class Planificador {
                         java.time.ZoneId zonaLlegada = parte.getLlegadaFinal().getZone();
                         // Convertir tiempoSimulado a la misma zona horaria
                         tiempoSimuladoZoned = tiempoSimulado.atZone(zonaLlegada);
-                    } catch(Exception e) {
+                    } catch (Exception e) {
                         // Si hay problema con el timezone, usar UTC y luego convertir
                         tiempoSimuladoZoned = tiempoSimulado.atZone(java.time.ZoneOffset.UTC)
-                            .withZoneSameInstant(parte.getLlegadaFinal().getZone());
+                                .withZoneSameInstant(parte.getLlegadaFinal().getZone());
                     }
 
                     // Verificar si han pasado más de 2 horas desde la llegada final
-                    // Usar toInstant() para comparar correctamente independientemente de la zona horaria
-                    // tiempoSimulado debe ser POSTERIOR a llegadaFinal para que las horas sean positivas
+                    // Usar toInstant() para comparar correctamente independientemente de la zona
+                    // horaria
+                    // tiempoSimulado debe ser POSTERIOR a llegadaFinal para que las horas sean
+                    // positivas
                     long horasTranscurridas = java.time.Duration.between(
-                        parte.getLlegadaFinal().toInstant(), tiempoSimuladoZoned.toInstant()).toHours();
+                            parte.getLlegadaFinal().toInstant(), tiempoSimuladoZoned.toInstant()).toHours();
 
-                    System.out.printf("🔍 [LiberarProductos] Parte ID %d - Envío ID %d - Llegada: %s - Horas transcurridas: %d%n",
-                        parte.getId(), envio.getId(),
-                        parte.getLlegadaFinal().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
-                        horasTranscurridas);
+                    System.out.printf(
+                            "🔍 [LiberarProductos] Parte ID %d - Envío ID %d - Llegada: %s - Horas transcurridas: %d%n",
+                            parte.getId(), envio.getId(),
+                            parte.getLlegadaFinal().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                            horasTranscurridas);
 
-                    if(horasTranscurridas >= 2) {
+                    if (horasTranscurridas >= 2) {
                         // Liberar capacidad del aeropuerto destino
                         // Obtener el aeropuerto desde el mapa si ya fue actualizado, o desde la BD
                         Aeropuerto aeropuertoParaActualizar;
-                        if(aeropuertosActualizados.containsKey(aeropuertoDestinoId)) {
+                        if (aeropuertosActualizados.containsKey(aeropuertoDestinoId)) {
                             // Usar la instancia del mapa si ya existe, para mantener los cambios acumulados
                             aeropuertoParaActualizar = aeropuertosActualizados.get(aeropuertoDestinoId);
                         } else {
                             // Obtener desde la BD
-                            Optional<Aeropuerto> aeropuertoOpt =
-                                aeropuertoService.obtenerAeropuertoPorId(aeropuertoDestinoId);
-                            if(!aeropuertoOpt.isPresent()) {
-                                System.err.printf("⚠️  Aeropuerto ID %d no encontrado para liberar productos%n", aeropuertoDestinoId);
+                            Optional<Aeropuerto> aeropuertoOpt = aeropuertoService
+                                    .obtenerAeropuertoPorId(aeropuertoDestinoId);
+                            if (!aeropuertoOpt.isPresent()) {
+                                System.err.printf("⚠️  Aeropuerto ID %d no encontrado para liberar productos%n",
+                                        aeropuertoDestinoId);
                                 continue;
                             }
                             aeropuertoParaActualizar = aeropuertoOpt.get();
@@ -1045,9 +1107,10 @@ public class Planificador {
                         // Desasignar capacidad
                         aeropuertoParaActualizar.desasignarCapacidad(parte.getCantidad());
 
-                        System.out.printf("✅ [LiberarProductos] Desasignando %d productos del aeropuerto %s (ID: %d) - Capacidad: %d -> %d%n",
-                            parte.getCantidad(), aeropuertoParaActualizar.getCodigo(),
-                            aeropuertoDestinoId, capacidadAntes, aeropuertoParaActualizar.getCapacidadOcupada());
+                        System.out.printf(
+                                "✅ [LiberarProductos] Desasignando %d productos del aeropuerto %s (ID: %d) - Capacidad: %d -> %d%n",
+                                parte.getCantidad(), aeropuertoParaActualizar.getCodigo(),
+                                aeropuertoDestinoId, capacidadAntes, aeropuertoParaActualizar.getCapacidadOcupada());
 
                         productosLiberados += parte.getCantidad();
                         parte.setEntregado(true);
@@ -1055,9 +1118,9 @@ public class Planificador {
                         partesEntregadas++;
 
                         System.out.printf("📦 Productos entregados: Parte ID %d del Envío ID %d - " +
-                            "%d productos liberados del aeropuerto %s después de %d horas%n",
-                            parte.getId(), envio.getId(), parte.getCantidad(),
-                            aeropuertoParaActualizar.getCodigo(), horasTranscurridas);
+                                "%d productos liberados del aeropuerto %s después de %d horas%n",
+                                parte.getId(), envio.getId(), parte.getCantidad(),
+                                aeropuertoParaActualizar.getCodigo(), horasTranscurridas);
                     } else {
                         partesMenosDe2Horas++;
                     }
@@ -1065,28 +1128,29 @@ public class Planificador {
             }
 
             System.out.printf("🔍 [LiberarProductos] Resumen: %d envíos con partes, %d partes sin llegadaFinal, " +
-                "%d partes no llegaron a destino, %d partes con menos de 2 horas%n",
-                enviosConPartes, partesSinLlegadaFinal, partesNoLlegaronDestino, partesMenosDe2Horas);
+                    "%d partes no llegaron a destino, %d partes con menos de 2 horas%n",
+                    enviosConPartesCount, partesSinLlegadaFinal, partesNoLlegaronDestino, partesMenosDe2Horas);
 
             // Persistir los cambios
-            if(!partesParaActualizar.isEmpty()) {
+            if (!partesParaActualizar.isEmpty()) {
                 // Agrupar partes por envío para actualizar eficientemente
                 Map<Integer, Envio> enviosParaActualizar = new HashMap<>();
                 Map<Integer, ParteAsignada> partesPorId = new HashMap<>();
 
-                for(ParteAsignada parte : partesParaActualizar) {
+                for (ParteAsignada parte : partesParaActualizar) {
                     partesPorId.put(parte.getId(), parte);
                     Integer envioId = parte.getEnvio() != null ? parte.getEnvio().getId() : null;
-                    if(envioId == null) continue;
+                    if (envioId == null)
+                        continue;
 
-                    if(!enviosParaActualizar.containsKey(envioId)) {
+                    if (!enviosParaActualizar.containsKey(envioId)) {
                         Optional<Envio> envioOpt = envioService.obtenerEnvioPorId(envioId);
-                        if(envioOpt.isPresent()) {
+                        if (envioOpt.isPresent()) {
                             Envio envio = envioOpt.get();
                             // Actualizar las partes del envío con el estado entregado
-                            if(envio.getParteAsignadas() != null) {
-                                for(ParteAsignada parteEnvio : envio.getParteAsignadas()) {
-                                    if(partesPorId.containsKey(parteEnvio.getId())) {
+                            if (envio.getParteAsignadas() != null) {
+                                for (ParteAsignada parteEnvio : envio.getParteAsignadas()) {
+                                    if (partesPorId.containsKey(parteEnvio.getId())) {
                                         parteEnvio.setEntregado(true);
                                     }
                                 }
@@ -1097,41 +1161,49 @@ public class Planificador {
                 }
 
                 // Actualizar envíos (las partes se actualizarán por cascade)
-                for(Envio envio : enviosParaActualizar.values()) {
+                for (Envio envio : enviosParaActualizar.values()) {
                     envioService.insertarEnvio(envio);
                 }
 
                 // Actualizar aeropuertos con capacidad liberada
-                if(!aeropuertosActualizados.isEmpty()) {
+                if (!aeropuertosActualizados.isEmpty()) {
                     aeropuertoService.insertarListaAeropuertos(
-                        new ArrayList<>(aeropuertosActualizados.values()));
+                            new ArrayList<>(aeropuertosActualizados.values()));
                 }
 
                 System.out.printf("✅ Liberación de productos: %d partes entregadas, " +
-                    "%d productos liberados de aeropuertos%n", partesEntregadas, productosLiberados);
+                        "%d productos liberados de aeropuertos%n", partesEntregadas, productosLiberados);
             } else {
                 System.out.printf("ℹ️  [LiberarProductos] No se encontraron partes para liberar en este ciclo%n");
             }
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             System.err.printf("❌ Error al liberar productos entregados: %s%n", e.getMessage());
             e.printStackTrace();
         }
     }
 
     /**
-     * Recarga desde la base de datos el estado actual de planes de vuelo y aeropuertos.
-     * Esto garantiza que cada ciclo utilice los mismos registros persistidos y respete la capacidad disponible.
+     * Recarga desde la base de datos el estado actual de planes de vuelo y
+     * aeropuertos.
+     * Esto garantiza que cada ciclo utilice los mismos registros persistidos y
+     * respete la capacidad disponible.
      */
     private void recargarDatosBase(LocalDateTime inicioHorizonte, LocalDateTime finHorizonte) {
-        ArrayList<PlanDeVuelo> planesActualizados = planDeVueloService.obtenerListaPlanesDeVuelo();
+        // ⚡ OPTIMIZACIÓN: Cargar solo vuelos en el horizonte temporal directamente
+        // desde DB
+        LocalDateTime inicioConsulta = inicioHorizonte.minusHours(6); // margen para vuelos que cruzan
+        LocalDateTime finConsulta = finHorizonte.plusHours(6);
+        ArrayList<PlanDeVuelo> planesActualizados = planDeVueloService.obtenerVuelosEnRango(
+                inicioConsulta, "0", finConsulta, "0");
         ArrayList<Aeropuerto> aeropuertosActualizados = aeropuertoService.obtenerTodosAeropuertos();
 
         ArrayList<PlanDeVuelo> planesFiltrados = planesActualizados.stream()
                 .filter(plan -> {
                     LocalDateTime salida = plan.getHoraOrigen();
                     LocalDateTime llegada = plan.getHoraDestino();
-                    if(salida == null || llegada == null) return false;
+                    if (salida == null || llegada == null)
+                        return false;
 
                     boolean salidaEnRango = !salida.isBefore(inicioHorizonte) && !salida.isAfter(finHorizonte);
                     boolean llegadaEnRango = !llegada.isBefore(inicioHorizonte) && !llegada.isAfter(finHorizonte);
@@ -1164,14 +1236,14 @@ public class Planificador {
         List<Envio> enviosParaActualizar = new ArrayList<>();
 
         // 1. Procesar cada envío y sus partes asignadas
-        for(Envio envioCopia : solucion.getEnvios()) {
-            if(envioCopia.getId() == null) {
+        for (Envio envioCopia : solucion.getEnvios()) {
+            if (envioCopia.getId() == null) {
                 continue; // Saltar envíos sin ID (nuevos)
             }
 
             // Cargar el envío real de la BD
             Optional<Envio> envioOpt = envioService.obtenerEnvioPorId(envioCopia.getId());
-            if(envioOpt.isEmpty()) {
+            if (envioOpt.isEmpty()) {
                 System.err.printf("⚠️ No se encontró el envío %d en la BD%n", envioCopia.getId());
                 continue;
             }
@@ -1179,13 +1251,13 @@ public class Planificador {
             Envio envioReal = envioOpt.get();
 
             // Procesar cada parte asignada nueva
-            if(envioCopia.getParteAsignadas() != null) {
-                for(ParteAsignada parteCopia : envioCopia.getParteAsignadas()) {
+            if (envioCopia.getParteAsignadas() != null) {
+                for (ParteAsignada parteCopia : envioCopia.getParteAsignadas()) {
                     // Verificar si esta parte ya existe en el envío real
                     boolean parteExiste = false;
-                    if(envioReal.getParteAsignadas() != null) {
-                        for(ParteAsignada parteExistente : envioReal.getParteAsignadas()) {
-                            if(parteExistente.getId() != null && parteExistente.getId().equals(parteCopia.getId())) {
+                    if (envioReal.getParteAsignadas() != null) {
+                        for (ParteAsignada parteExistente : envioReal.getParteAsignadas()) {
+                            if (parteExistente.getId() != null && parteExistente.getId().equals(parteCopia.getId())) {
                                 parteExiste = true;
                                 break;
                             }
@@ -1193,7 +1265,7 @@ public class Planificador {
                     }
 
                     // Si la parte es nueva (sin ID) o no existe, crearla
-                    if(parteCopia.getId() == null || !parteExiste) {
+                    if (parteCopia.getId() == null || !parteExiste) {
                         // Crear nueva parte asignada
                         ParteAsignada nuevaParte = new ParteAsignada();
                         nuevaParte.setEnvio(envioReal);
@@ -1202,23 +1274,25 @@ public class Planificador {
                         nuevaParte.setAeropuertoOrigen(parteCopia.getAeropuertoOrigen());
 
                         // Copiar la ruta transient - cargar los planes de vuelo reales de BD
-                        if(parteCopia.getRuta() != null && !parteCopia.getRuta().isEmpty()) {
+                        if (parteCopia.getRuta() != null && !parteCopia.getRuta().isEmpty()) {
                             List<PlanDeVuelo> rutaReal = new ArrayList<>();
-                            for(int i = 0; i < parteCopia.getRuta().size(); i++) {
+                            for (int i = 0; i < parteCopia.getRuta().size(); i++) {
                                 PlanDeVuelo vueloCopia = parteCopia.getRuta().get(i);
-                                if(vueloCopia.getId() != null) {
-                                    Optional<PlanDeVuelo> vueloOpt = planDeVueloService.obtenerPlanDeVueloPorId(vueloCopia.getId());
-                                    if(vueloOpt.isPresent()) {
+                                if (vueloCopia.getId() != null) {
+                                    Optional<PlanDeVuelo> vueloOpt = planDeVueloService
+                                            .obtenerPlanDeVueloPorId(vueloCopia.getId());
+                                    if (vueloOpt.isPresent()) {
                                         rutaReal.add(vueloOpt.get());
                                         planesDeVueloModificados.add(vueloCopia.getId());
 
                                         // Agregar aeropuerto destino (siempre se asigna capacidad cuando llega)
-                                        if(vueloCopia.getCiudadDestino() != null) {
+                                        if (vueloCopia.getCiudadDestino() != null) {
                                             aeropuertosModificados.add(vueloCopia.getCiudadDestino());
                                         }
 
-                                        // Agregar aeropuerto origen (si NO es el primer vuelo, se desasigna capacidad cuando despega)
-                                        if(i > 0 && vueloCopia.getCiudadOrigen() != null) {
+                                        // Agregar aeropuerto origen (si NO es el primer vuelo, se desasigna capacidad
+                                        // cuando despega)
+                                        if (i > 0 && vueloCopia.getCiudadOrigen() != null) {
                                             aeropuertosModificados.add(vueloCopia.getCiudadOrigen());
                                         }
                                     }
@@ -1230,7 +1304,7 @@ public class Planificador {
                         }
 
                         // Agregar a la lista de partes del envío
-                        if(envioReal.getParteAsignadas() == null) {
+                        if (envioReal.getParteAsignadas() == null) {
                             envioReal.setParteAsignadas(new ArrayList<>());
                         }
                         envioReal.getParteAsignadas().add(nuevaParte);
@@ -1243,22 +1317,22 @@ public class Planificador {
 
         // 2. Actualizar planes de vuelo con su capacidad ocupada
         List<PlanDeVuelo> planesParaActualizar = new ArrayList<>();
-        for(Integer planId : planesDeVueloModificados) {
+        for (Integer planId : planesDeVueloModificados) {
             Optional<PlanDeVuelo> planOpt = planDeVueloService.obtenerPlanDeVueloPorId(planId);
-            if(planOpt.isPresent()) {
+            if (planOpt.isPresent()) {
                 PlanDeVuelo planReal = planOpt.get();
                 // Buscar el plan en el grasp para obtener la capacidad actualizada
-        Integer capacidadAsignada = calcularCapacidadAsignada(planId, solucion.getEnvios());
-        if(capacidadAsignada != null) {
-            planReal.setCapacidadOcupada(capacidadAsignada);
-            planesParaActualizar.add(planReal);
-        }
+                Integer capacidadAsignada = calcularCapacidadAsignada(planId, solucion.getEnvios());
+                if (capacidadAsignada != null) {
+                    planReal.setCapacidadOcupada(capacidadAsignada);
+                    planesParaActualizar.add(planReal);
+                }
             }
         }
 
         // 3. Actualizar aeropuertos con su capacidad ocupada
         List<Aeropuerto> aeropuertosParaActualizar = new ArrayList<>();
-        for(Integer aeropuertoId : aeropuertosModificados) {
+        for (Integer aeropuertoId : aeropuertosModificados) {
             Optional<Aeropuerto> aeropuertoOpt = aeropuertoService.obtenerAeropuertoPorId(aeropuertoId);
             if (aeropuertoOpt.isPresent()) {
                 Aeropuerto aeropuertoReal = aeropuertoOpt.get();
@@ -1298,17 +1372,20 @@ public class Planificador {
      * Encuentra un plan de vuelo en el grasp por su ID
      */
     private Integer calcularCapacidadAsignada(Integer planId, List<Envio> envios) {
-        if(envios == null) return null;
+        if (envios == null)
+            return null;
 
         int total = 0;
-        for(Envio envio : envios) {
-            if(envio.getParteAsignadas() == null) continue;
+        for (Envio envio : envios) {
+            if (envio.getParteAsignadas() == null)
+                continue;
 
-            for(ParteAsignada parte : envio.getParteAsignadas()) {
-                if(parte.getRuta() == null) continue;
+            for (ParteAsignada parte : envio.getParteAsignadas()) {
+                if (parte.getRuta() == null)
+                    continue;
 
-                for(PlanDeVuelo vuelo : parte.getRuta()) {
-                    if(vuelo.getId() != null && vuelo.getId().equals(planId)) {
+                for (PlanDeVuelo vuelo : parte.getRuta()) {
+                    if (vuelo.getId() != null && vuelo.getId().equals(planId)) {
                         total += parte.getCantidad();
                         break;
                     }
@@ -1326,8 +1403,8 @@ public class Planificador {
     public Map<String, Object> obtenerResumenUltimaSimulacion() {
         Map<String, Object> resumen = new HashMap<>();
 
-        // Obtener todos los envíos de la BD
-        List<Envio> envios = envioService.obtenerEnvios();
+        // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados en memoria
+        List<Envio> envios = this.enviosOriginales != null ? this.enviosOriginales : envioService.obtenerEnvios();
 
         // Calcular estadísticas de pedidos
         int totalPedidos = envios.size();
@@ -1340,17 +1417,17 @@ public class Planificador {
 
         List<Map<String, Object>> pedidosSinCompletar = new ArrayList<>();
 
-        for(Envio envio : envios) {
-            if(envio.getNumProductos() != null) {
+        for (Envio envio : envios) {
+            if (envio.getNumProductos() != null) {
                 totalProductos += envio.getNumProductos();
             }
 
             int cantidadAsignada = envio.cantidadAsignada();
             productosAsignados += cantidadAsignada;
 
-            if(envio.estaCompleto()) {
+            if (envio.estaCompleto()) {
                 pedidosCompletados++;
-            } else if(cantidadAsignada > 0) {
+            } else if (cantidadAsignada > 0) {
                 pedidosParciales++;
                 Map<String, Object> pedidoInfo = new HashMap<>();
                 pedidoInfo.put("id", envio.getId());
@@ -1373,22 +1450,23 @@ public class Planificador {
 
         productosSinAsignar = totalProductos - productosAsignados;
 
-        // Calcular productos entregados por vuelo
-        List<PlanDeVuelo> vuelos = planDeVueloService.obtenerListaPlanesDeVuelo();
+        // ⚡ OPTIMIZACIÓN: Usar vuelos ya filtrados en memoria para estadísticas
+        List<PlanDeVuelo> vuelos = grasp.getPlanesDeVuelo() != null ? grasp.getPlanesDeVuelo()
+                : planDeVueloService.obtenerListaPlanesDeVuelo();
         Map<Integer, Integer> productosPorVuelo = new HashMap<>();
         int totalProductosEnVuelos = 0;
         int vuelosUtilizados = 0;
 
-        for(Envio envio : envios) {
-            if(envio.getParteAsignadas() != null) {
-                for(ParteAsignada parte : envio.getParteAsignadas()) {
-                    if(parte.getVuelosRuta() != null) {
-                        for(ParteAsignadaPlanDeVuelo vueloRuta : parte.getVuelosRuta()) {
-                            if(vueloRuta.getPlanDeVuelo() != null && vueloRuta.getPlanDeVuelo().getId() != null) {
+        for (Envio envio : envios) {
+            if (envio.getParteAsignadas() != null) {
+                for (ParteAsignada parte : envio.getParteAsignadas()) {
+                    if (parte.getVuelosRuta() != null) {
+                        for (ParteAsignadaPlanDeVuelo vueloRuta : parte.getVuelosRuta()) {
+                            if (vueloRuta.getPlanDeVuelo() != null && vueloRuta.getPlanDeVuelo().getId() != null) {
                                 int vueloId = vueloRuta.getPlanDeVuelo().getId();
                                 int cantidad = parte.getCantidad();
                                 productosPorVuelo.put(vueloId,
-                                    productosPorVuelo.getOrDefault(vueloId, 0) + cantidad);
+                                        productosPorVuelo.getOrDefault(vueloId, 0) + cantidad);
                                 totalProductosEnVuelos += cantidad;
                             }
                         }
@@ -1401,29 +1479,30 @@ public class Planificador {
 
         // Preparar resumen de vuelos con productos
         List<Map<String, Object>> resumenVuelos = new ArrayList<>();
-        for(Map.Entry<Integer, Integer> entry : productosPorVuelo.entrySet()) {
+        for (Map.Entry<Integer, Integer> entry : productosPorVuelo.entrySet()) {
             int vueloId = entry.getKey();
             int cantidad = entry.getValue();
 
             Optional<PlanDeVuelo> vueloOpt = vuelos.stream()
-                .filter(v -> v.getId() != null && v.getId().equals(vueloId))
-                .findFirst();
+                    .filter(v -> v.getId() != null && v.getId().equals(vueloId))
+                    .findFirst();
 
-            if(vueloOpt.isPresent()) {
+            if (vueloOpt.isPresent()) {
                 PlanDeVuelo vuelo = vueloOpt.get();
                 Map<String, Object> vueloInfo = new HashMap<>();
                 vueloInfo.put("vueloId", vueloId);
                 vueloInfo.put("productosAsignados", cantidad);
-                vueloInfo.put("capacidadOcupada", vuelo.getCapacidadOcupada() != null ? vuelo.getCapacidadOcupada() : 0);
+                vueloInfo.put("capacidadOcupada",
+                        vuelo.getCapacidadOcupada() != null ? vuelo.getCapacidadOcupada() : 0);
                 vueloInfo.put("capacidadMaxima", vuelo.getCapacidadMaxima() != null ? vuelo.getCapacidadMaxima() : 0);
 
-                if(vuelo.getCiudadOrigen() != null) {
+                if (vuelo.getCiudadOrigen() != null) {
                     aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadOrigen())
-                        .ifPresent(a -> vueloInfo.put("origen", a.getCodigo()));
+                            .ifPresent(a -> vueloInfo.put("origen", a.getCodigo()));
                 }
-                if(vuelo.getCiudadDestino() != null) {
+                if (vuelo.getCiudadDestino() != null) {
                     aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadDestino())
-                        .ifPresent(a -> vueloInfo.put("destino", a.getCodigo()));
+                            .ifPresent(a -> vueloInfo.put("destino", a.getCodigo()));
                 }
 
                 resumenVuelos.add(vueloInfo);
@@ -1434,17 +1513,18 @@ public class Planificador {
         List<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
         List<Map<String, Object>> productosPorAeropuerto = new ArrayList<>();
 
-        for(Aeropuerto aeropuerto : aeropuertos) {
-            if(aeropuerto.getCapacidadOcupada() != null && aeropuerto.getCapacidadOcupada() > 0) {
+        for (Aeropuerto aeropuerto : aeropuertos) {
+            if (aeropuerto.getCapacidadOcupada() != null && aeropuerto.getCapacidadOcupada() > 0) {
                 Map<String, Object> aeropuertoInfo = new HashMap<>();
                 aeropuertoInfo.put("id", aeropuerto.getId());
                 aeropuertoInfo.put("codigo", aeropuerto.getCodigo());
                 aeropuertoInfo.put("ciudad", aeropuerto.getCiudad());
                 aeropuertoInfo.put("productosAlmacenados", aeropuerto.getCapacidadOcupada());
-                aeropuertoInfo.put("capacidadMaxima", aeropuerto.getCapacidadMaxima() != null ? aeropuerto.getCapacidadMaxima() : 0);
+                aeropuertoInfo.put("capacidadMaxima",
+                        aeropuerto.getCapacidadMaxima() != null ? aeropuerto.getCapacidadMaxima() : 0);
                 aeropuertoInfo.put("capacidadDisponible",
-                    (aeropuerto.getCapacidadMaxima() != null ? aeropuerto.getCapacidadMaxima() : 0) -
-                    aeropuerto.getCapacidadOcupada());
+                        (aeropuerto.getCapacidadMaxima() != null ? aeropuerto.getCapacidadMaxima() : 0) -
+                                aeropuerto.getCapacidadOcupada());
                 productosPorAeropuerto.add(aeropuertoInfo);
             }
         }
@@ -1453,8 +1533,10 @@ public class Planificador {
         Map<String, Object> infoGeneral = new HashMap<>();
         infoGeneral.put("cicloActual", cicloActual.get());
         infoGeneral.put("modoSimulacion", modoSimulacion != null ? modoSimulacion.name() : "NORMAL");
-        infoGeneral.put("fechaInicioSimulacion", tiempoInicioSimulacion != null ? tiempoInicioSimulacion.toString() : "N/A");
-        infoGeneral.put("ultimoHorizontePlanificado", ultimoHorizontePlanificado != null ? ultimoHorizontePlanificado.toString() : "N/A");
+        infoGeneral.put("fechaInicioSimulacion",
+                tiempoInicioSimulacion != null ? tiempoInicioSimulacion.toString() : "N/A");
+        infoGeneral.put("ultimoHorizontePlanificado",
+                ultimoHorizontePlanificado != null ? ultimoHorizontePlanificado.toString() : "N/A");
         infoGeneral.put("enEjecucion", enEjecucion);
         resumen.put("informacionGeneral", infoGeneral);
 
