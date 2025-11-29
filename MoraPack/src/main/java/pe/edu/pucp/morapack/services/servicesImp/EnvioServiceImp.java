@@ -462,11 +462,43 @@ public class EnvioServiceImp implements EnvioService {
 
     /**
      * ⚡ OPTIMIZADO: Obtiene solo envíos que tienen partes asignadas.
-     * Usa JOIN FETCH para cargar todas las relaciones necesarias en una sola query.
-     * Esto evita cargar los 43K+ envíos y el problema de N+1 queries.
+     * Usa dos queries separadas para evitar MultipleBagFetchException de Hibernate.
+     * Query 1: Carga envíos con parteAsignadas y aeropuertos
+     * Query 2: Carga vuelosRuta para las partes asignadas
      */
     @Override
     public List<Envio> obtenerEnviosConPartesAsignadas() {
-        return envioRepository.findEnviosConPartesAsignadas();
+        // Query 1: Obtener envíos con partes asignadas y aeropuertos
+        List<Envio> envios = envioRepository.findEnviosConPartesAsignadas();
+        
+        if (envios.isEmpty()) {
+            return envios;
+        }
+        
+        // Recopilar IDs de envíos para la segunda query
+        List<Integer> envioIds = envios.stream()
+                .map(Envio::getId)
+                .collect(Collectors.toList());
+        
+        // Query 2: Cargar vuelosRuta para todas las partes de estos envíos
+        List<ParteAsignada> partesConVuelos = envioRepository.findPartesConVuelosByEnvioIds(envioIds);
+        
+        // Crear mapa de parteId -> parteConVuelos para actualizar las referencias
+        Map<Integer, ParteAsignada> partesMap = partesConVuelos.stream()
+                .collect(Collectors.toMap(ParteAsignada::getId, p -> p, (p1, p2) -> p1));
+        
+        // Actualizar las partes en los envíos con los vuelosRuta cargados
+        for (Envio envio : envios) {
+            if (envio.getParteAsignadas() != null) {
+                for (ParteAsignada parte : envio.getParteAsignadas()) {
+                    ParteAsignada parteConVuelos = partesMap.get(parte.getId());
+                    if (parteConVuelos != null && parteConVuelos.getVuelosRuta() != null) {
+                        parte.setVuelosRuta(parteConVuelos.getVuelosRuta());
+                    }
+                }
+            }
+        }
+        
+        return envios;
     }
 }
