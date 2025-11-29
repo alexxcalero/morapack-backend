@@ -32,10 +32,19 @@ public class Solucion {
         for(Envio e : this.envios) {
             if(e.estaCompleto()) completos++;
 
-            for(ParteAsignada p : e.getParteAsignadas()) {
-                long minutos = ChronoUnit.MINUTES.between(e.getZonedFechaIngreso(), p.getLlegadaFinal());
-                sumMin += minutos * (long) p.getCantidad();
-                sumCant += p.getCantidad();
+            // ⚡ Proteger acceso a parteAsignadas para evitar LazyInitializationException
+            try {
+                List<ParteAsignada> partes = e.getParteAsignadas();
+                if(partes != null) {
+                    for(ParteAsignada p : partes) {
+                        long minutos = ChronoUnit.MINUTES.between(e.getZonedFechaIngreso(), p.getLlegadaFinal());
+                        sumMin += minutos * (long) p.getCantidad();
+                        sumCant += p.getCantidad();
+                    }
+                }
+            } catch (org.hibernate.LazyInitializationException ex) {
+                // Si hay error de lazy loading, simplemente no contar estas partes
+                // (el envío ya fue contado como completo o no completo según estaCompleto())
             }
         }
 

@@ -2,6 +2,7 @@ package pe.edu.pucp.morapack.services.servicesImp;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import pe.edu.pucp.morapack.models.Envio;
 import pe.edu.pucp.morapack.models.ParteAsignada;
 import pe.edu.pucp.morapack.models.ParteAsignadaPlanDeVuelo;
@@ -40,6 +41,24 @@ public class EnvioServiceImp implements EnvioService {
     @Override
     public Optional<Envio> obtenerEnvioPorId(Integer id) {
         return envioRepository.findById(id);
+    }
+
+    /**
+     * Obtiene un envío por ID y fuerza la inicialización de la colección
+     * lazy de partes asignadas dentro de un contexto transaccional.
+     * Esto evita LazyInitializationException cuando se accede a
+     * parteAsignadas fuera de la capa web (por ejemplo, en el planificador).
+     */
+    @Transactional(readOnly = true)
+    public Optional<Envio> obtenerEnvioPorIdConPartesInicializadas(Integer id) {
+        Optional<Envio> envioOpt = envioRepository.findById(id);
+        envioOpt.ifPresent(envio -> {
+            if (envio.getParteAsignadas() != null) {
+                // Forzar la carga de la colección lazy
+                envio.getParteAsignadas().size();
+            }
+        });
+        return envioOpt;
     }
 
     @Override
@@ -101,7 +120,7 @@ public class EnvioServiceImp implements EnvioService {
     /**
      * Determina en qué aeropuerto está físicamente una parte asignada basándose en
      * su ruta de vuelos
-     * 
+     *
      * @param parte La parte asignada
      * @param ahora La hora actual
      * @return El ID del aeropuerto donde está físicamente la parte, o null si está

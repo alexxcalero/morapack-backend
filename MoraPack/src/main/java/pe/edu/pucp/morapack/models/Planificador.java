@@ -110,9 +110,11 @@ public class Planificador {
                 SA_MINUTOS * kActual);
         System.out.printf("📋 Modo de simulación: %s%n", modo);
 
-        // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados del GRASP en lugar de cargar todos
-        // desde DB
-        this.enviosOriginales = grasp.getEnvios(); // Ya están filtrados por fecha en el controller
+        // ⚡ OPTIMIZACIÓN CRÍTICA: No cargar todos los envíos en memoria
+        // En su lugar, cargaremos solo los envíos del horizonte actual en cada ciclo
+        // Esto evita cargar decenas de miles de envíos en memoria
+        this.enviosOriginales = null; // No mantener todos los envíos en memoria
+        System.out.println("📊 [iniciarPlanificacionProgramada] Envíos se cargarán por ciclo desde BD");
 
         // Determinar tiempo de inicio según el modo
         try {
@@ -453,8 +455,35 @@ public class Planificador {
     private List<Envio> obtenerPedidosEnVentana(LocalDateTime inicio, LocalDateTime fin) {
         List<Envio> pedidosNuevos = new ArrayList<>();
 
-        if (enviosOriginales == null) {
-            return new ArrayList<>();
+        // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar envíos desde BD solo del rango actual
+        // Esto evita mantener todos los envíos en memoria
+        List<Envio> enviosEnRango;
+        if (enviosOriginales != null && !enviosOriginales.isEmpty()) {
+            // Si hay envíos en memoria (modo legacy), usarlos
+            enviosEnRango = enviosOriginales;
+        } else {
+            // Cargar solo envíos del rango actual desde BD
+            System.out.printf("📦 [obtenerPedidosEnVentana] Cargando envíos desde BD: %s hasta %s%n",
+                    inicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                    fin.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+
+            try {
+                enviosEnRango = envioService.obtenerEnviosEnRango(inicio, "0", fin, "0");
+                System.out.printf("✅ [obtenerPedidosEnVentana] Envíos cargados: %d%n", enviosEnRango.size());
+
+                // ⚡ Configurar hubs para los envíos cargados
+                ArrayList<Aeropuerto> hubs = grasp.getHubs();
+                if (hubs != null && !hubs.isEmpty()) {
+                    ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
+                    for (Envio e : enviosEnRango) {
+                        e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
+                    }
+                    System.out.printf("⚙️ [obtenerPedidosEnVentana] Hubs configurados para %d envíos%n", enviosEnRango.size());
+                }
+            } catch (Exception e) {
+                System.err.printf("❌ Error al cargar envíos desde BD: %s%n", e.getMessage());
+                return new ArrayList<>();
+            }
         }
 
         // Convertir los límites del horizonte a ZonedDateTime en UTC para comparar
@@ -471,7 +500,7 @@ public class Planificador {
             fechaFinSimulacionUTC = fechaFinSimulacion.atZone(ZoneOffset.UTC);
         }
 
-        for (Envio envio : enviosOriginales) {
+        for (Envio envio : enviosEnRango) {
             // Convertir la fecha de ingreso del pedido a UTC para comparar correctamente
             ZonedDateTime tiempoPedidoUTC = envio.getZonedFechaIngreso()
                     .withZoneSameInstant(ZoneOffset.UTC);
@@ -530,12 +559,19 @@ public class Planificador {
         copia.setParteAsignadas(new ArrayList<>()); // ← Lista VACIA para este ciclo
 
         // Si necesitas las partes asignadas previas, cópialas manualmente
-        if (original.getParteAsignadas() != null && !original.getParteAsignadas().isEmpty()) {
-            for (ParteAsignada parteOriginal : original.getParteAsignadas()) {
-                ParteAsignada parteCopia = crearCopiaParteAsignada(parteOriginal);
-                parteCopia.setEnvio(copia);
-                copia.getParteAsignadas().add(parteCopia);
+        // ⚡ Proteger acceso a parteAsignadas para evitar LazyInitializationException
+        try {
+            List<ParteAsignada> partesOriginales = original.getParteAsignadas();
+            if (partesOriginales != null && !partesOriginales.isEmpty()) {
+                for (ParteAsignada parteOriginal : partesOriginales) {
+                    ParteAsignada parteCopia = crearCopiaParteAsignada(parteOriginal);
+                    parteCopia.setEnvio(copia);
+                    copia.getParteAsignadas().add(parteCopia);
+                }
             }
+        } catch (org.hibernate.LazyInitializationException e) {
+            // Si hay error de lazy loading, simplemente no copiar las partes previas
+            // (la copia ya tiene una lista vacía, que es lo que queremos para el nuevo ciclo)
         }
 
         return copia;
@@ -632,26 +668,26 @@ public class Planificador {
          * System.out.println("⏰ GRASP: Cerca del timeout, terminando iteraciones");
          * break;
          * }
-         * 
+         *
          * List<Envio> enviosDelDia = grasp.getEnviosPorDia().get(dia);
          * if(enviosDelDia == null || enviosDelDia.isEmpty()) {
          * continue;
          * }
-         * 
+         *
          * // Los PlanDeVuelo ya representan vuelos diarios, así que los usamos
          * directamente
          * ArrayList<PlanDeVuelo> planesDeVuelo = grasp.getPlanesDeVuelo();
          * if(planesDeVuelo == null || planesDeVuelo.isEmpty()) {
          * continue;
          * }
-         * 
+         *
          * // Inicializar los caches necesarios para trabajar con estos vuelos
          * // Pasar los envíos para filtrar por ventana temporal
          * grasp.inicializarCachesParaVuelos(planesDeVuelo, enviosDelDia);
-         * 
+         *
          * // Ejecutar GRASP para este día
          * Solucion solucionDia = grasp.ejecutarGrasp(enviosDelDia, planesDeVuelo);
-         * 
+         *
          * if(mejorSolucion == null || grasp.esMejor(solucionDia, mejorSolucion)) {
          * mejorSolucion = solucionDia;
          * }
@@ -772,13 +808,13 @@ public class Planificador {
      */
     private int calcularTotalPedidosPlanificados() {
         try {
-            // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados en memoria con stream filter
-            List<Envio> envios = this.enviosOriginales != null ? this.enviosOriginales : envioService.obtenerEnvios();
+            // ⚡ Usar servicio optimizado que ya trae solo envíos con partes asignadas
+            // y carga la colección lazy de forma segura desde la capa de persistencia.
+            List<Envio> enviosConPartes = envioService.obtenerEnviosConPartesAsignadas();
 
-            // Contar usando stream para evitar iteración completa
-            return (int) envios.stream()
-                    .filter(e -> e.getParteAsignadas() != null && !e.getParteAsignadas().isEmpty())
-                    .count();
+            // Cada envío devuelto tiene al menos una parte asignada, así que el total
+            // de pedidos planificados es simplemente el tamaño de la lista.
+            return enviosConPartes != null ? enviosConPartes.size() : 0;
         } catch (Exception e) {
             System.err.printf("❌ Error al calcular pedidos planificados: %s%n", e.getMessage());
             return 0;
@@ -810,41 +846,65 @@ public class Planificador {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM dd HH:mm", Locale.forLanguageTag("es-ES"));
 
         for (Envio envio : solucion.getEnvios()) {
-            if (envio.estaCompleto() || !envio.getParteAsignadas().isEmpty()) {
+            // ⚡ Verificar partes asignadas de forma segura para evitar LazyInitializationException
+            List<ParteAsignada> partesAsignadas = null;
+            try {
+                partesAsignadas = envio.getParteAsignadas();
+            } catch (Exception e) {
+                // Si hay error de lazy loading, intentar cargar desde BD si tiene ID
+                if (envio.getId() != null) {
+                    try {
+                        Optional<Envio> envioOpt = envioService.obtenerEnvioPorIdConPartesInicializadas(envio.getId());
+                        if (envioOpt.isPresent()) {
+                            partesAsignadas = envioOpt.get().getParteAsignadas();
+                        }
+                    } catch (Exception ex) {
+                        // Si falla, simplemente no mostrar las partes
+                        partesAsignadas = new ArrayList<>();
+                    }
+                } else {
+                    partesAsignadas = new ArrayList<>();
+                }
+            }
+
+            boolean tienePartes = partesAsignadas != null && !partesAsignadas.isEmpty();
+            if (envio.estaCompleto() || tienePartes) {
                 System.out.printf("📦 PEDIDO %s → %s (%d unidades)%n",
                         envio.getId(),
-                        envio.getAeropuertoDestino().getCodigo(),
+                        envio.getAeropuertoDestino() != null ? envio.getAeropuertoDestino().getCodigo() : "N/A",
                         envio.getNumProductos());
 
                 System.out.printf("   📍 Orígenes posibles: %s%n",
-                        envio.getAeropuertosOrigen().stream()
+                        envio.getAeropuertosOrigen() != null ? envio.getAeropuertosOrigen().stream()
                                 .map(Aeropuerto::getCodigo)
-                                .collect(Collectors.joining(", ")));
+                                .collect(Collectors.joining(", ")) : "N/A");
 
                 System.out.printf("   ⏰ Aparición: %s%n", formatFechaConOffset(envio.getZonedFechaIngreso(),
                         envio.getFechaIngreso(), envio.getHusoHorarioDestino(), formatter));
 
                 int parteNum = 1;
-                for (ParteAsignada parte : envio.getParteAsignadas()) {
-                    System.out.printf("   🚚 Parte %d (%d unidades desde %s):%n", parteNum, parte.getCantidad(),
-                            parte.getAeropuertoOrigen().getCodigo());
+                if (partesAsignadas != null) {
+                    for (ParteAsignada parte : partesAsignadas) {
+                        System.out.printf("   🚚 Parte %d (%d unidades desde %s):%n", parteNum, parte.getCantidad(),
+                                parte.getAeropuertoOrigen().getCodigo());
 
-                    for (int i = 0; i < parte.getRuta().size(); i++) {
-                        PlanDeVuelo vuelo = parte.getRuta().get(i);
-                        System.out.printf("      ✈️  %s → %s | %s - %s | Cap: %d/%d%n",
-                                obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo(),
-                                obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo(),
-                                formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(),
-                                        vuelo.getHusoHorarioOrigen(), formatter),
-                                formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(),
-                                        vuelo.getHusoHorarioDestino(), formatter),
-                                vuelo.getCapacidadOcupada(),
-                                vuelo.getCapacidadMaxima());
+                        for (int i = 0; i < parte.getRuta().size(); i++) {
+                            PlanDeVuelo vuelo = parte.getRuta().get(i);
+                            System.out.printf("      ✈️  %s → %s | %s - %s | Cap: %d/%d%n",
+                                    obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo(),
+                                    obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo(),
+                                    formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(),
+                                            vuelo.getHusoHorarioOrigen(), formatter),
+                                    formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(),
+                                            vuelo.getHusoHorarioDestino(), formatter),
+                                    vuelo.getCapacidadOcupada(),
+                                    vuelo.getCapacidadMaxima());
+                        }
+
+                        System.out.printf("      🏁 Llegada final: %s%n",
+                                formatFechaConOffset(parte.getLlegadaFinal(), null, null, formatter));
+                        parteNum++;
                     }
-
-                    System.out.printf("      🏁 Llegada final: %s%n",
-                            formatFechaConOffset(parte.getLlegadaFinal(), null, null, formatter));
-                    parteNum++;
                 }
                 System.out.println();
             }
@@ -1144,7 +1204,9 @@ public class Planificador {
                         continue;
 
                     if (!enviosParaActualizar.containsKey(envioId)) {
-                        Optional<Envio> envioOpt = envioService.obtenerEnvioPorId(envioId);
+                        // ⚡ Usar método que carga partes asignadas dentro de transacción
+                        // para evitar LazyInitializationException
+                        Optional<Envio> envioOpt = envioService.obtenerEnvioPorIdConPartesInicializadas(envioId);
                         if (envioOpt.isPresent()) {
                             Envio envio = envioOpt.get();
                             // Actualizar las partes del envío con el estado entregado
@@ -1190,14 +1252,23 @@ public class Planificador {
      * respete la capacidad disponible.
      */
     private void recargarDatosBase(LocalDateTime inicioHorizonte, LocalDateTime finHorizonte) {
-        // ⚡ OPTIMIZACIÓN: Cargar solo vuelos en el horizonte temporal directamente
-        // desde DB
-        LocalDateTime inicioConsulta = inicioHorizonte.minusHours(6); // margen para vuelos que cruzan
-        LocalDateTime finConsulta = finHorizonte.plusHours(6);
+        // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar solo vuelos relevantes para este ciclo
+        // Rango: desde inicioHorizonte hasta inicioHorizonte + 3 días (plazo máximo de entrega)
+        // Esto evita cargar 2+ millones de vuelos en memoria
+        LocalDateTime finConsultaVuelos = inicioHorizonte.plusDays(3);
+
+        System.out.printf("📊 [recargarDatosBase] Cargando vuelos desde %s hasta %s (3 días desde inicio)%n",
+                inicioHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                finConsultaVuelos.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+
         ArrayList<PlanDeVuelo> planesActualizados = planDeVueloService.obtenerVuelosEnRango(
-                inicioConsulta, "0", finConsulta, "0");
+                inicioHorizonte, "0", finConsultaVuelos, "0");
+
+        System.out.printf("✅ [recargarDatosBase] Vuelos cargados: %d (en lugar de 2+ millones)%n", planesActualizados.size());
+
         ArrayList<Aeropuerto> aeropuertosActualizados = aeropuertoService.obtenerTodosAeropuertos();
 
+        // Filtrar vuelos que están dentro del horizonte actual para el reporte
         ArrayList<PlanDeVuelo> planesFiltrados = planesActualizados.stream()
                 .filter(plan -> {
                     LocalDateTime salida = plan.getHoraOrigen();
@@ -1241,8 +1312,9 @@ public class Planificador {
                 continue; // Saltar envíos sin ID (nuevos)
             }
 
-            // Cargar el envío real de la BD
-            Optional<Envio> envioOpt = envioService.obtenerEnvioPorId(envioCopia.getId());
+            // Cargar el envío real de la BD y forzar la carga de partes asignadas
+            // dentro de una transacción para evitar LazyInitializationException
+            Optional<Envio> envioOpt = envioService.obtenerEnvioPorIdConPartesInicializadas(envioCopia.getId());
             if (envioOpt.isEmpty()) {
                 System.err.printf("⚠️ No se encontró el envío %d en la BD%n", envioCopia.getId());
                 continue;

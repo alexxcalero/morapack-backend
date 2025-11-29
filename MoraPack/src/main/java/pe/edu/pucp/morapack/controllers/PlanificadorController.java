@@ -50,34 +50,28 @@ public class PlanificadorController {
                 planificadorIniciado = false;
             }
 
-            // Cargar datos necesarios
+            // ⚡ OPTIMIZACIÓN CRÍTICA: Solo cargar datos básicos (aeropuertos, continentes, países)
+            // NO cargar todos los envíos ni vuelos (se cargarán por ciclo desde BD)
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
             ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
             ArrayList<Pais> paises = paisService.obtenerTodosPaises();
-            ArrayList<Envio> envios = envioService.obtenerEnvios();
-            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerListaPlanesDeVuelo();
 
-            System.out.println("🚀 INICIANDO PLANIFICADOR PROGRAMADO");
-            System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
-                    ", planes=" + planes.size() + ", envios=" + envios.size());
+            System.out.println("🚀 INICIANDO PLANIFICADOR PROGRAMADO (modo optimizado)");
+            System.out.println("📊 DEBUG: aeropuertos=" + aeropuertos.size() +
+                    " (envíos y vuelos se cargarán por ciclo desde BD)");
 
-            // Configurar GRASP
+            // Configurar GRASP con datos básicos solamente
             Grasp grasp = new Grasp();
             grasp.setAeropuertos(aeropuertos);
             grasp.setContinentes(continentes);
             grasp.setPaises(paises);
-            grasp.setEnvios(envios);
-            grasp.setPlanesDeVuelo(planes);
+            // ⚡ NO cargar envíos ni vuelos aquí - se cargarán por ciclo
+            grasp.setEnvios(new ArrayList<>()); // Lista vacía inicial
+            grasp.setPlanesDeVuelo(new ArrayList<>()); // Lista vacía inicial
             grasp.setHubsPropio();
 
-            // Configurar hubs para los envíos
-            ArrayList<Aeropuerto> hubs = grasp.getHubs();
-            if (hubs != null && !hubs.isEmpty()) {
-                ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
-                for (Envio e : grasp.getEnvios()) {
-                    e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
-                }
-            }
+            // ⚡ Los hubs se configurarán cuando se carguen los envíos por ciclo
+            // No es necesario configurarlos aquí ya que no hay envíos cargados
 
             // grasp.setEnviosPorDiaPropio();
 
@@ -1006,7 +1000,7 @@ public class PlanificadorController {
 
     /**
      * Carga vuelos desde el archivo vuelos.txt para los 7 días de la semana
-     * 
+     *
      * @param fechaBase Fecha base (primer día de la semana)
      * @return Lista de planes de vuelo generados para 7 días
      */
@@ -1091,7 +1085,7 @@ public class PlanificadorController {
 
     /**
      * Procesa el archivo de vuelos y genera planes de vuelo para 7 días
-     * 
+     *
      * @param scanner   Scanner del archivo
      * @param fechaBase Fecha base (primer día de la semana)
      * @return Lista de planes de vuelo generados
