@@ -540,7 +540,32 @@ public class PlanificadorController {
         return response;
     }
 
-    // Endpoint para obtener estado actual del planificador
+    /**
+     * ⚡ OPTIMIZADO: Endpoint ligero para polling frecuente desde el frontend.
+     * Solo devuelve si el planificador está activo, sin cargar envíos.
+     * Usado por HoraActual.jsx y SimulationControls.jsx cada 5-10 segundos.
+     */
+    @GetMapping("/estado-simple")
+    public Map<String, Object> obtenerEstadoSimple() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("planificadorActivo", planificadorIniciado);
+        response.put("ultimaActualizacion", LocalDateTime.now().toString());
+
+        if (planificador != null && planificadorIniciado) {
+            response.put("cicloActual", planificador.getCicloActual());
+            response.put("proximoCiclo", planificador.getProximoCiclo());
+            // Solo estadísticas básicas, sin cargar todos los envíos
+            response.put("estadisticas", planificador.getEstadisticasActuales());
+        }
+        return response;
+    }
+
+    /**
+     * Endpoint completo para obtener estado con pedidos clasificados.
+     * ⚠️ NOTA: Este endpoint es pesado (carga 43K+ envíos). Usar solo cuando se
+     * necesiten
+     * los detalles de pedidos, no para polling frecuente.
+     */
     @GetMapping("/estado")
     public Map<String, Object> obtenerEstado() {
         Map<String, Object> response = new HashMap<>();

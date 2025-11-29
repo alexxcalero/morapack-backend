@@ -470,23 +470,23 @@ public class EnvioServiceImp implements EnvioService {
     public List<Envio> obtenerEnviosConPartesAsignadas() {
         // Query 1: Obtener envíos con partes asignadas y aeropuertos
         List<Envio> envios = envioRepository.findEnviosConPartesAsignadas();
-        
+
         if (envios.isEmpty()) {
             return envios;
         }
-        
+
         // Recopilar IDs de envíos para la segunda query
         List<Integer> envioIds = envios.stream()
                 .map(Envio::getId)
                 .collect(Collectors.toList());
-        
+
         // Query 2: Cargar vuelosRuta para todas las partes de estos envíos
         List<ParteAsignada> partesConVuelos = envioRepository.findPartesConVuelosByEnvioIds(envioIds);
-        
+
         // Crear mapa de parteId -> parteConVuelos para actualizar las referencias
         Map<Integer, ParteAsignada> partesMap = partesConVuelos.stream()
                 .collect(Collectors.toMap(ParteAsignada::getId, p -> p, (p1, p2) -> p1));
-        
+
         // Actualizar las partes en los envíos con los vuelosRuta cargados
         for (Envio envio : envios) {
             if (envio.getParteAsignadas() != null) {
@@ -498,7 +498,7 @@ public class EnvioServiceImp implements EnvioService {
                 }
             }
         }
-        
+
         return envios;
     }
 }

@@ -73,7 +73,8 @@ public interface EnvioRepository extends JpaRepository<Envio, Integer> {
 
         /**
          * Segunda query para cargar vuelosRuta de las partes asignadas.
-         * Se usa después de findEnviosConPartesAsignadas para evitar MultipleBagFetchException.
+         * Se usa después de findEnviosConPartesAsignadas para evitar
+         * MultipleBagFetchException.
          */
         @Query("SELECT DISTINCT pa FROM ParteAsignada pa " +
                         "LEFT JOIN FETCH pa.vuelosRuta vr " +
