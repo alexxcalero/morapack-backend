@@ -279,8 +279,10 @@ public class EnvioController {
         return resultado;
     }
 
+    // ⚠️ SIN @Transactional para que cada lote haga commit inmediato y no se pierda
+    // si falla después
+    // ⚡ RESUME AUTOMÁTICO: Si ya hay envíos en BD, continúa desde donde quedó
     @PostMapping("leerArchivoBack")
-    @Transactional
     public Map<String, Object> leerArchivoBack() {
         long startTime = System.currentTimeMillis();
         Scanner scanner = null;
@@ -293,6 +295,14 @@ public class EnvioController {
         int totalEnviosGuardados = 0;
 
         try {
+            // ⚡ RESUME: Detectar cuántos envíos ya hay en BD para continuar desde ahí
+            // Usamos COUNT en BD en lugar de cargar todos los envíos
+            long enviosExistentes = envioService.contarEnvios();
+            int lineasASaltar = (int) enviosExistentes;
+            if (lineasASaltar > 0) {
+                System.out.println("🔄 RESUME: Ya hay " + lineasASaltar + " envíos en BD, saltando esas líneas...");
+            }
+
             // ⚡ OPTIMIZACIÓN: Cargar todos los aeropuertos UNA SOLA VEZ y crear un mapa
             System.out.println("📂 Cargando aeropuertos en caché...");
             ArrayList<Aeropuerto> todosAeropuertos = aeropuertoService.obtenerTodosAeropuertos();
@@ -355,12 +365,24 @@ public class EnvioController {
 
             // Procesar el archivo
             int lineasProcesadas = 0;
+            int lineasSaltadas = 0;
             int errores = 0;
             System.out.println("📂 Procesando envíos del archivo (guardando en lotes de " + BATCH_SIZE + ")...");
 
             while (scanner.hasNextLine()) {
                 String linea = scanner.nextLine().trim();
                 if (linea.isEmpty()) {
+                    continue;
+                }
+
+                lineasProcesadas++;
+
+                // ⚡ RESUME: Saltar líneas ya procesadas
+                if (lineasProcesadas <= lineasASaltar) {
+                    lineasSaltadas++;
+                    if (lineasSaltadas % 100000 == 0) {
+                        System.out.println("⏭️ Saltando líneas... " + lineasSaltadas + "/" + lineasASaltar);
+                    }
                     continue;
                 }
 
@@ -421,7 +443,8 @@ public class EnvioController {
                 System.out.println("💾 Guardado último lote. Total: " + totalEnviosGuardados + " envíos");
             }
 
-            System.out.println("✅ Carga completada: " + totalEnviosGuardados + " envíos (errores: " + errores + ")");
+            System.out.println("✅ Carga completada: " + totalEnviosGuardados + " nuevos envíos (saltados: "
+                    + lineasSaltadas + ", errores: " + errores + ")");
 
         } catch (FileNotFoundException e) {
             System.err.println("❌ Archivo de pedidos no encontrado: " + e.getMessage());

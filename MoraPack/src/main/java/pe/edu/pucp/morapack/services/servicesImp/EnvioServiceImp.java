@@ -533,4 +533,14 @@ public class EnvioServiceImp implements EnvioService {
         }
         return envioRepository.countByEstado(estado);
     }
+
+    /**
+     * ⚡ OPTIMIZADO: Cuenta el total de envíos en la base de datos.
+     * Usa COUNT en SQL, no carga entidades en memoria.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public long contarEnvios() {
+        return envioRepository.count();
+    }
 }

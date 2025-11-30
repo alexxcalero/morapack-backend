@@ -56,4 +56,10 @@ public interface EnvioService {
          * Esto evita cargar todos los envíos en memoria.
          */
         long contarEnviosPorEstado(Envio.EstadoEnvio estado);
+
+        /**
+         * ⚡ OPTIMIZADO: Cuenta el total de envíos en la base de datos.
+         * Usa COUNT en SQL, no carga entidades en memoria.
+         */
+        long contarEnvios();
 }
