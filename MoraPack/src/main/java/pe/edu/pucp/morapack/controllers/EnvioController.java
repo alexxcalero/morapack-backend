@@ -68,15 +68,16 @@ public class EnvioController {
      * ⚡ ENDPOINT OPTIMIZADO: Retorna solo envíos pendientes con partes asignadas
      * NO entregadas, con datos mínimos para el frontend.
      * Esto evita cargar 43,000+ envíos y serializar 28MB de JSON.
+     * ⚠️ NO incluye los vuelos de la ruta para evitar OOM.
      * 
-     * @param limit Límite de envíos a retornar (por defecto 1000, máximo 5000)
+     * @param limit Límite de envíos a retornar (por defecto 200, máximo 500)
      */
     @GetMapping("obtenerPendientes")
     public List<Map<String, Object>> obtenerEnviosPendientes(
-            @RequestParam(defaultValue = "1000") int limit) {
+            @RequestParam(defaultValue = "200") int limit) {
         long startTime = System.currentTimeMillis();
-        // Limitar a máximo 5000 para evitar OOM
-        int maxLimit = Math.min(limit, 5000);
+        // Limitar a máximo 500 para evitar OOM
+        int maxLimit = Math.min(limit, 500);
         System.out.println("📦 [obtenerPendientes] Iniciando consulta optimizada (limit=" + maxLimit + ")...");
 
         // ⚡ USAR MÉTODO CON LÍMITE para evitar cargar todo a memoria
@@ -129,7 +130,7 @@ public class EnvioController {
             envioMap.put("productosAsignados", productosAsignados);
             envioMap.put("totalPartes", envio.getParteAsignadas().size());
 
-            // Partes asignadas con vuelos (simplificado)
+            // Partes asignadas (simplificado - SIN vuelos para evitar OOM)
             List<Map<String, Object>> partesMap = new ArrayList<>();
             for (ParteAsignada parte : partesNoEntregadas) {
                 Map<String, Object> parteMap = new HashMap<>();
@@ -149,32 +150,9 @@ public class EnvioController {
                     parteMap.put("aeropuertoOrigen", origen);
                 }
 
-                // Vuelos de la ruta (simplificado)
-                List<Map<String, Object>> vuelosMap = new ArrayList<>();
-                if (parte.getVuelosRuta() != null) {
-                    // Ordenar por orden
-                    List<ParteAsignadaPlanDeVuelo> vuelosOrdenados = new ArrayList<>(parte.getVuelosRuta());
-                    vuelosOrdenados.sort((a, b) -> {
-                        int ordenA = a.getOrden() != null ? a.getOrden() : 0;
-                        int ordenB = b.getOrden() != null ? b.getOrden() : 0;
-                        return ordenA - ordenB;
-                    });
-
-                    for (ParteAsignadaPlanDeVuelo papv : vuelosOrdenados) {
-                        PlanDeVuelo vuelo = papv.getPlanDeVuelo();
-                        if (vuelo != null) {
-                            Map<String, Object> vueloMap = new HashMap<>();
-                            vueloMap.put("id", vuelo.getId());
-                            vueloMap.put("orden", papv.getOrden());
-                            vueloMap.put("ciudadOrigen", vuelo.getCiudadOrigen());
-                            vueloMap.put("ciudadDestino", vuelo.getCiudadDestino());
-                            vueloMap.put("horaSalida", vuelo.getHoraOrigen());
-                            vueloMap.put("horaLlegada", vuelo.getHoraDestino());
-                            vuelosMap.add(vueloMap);
-                        }
-                    }
-                }
-                parteMap.put("vuelosRuta", vuelosMap);
+                // ⚠️ NO incluir vuelosRuta para evitar OOM
+                // El frontend puede obtener los vuelos por separado si los necesita
+                parteMap.put("vuelosRuta", new ArrayList<>());
                 partesMap.add(parteMap);
             }
             envioMap.put("parteAsignadas", partesMap);
