@@ -16,12 +16,27 @@ import java.util.List;
 @Entity
 @Table(name = "envio")
 public class Envio {
+    /**
+     * Estados del envío durante su ciclo de vida
+     */
+    public enum EstadoEnvio {
+        PLANIFICADO,    // Tiene ruta asignada pero el vuelo todavía no inicia
+        EN_RUTA,        // Ya se encuentra en vuelo (primer vuelo inició)
+        FINALIZADO,     // Llegó a su aeropuerto destino final
+        ENTREGADO       // Han pasado 2 horas desde que llegó y el cliente ya lo recogió
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(unique = true, nullable = false)
     private Integer id;
 
     private Long idEnvioPorAeropuerto;
+
+    // ⚡ Estado del envío para rastrear su progreso
+    @Enumerated(EnumType.STRING)
+    @Column(name = "estado", nullable = true)
+    private EstadoEnvio estado;
 
     // ⚡ CAMBIO CRÍTICO: LAZY loading para evitar cargar 40K envíos con todas sus
     // relaciones
@@ -67,6 +82,8 @@ public class Envio {
         this.husoHorarioDestino = husoHorarioDestino;
         this.numProductos = numProductos;
         this.cliente = cliente;
+        // ⚡ Inicializar estado como null (aún no tiene estado asignado)
+        this.estado = null;
     }
 
     public Integer cantidadAsignada() {

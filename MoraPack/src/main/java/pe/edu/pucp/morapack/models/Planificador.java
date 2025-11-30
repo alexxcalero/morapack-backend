@@ -57,6 +57,56 @@ public class Planificador {
     private LocalDateTime ultimoHorizontePlanificado;
     private LocalDateTime tiempoInicioSimulacion;
 
+    // ⚡ SISTEMA DE EVENTOS TEMPORALES: Separar planificación (GRASP) de ejecución temporal
+    // Scheduler dedicado para eventos temporales (ejecución individual en tiempo exacto)
+    private ScheduledExecutorService schedulerEventos;
+    // Lista de ScheduledFuture para poder cancelar eventos si es necesario
+    private List<ScheduledFuture<?>> eventosProgramados = new ArrayList<>();
+
+    /**
+     * Clase interna para representar eventos temporales (llegada/salida de vuelos)
+     */
+    private static class EventoTemporal {
+        private final ZonedDateTime tiempoEvento;
+        private final TipoEvento tipo;
+        private final PlanDeVuelo vuelo;
+        private final ParteAsignada parte;
+        private final Integer cantidad;
+        private final Integer aeropuertoId;
+        private final boolean esPrimerVuelo;  // Si es el primer vuelo de la ruta
+        private final boolean esUltimoVuelo;  // Si es el último vuelo de la ruta
+        private final Envio envio;  // Referencia al envío para cambiar estados
+
+        enum TipoEvento {
+            LLEGADA_VUELO,  // Vuelo llega a destino -> asignar capacidad en aeropuerto destino
+            SALIDA_VUELO    // Vuelo sale de origen -> desasignar capacidad en aeropuerto origen (solo si no es primer vuelo)
+        }
+
+        public EventoTemporal(ZonedDateTime tiempoEvento, TipoEvento tipo, PlanDeVuelo vuelo,
+                             ParteAsignada parte, Integer cantidad, Integer aeropuertoId,
+                             boolean esPrimerVuelo, boolean esUltimoVuelo, Envio envio) {
+            this.tiempoEvento = tiempoEvento;
+            this.tipo = tipo;
+            this.vuelo = vuelo;
+            this.parte = parte;
+            this.cantidad = cantidad;
+            this.aeropuertoId = aeropuertoId;
+            this.esPrimerVuelo = esPrimerVuelo;
+            this.esUltimoVuelo = esUltimoVuelo;
+            this.envio = envio;
+        }
+
+        public ZonedDateTime getTiempoEvento() { return tiempoEvento; }
+        public TipoEvento getTipo() { return tipo; }
+        public PlanDeVuelo getVuelo() { return vuelo; }
+        public ParteAsignada getParte() { return parte; }
+        public Integer getCantidad() { return cantidad; }
+        public Integer getAeropuertoId() { return aeropuertoId; }
+        public boolean isPrimerVuelo() { return esPrimerVuelo; }
+        public boolean isUltimoVuelo() { return esUltimoVuelo; }
+        public Envio getEnvio() { return envio; }
+    }
+
     // Modos de simulación
     public enum ModoSimulacion {
         NORMAL, // Modo original - planifica todos los pedidos
@@ -173,6 +223,12 @@ public class Planificador {
             return;
         }
 
+        // ⚡ Inicializar scheduler dedicado para eventos temporales
+        if (schedulerEventos == null) {
+            schedulerEventos = Executors.newScheduledThreadPool(10); // Pool de 10 hilos para eventos
+            System.out.println("⏰ Scheduler de eventos temporales inicializado");
+        }
+
         // Ejecutar el primer ciclo inmediatamente
         try {
             ejecutarCicloPlanificacion(tiempoInicioSimulacion);
@@ -232,6 +288,35 @@ public class Planificador {
         if (tareaLiberacionProductos != null && !tareaLiberacionProductos.isCancelled()) {
             tareaLiberacionProductos.cancel(false);
             tareaLiberacionProductos = null;
+        }
+
+        // ⚡ Cancelar todos los eventos temporales programados
+        if (eventosProgramados != null) {
+            int eventosCancelados = 0;
+            for (ScheduledFuture<?> evento : eventosProgramados) {
+                if (evento != null && !evento.isCancelled() && !evento.isDone()) {
+                    evento.cancel(false);
+                    eventosCancelados++;
+                }
+            }
+            eventosProgramados.clear();
+            if (eventosCancelados > 0) {
+                System.out.printf("🛑 Cancelados %d eventos temporales pendientes%n", eventosCancelados);
+            }
+        }
+
+        // Cerrar scheduler de eventos temporales
+        if (schedulerEventos != null) {
+            schedulerEventos.shutdown();
+            try {
+                if (!schedulerEventos.awaitTermination(10, TimeUnit.SECONDS)) {
+                    schedulerEventos.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                schedulerEventos.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+            schedulerEventos = null;
         }
 
         if (scheduler != null) {
@@ -340,6 +425,9 @@ public class Planificador {
                 tiempoSimuladoActual = inicioHorizonte;
             }
 
+            // ⚡ Los eventos temporales se ejecutan individualmente cuando les toca
+            // (programados con ScheduledExecutorService en crearEventosTemporales)
+
             // ✅ Liberar productos que llegaron al destino final hace más de 2 horas
             // IMPORTANTE: Esta validación debe ejecutarse SIEMPRE, incluso si no hay
             // pedidos para planificar
@@ -353,6 +441,9 @@ public class Planificador {
 
             if (pedidosParaPlanificar.isEmpty()) {
                 System.out.println("✅ No hay pedidos pendientes en este horizonte");
+
+                // ⚡ Los eventos temporales se ejecutan individualmente cuando les toca
+                // (programados con ScheduledExecutorService en crearEventosTemporales)
 
                 ultimoTiempoEjecucion = tiempoEjecucion;
 
@@ -416,6 +507,10 @@ public class Planificador {
                 return;
             }
 
+            // ⚡ CREAR EVENTOS TEMPORALES: Convertir las rutas planificadas en eventos
+            // que se procesarán cuando el tiempo avance
+            crearEventosTemporales(solucion, inicioHorizonte);
+
             // ✅ PERSISTIR CAMBIOS EN LA BASE DE DATOS
             try {
                 persistirCambios(solucion);
@@ -424,6 +519,9 @@ public class Planificador {
                 System.err.printf("❌ Error al persistir cambios: %s%n", e.getMessage());
                 e.printStackTrace();
             }
+
+            // ⚡ Los eventos temporales se ejecutan individualmente cuando les toca
+            // (programados con ScheduledExecutorService en crearEventosTemporales)
 
             // ✅ ACTUALIZAR el horizonte para el próximo ciclo
             this.ultimoHorizontePlanificado = finHorizonte;
@@ -736,6 +834,14 @@ public class Planificador {
         this.estadisticas.put("ultimoCicloExitoso", true);
         this.estadisticas.put("ultimaEjecucion", LocalDateTime.now().toString());
         this.estadisticas.put("promedioEjecucionSegundos", calcularPromedioEjecucion());
+
+        // ⚡ Estadísticas por estado de envío (desde BD)
+        this.estadisticas.put("totalEnviosPlanificados", calcularTotalEnviosPorEstado(Envio.EstadoEnvio.PLANIFICADO));
+        this.estadisticas.put("totalEnviosEnRuta", calcularTotalEnviosPorEstado(Envio.EstadoEnvio.EN_RUTA));
+        this.estadisticas.put("totalEnviosFinalizados", calcularTotalEnviosPorEstado(Envio.EstadoEnvio.FINALIZADO));
+        this.estadisticas.put("totalEnviosEntregados", calcularTotalEnviosPorEstado(Envio.EstadoEnvio.ENTREGADO));
+
+        // Mantener compatibilidad con campos antiguos
         this.estadisticas.put("totalEnviosProcesados", calcularTotalEnviosProcesados());
         this.estadisticas.put("totalPedidosPlanificados", calcularTotalPedidosPlanificados());
     }
@@ -821,6 +927,25 @@ public class Planificador {
         }
     }
 
+    /**
+     * ⚡ Calcula el total de envíos por estado desde la base de datos
+     */
+    private int calcularTotalEnviosPorEstado(Envio.EstadoEnvio estado) {
+        try {
+            List<Envio> todosEnvios = envioService.obtenerEnvios();
+            if (todosEnvios == null) {
+                return 0;
+            }
+
+            return (int) todosEnvios.stream()
+                    .filter(e -> e.getEstado() == estado)
+                    .count();
+        } catch (Exception e) {
+            System.err.printf("❌ Error al calcular envíos por estado %s: %s%n", estado, e.getMessage());
+            return 0;
+        }
+    }
+
     // Metodo adicional útil para el controller
     public List<Map<String, Object>> getHistoricoCiclos(int ultimosCiclos) {
         int fromIndex = Math.max(0, historicoCiclos.size() - ultimosCiclos);
@@ -835,6 +960,22 @@ public class Planificador {
         if (!pedidosProcesados.isEmpty()) {
             double tasaExito = (solucion.getEnviosCompletados() * 100.0) / pedidosProcesados.size();
             System.out.printf("   • Tasa de éxito: %.1f%%%n", tasaExito);
+        }
+
+        // ⚡ Mostrar estadísticas por estado
+        try {
+            int planificados = calcularTotalEnviosPorEstado(Envio.EstadoEnvio.PLANIFICADO);
+            int enRuta = calcularTotalEnviosPorEstado(Envio.EstadoEnvio.EN_RUTA);
+            int finalizados = calcularTotalEnviosPorEstado(Envio.EstadoEnvio.FINALIZADO);
+            int entregados = calcularTotalEnviosPorEstado(Envio.EstadoEnvio.ENTREGADO);
+
+            System.out.println("   📦 ESTADÍSTICAS POR ESTADO:");
+            System.out.printf("      • Planificados: %d%n", planificados);
+            System.out.printf("      • En Ruta: %d%n", enRuta);
+            System.out.printf("      • Finalizados: %d%n", finalizados);
+            System.out.printf("      • Entregados: %d%n", entregados);
+        } catch (Exception e) {
+            System.err.printf("   ⚠️ Error al calcular estadísticas por estado: %s%n", e.getMessage());
         }
 
         System.out.printf("   • Tiempo medio de entrega: %s%n",
@@ -1209,6 +1350,7 @@ public class Planificador {
                         Optional<Envio> envioOpt = envioService.obtenerEnvioPorIdConPartesInicializadas(envioId);
                         if (envioOpt.isPresent()) {
                             Envio envio = envioOpt.get();
+
                             // Actualizar las partes del envío con el estado entregado
                             if (envio.getParteAsignadas() != null) {
                                 for (ParteAsignada parteEnvio : envio.getParteAsignadas()) {
@@ -1217,6 +1359,24 @@ public class Planificador {
                                     }
                                 }
                             }
+
+                            // ⚡ CAMBIAR ESTADO: Verificar si todas las partes están entregadas (después de marcar las nuevas)
+                            if (envio.getParteAsignadas() != null && !envio.getParteAsignadas().isEmpty()) {
+                                boolean todasEntregadas = envio.getParteAsignadas().stream()
+                                        .allMatch(p -> p.getEntregado() != null && p.getEntregado());
+
+                                if (todasEntregadas && envio.getEstado() != Envio.EstadoEnvio.ENTREGADO) {
+                                    envio.setEstado(Envio.EstadoEnvio.ENTREGADO);
+                                    // 💾 PERSISTIR inmediatamente el cambio de estado
+                                    try {
+                                        envioService.insertarEnvio(envio);
+                                        System.out.printf("  ✅ [Estado] Envío %d cambió a ENTREGADO (todas las partes entregadas) [💾 Persistido]%n", envio.getId());
+                                    } catch (Exception e) {
+                                        System.err.printf("❌ Error al persistir cambio de estado ENTREGADO: %s%n", e.getMessage());
+                                    }
+                                }
+                            }
+
                             enviosParaActualizar.put(envioId, envio);
                         }
                     }
@@ -1384,6 +1544,20 @@ public class Planificador {
                 }
             }
 
+            // ⚡ CAMBIAR ESTADO: Si el envío tiene partes asignadas (ruta), establecer PLANIFICADO
+            if (envioReal.getParteAsignadas() != null && !envioReal.getParteAsignadas().isEmpty()) {
+                if (envioReal.getEstado() == null || envioReal.getEstado() != Envio.EstadoEnvio.PLANIFICADO) {
+                    envioReal.setEstado(Envio.EstadoEnvio.PLANIFICADO);
+                    // 💾 PERSISTIR inmediatamente el cambio de estado
+                    try {
+                        envioService.insertarEnvio(envioReal);
+                        System.out.printf("  ✅ [Estado] Envío %d cambió a PLANIFICADO (ruta asignada) [💾 Persistido]%n", envioReal.getId());
+                    } catch (Exception e) {
+                        System.err.printf("❌ Error al persistir cambio de estado PLANIFICADO: %s%n", e.getMessage());
+                    }
+                }
+            }
+
             enviosParaActualizar.add(envioReal);
         }
 
@@ -1441,6 +1615,268 @@ public class Planificador {
     }
 
     /**
+     * ⚡ Crea y programa eventos temporales individualmente.
+     * Cada evento se ejecutará exactamente cuando le toca usando ScheduledExecutorService.
+     *
+     * NOTA: Los eventos se programan basándose en el tiempo simulado.
+     * El delay se calcula desde el tiempo simulado actual hasta el tiempo del evento.
+     * Como estamos en una simulación acelerada, usamos un factor de conversión:
+     * - 1 minuto simulado = 1 segundo real (configurable)
+     */
+    private void crearEventosTemporales(Solucion solucion, LocalDateTime tiempoReferencia) {
+        if (solucion == null || solucion.getEnvios() == null) {
+            return;
+        }
+
+        if (schedulerEventos == null) {
+            System.err.println("⚠️ Scheduler de eventos no inicializado, no se pueden programar eventos");
+            return;
+        }
+
+        // Factor de conversión: 1 segundo real = 2 minutos simulados
+        // Esto significa que la simulación corre 120x más rápido que el tiempo real
+        final double FACTOR_CONVERSION = 2.0; // minutos simulados por segundo real
+
+        LocalDateTime tiempoSimuladoActual = this.tiempoSimuladoActual != null
+                ? this.tiempoSimuladoActual
+                : tiempoReferencia;
+
+        int contadorEventos = 0;
+        for (Envio envio : solucion.getEnvios()) {
+            if (envio.getParteAsignadas() == null) {
+                continue;
+            }
+
+            for (ParteAsignada parte : envio.getParteAsignadas()) {
+                if (parte.getRuta() == null || parte.getRuta().isEmpty()) {
+                    continue;
+                }
+
+                Integer cantidad = parte.getCantidad();
+                if (cantidad == null || cantidad <= 0) {
+                    continue;
+                }
+
+                // Crear y programar eventos para cada vuelo en la ruta
+                int totalVuelos = parte.getRuta().size();
+                for (int i = 0; i < totalVuelos; i++) {
+                    PlanDeVuelo vuelo = parte.getRuta().get(i);
+                    boolean esPrimerVuelo = (i == 0);
+                    boolean esUltimoVuelo = (i == totalVuelos - 1);
+
+                    // Evento: Llegada del vuelo al destino
+                    ZonedDateTime llegada = vuelo.getZonedHoraDestino();
+                    if (llegada != null) {
+                        LocalDateTime llegadaLocal = llegada.toLocalDateTime();
+
+                        // Calcular delay en segundos reales
+                        long minutosSimulados = Duration.between(tiempoSimuladoActual, llegadaLocal).toMinutes();
+                        if (minutosSimulados >= 0) { // Solo programar eventos futuros
+                            long delaySegundos = (long) (minutosSimulados / FACTOR_CONVERSION);
+
+                            EventoTemporal eventoLlegada = new EventoTemporal(
+                                    llegada,
+                                    EventoTemporal.TipoEvento.LLEGADA_VUELO,
+                                    vuelo,
+                                    parte,
+                                    cantidad,
+                                    vuelo.getCiudadDestino(),
+                                    esPrimerVuelo,
+                                    esUltimoVuelo,
+                                    envio
+                            );
+
+                            // Programar el evento para ejecutarse después del delay calculado
+                            ScheduledFuture<?> futuro = schedulerEventos.schedule(
+                                    () -> procesarEvento(eventoLlegada),
+                                    delaySegundos,
+                                    TimeUnit.SECONDS
+                            );
+
+                            eventosProgramados.add(futuro);
+                            contadorEventos++;
+
+                            System.out.printf("  📅 Evento programado: Vuelo %d llegará a %s en %d min sim (%d seg real) - %s%n",
+                                    vuelo.getId(),
+                                    llegadaLocal.format(DateTimeFormatter.ofPattern("HH:mm")),
+                                    minutosSimulados,
+                                    delaySegundos,
+                                    llegadaLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                        }
+                    }
+
+                    // Evento: Salida del vuelo desde el origen
+                    // Para el primer vuelo: cambia estado a EN_RUTA
+                    // Para vuelos intermedios: solo desasigna capacidad
+                    ZonedDateTime salida = vuelo.getZonedHoraOrigen();
+                    if (salida != null) {
+                        LocalDateTime salidaLocal = salida.toLocalDateTime();
+
+                        // Calcular delay en segundos reales
+                        long minutosSimulados = Duration.between(tiempoSimuladoActual, salidaLocal).toMinutes();
+                        if (minutosSimulados >= 0) { // Solo programar eventos futuros
+                            long delaySegundos = (long) (minutosSimulados / FACTOR_CONVERSION);
+
+                            EventoTemporal eventoSalida = new EventoTemporal(
+                                    salida,
+                                    EventoTemporal.TipoEvento.SALIDA_VUELO,
+                                    vuelo,
+                                    parte,
+                                    cantidad,
+                                    vuelo.getCiudadOrigen(),
+                                    esPrimerVuelo,
+                                    esUltimoVuelo,
+                                    envio
+                            );
+
+                            // Programar el evento para ejecutarse después del delay calculado
+                            ScheduledFuture<?> futuro = schedulerEventos.schedule(
+                                    () -> procesarEvento(eventoSalida),
+                                    delaySegundos,
+                                    TimeUnit.SECONDS
+                            );
+
+                            eventosProgramados.add(futuro);
+                            contadorEventos++;
+
+                            System.out.printf("  📅 Evento programado: Vuelo %d saldrá de %s en %d min sim (%d seg real) - %s%n",
+                                    vuelo.getId(),
+                                    salidaLocal.format(DateTimeFormatter.ofPattern("HH:mm")),
+                                    minutosSimulados,
+                                    delaySegundos,
+                                    salidaLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                        }
+                    }
+                }
+            }
+        }
+
+        System.out.printf("📅 [crearEventosTemporales] Programados %d eventos temporales desde %s%n",
+                contadorEventos, tiempoReferencia.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+    }
+
+    /**
+     * ⚡ MÉTODO OBSOLETO: Ya no se usa procesamiento en lotes.
+     * Los eventos ahora se ejecutan individualmente cuando les toca usando ScheduledExecutorService.
+     * Este método se mantiene por compatibilidad pero no se llama.
+     *
+     * @deprecated Los eventos se programan individualmente en crearEventosTemporales
+     */
+    @Deprecated
+    private void procesarEventosTemporales(LocalDateTime tiempoActual) {
+        // Ya no se procesan eventos en lotes, se ejecutan individualmente cuando les toca
+        // Este método se mantiene por compatibilidad pero no debería llamarse
+    }
+
+    /**
+     * Procesa un evento temporal individual (llegada o salida de vuelo)
+     * ⚡ PERSISTE los cambios en la base de datos inmediatamente
+     */
+    private void procesarEvento(EventoTemporal evento) {
+        try {
+            Optional<Aeropuerto> aeropuertoOpt = aeropuertoService.obtenerAeropuertoPorId(evento.getAeropuertoId());
+            if (!aeropuertoOpt.isPresent()) {
+                System.err.printf("⚠️ Aeropuerto ID %d no encontrado para evento%n", evento.getAeropuertoId());
+                return;
+            }
+
+            Aeropuerto aeropuerto = aeropuertoOpt.get();
+
+            if (evento.getTipo() == EventoTemporal.TipoEvento.LLEGADA_VUELO) {
+                // Vuelo llega: asignar capacidad en el aeropuerto destino
+                aeropuerto.asignarCapacidad(evento.getCantidad());
+
+                // ⚡ También actualizar capacidad del vuelo cuando llega
+                PlanDeVuelo vuelo = evento.getVuelo();
+                PlanDeVuelo vueloReal = null;
+                if (vuelo != null && vuelo.getId() != null) {
+                    Optional<PlanDeVuelo> vueloOpt = planDeVueloService.obtenerPlanDeVueloPorId(vuelo.getId());
+                    if (vueloOpt.isPresent()) {
+                        vueloReal = vueloOpt.get();
+                        // Solo asignar la diferencia si no está ya completamente asignado
+                        int capacidadActual = vueloReal.getCapacidadOcupada() != null ? vueloReal.getCapacidadOcupada() : 0;
+                        int cantidadFaltante = evento.getCantidad() - capacidadActual;
+                        if (cantidadFaltante > 0) {
+                            vueloReal.asignar(cantidadFaltante);
+                        }
+                    }
+                }
+
+                // ⚡ CAMBIAR ESTADO: Si es el último vuelo, el envío llegó a su destino final -> FINALIZADO
+                Envio envio = evento.getEnvio();
+                if (evento.isUltimoVuelo() && envio != null && envio.getId() != null) {
+                    try {
+                        Optional<Envio> envioOpt = envioService.obtenerEnvioPorIdConPartesInicializadas(envio.getId());
+                        if (envioOpt.isPresent()) {
+                            Envio envioReal = envioOpt.get();
+                            if (envioReal.getEstado() != Envio.EstadoEnvio.FINALIZADO) {
+                                envioReal.setEstado(Envio.EstadoEnvio.FINALIZADO);
+                                envioService.insertarEnvio(envioReal);
+                                System.out.printf("  ✅ [Estado] Envío %d cambió a FINALIZADO (llegó a destino final)%n", envio.getId());
+                            }
+                        }
+                    } catch (Exception e) {
+                        System.err.printf("❌ Error al cambiar estado del envío: %s%n", e.getMessage());
+                    }
+                }
+
+                // 💾 PERSISTIR cambios en la base de datos
+                try {
+                    aeropuertoService.insertarAeropuerto(aeropuerto);
+                    if (vueloReal != null) {
+                        planDeVueloService.insertarPlanDeVuelo(vueloReal);
+                    }
+                } catch (Exception e) {
+                    System.err.printf("❌ Error al persistir cambios del evento: %s%n", e.getMessage());
+                    e.printStackTrace();
+                }
+
+                System.out.printf("  ✈️ [Evento] Vuelo %d llegó a %s - Asignados %d productos (Aeropuerto Cap: %d/%d) [💾 Persistido]%n",
+                        vuelo != null && vuelo.getId() != null ? vuelo.getId() : "N/A",
+                        aeropuerto.getCodigo(), evento.getCantidad(),
+                        aeropuerto.getCapacidadOcupada(), aeropuerto.getCapacidadMaxima());
+            } else if (evento.getTipo() == EventoTemporal.TipoEvento.SALIDA_VUELO) {
+                // Vuelo sale: desasignar capacidad en el aeropuerto origen
+                aeropuerto.desasignarCapacidad(evento.getCantidad());
+
+                // ⚡ CAMBIAR ESTADO: Si es el primer vuelo, el envío inicia su ruta -> EN_RUTA
+                Envio envio = evento.getEnvio();
+                if (evento.isPrimerVuelo() && envio != null && envio.getId() != null) {
+                    try {
+                        Optional<Envio> envioOpt = envioService.obtenerEnvioPorIdConPartesInicializadas(envio.getId());
+                        if (envioOpt.isPresent()) {
+                            Envio envioReal = envioOpt.get();
+                            if (envioReal.getEstado() != Envio.EstadoEnvio.EN_RUTA) {
+                                envioReal.setEstado(Envio.EstadoEnvio.EN_RUTA);
+                                envioService.insertarEnvio(envioReal);
+                                System.out.printf("  ✅ [Estado] Envío %d cambió a EN_RUTA (primer vuelo inició)%n", envio.getId());
+                            }
+                        }
+                    } catch (Exception e) {
+                        System.err.printf("❌ Error al cambiar estado del envío: %s%n", e.getMessage());
+                    }
+                }
+
+                // 💾 PERSISTIR cambios en la base de datos
+                try {
+                    aeropuertoService.insertarAeropuerto(aeropuerto);
+                } catch (Exception e) {
+                    System.err.printf("❌ Error al persistir cambios del evento: %s%n", e.getMessage());
+                    e.printStackTrace();
+                }
+
+                System.out.printf("  ✈️ [Evento] Vuelo %d salió de %s - Desasignados %d productos (Aeropuerto Cap: %d/%d) [💾 Persistido]%n",
+                        evento.getVuelo() != null && evento.getVuelo().getId() != null ? evento.getVuelo().getId() : "N/A",
+                        aeropuerto.getCodigo(), evento.getCantidad(),
+                        aeropuerto.getCapacidadOcupada(), aeropuerto.getCapacidadMaxima());
+            }
+        } catch (Exception e) {
+            System.err.printf("❌ Error al procesar evento: %s%n", e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
      * Encuentra un plan de vuelo en el grasp por su ID
      */
     private Integer calcularCapacidadAsignada(Integer planId, List<Envio> envios) {
@@ -1478,7 +1914,7 @@ public class Planificador {
         // ⚡ OPTIMIZACIÓN: Usar envíos ya filtrados en memoria
         List<Envio> envios = this.enviosOriginales != null ? this.enviosOriginales : envioService.obtenerEnvios();
 
-        // Calcular estadísticas de pedidos
+        // ⚡ Calcular estadísticas de pedidos por estado
         int totalPedidos = envios.size();
         int pedidosCompletados = 0;
         int pedidosParciales = 0;
@@ -1486,6 +1922,13 @@ public class Planificador {
         int totalProductos = 0;
         int productosAsignados = 0;
         int productosSinAsignar = 0;
+
+        // ⚡ Contadores por estado
+        int enviosPlanificados = 0;
+        int enviosEnRuta = 0;
+        int enviosFinalizados = 0;
+        int enviosEntregados = 0;
+        int enviosSinEstado = 0;
 
         List<Map<String, Object>> pedidosSinCompletar = new ArrayList<>();
 
@@ -1496,6 +1939,26 @@ public class Planificador {
 
             int cantidadAsignada = envio.cantidadAsignada();
             productosAsignados += cantidadAsignada;
+
+            // ⚡ Contar por estado
+            if (envio.getEstado() != null) {
+                switch (envio.getEstado()) {
+                    case PLANIFICADO:
+                        enviosPlanificados++;
+                        break;
+                    case EN_RUTA:
+                        enviosEnRuta++;
+                        break;
+                    case FINALIZADO:
+                        enviosFinalizados++;
+                        break;
+                    case ENTREGADO:
+                        enviosEntregados++;
+                        break;
+                }
+            } else {
+                enviosSinEstado++;
+            }
 
             if (envio.estaCompleto()) {
                 pedidosCompletados++;
@@ -1620,6 +2083,15 @@ public class Planificador {
         statsPedidos.put("pedidosSinAsignar", pedidosSinAsignar);
         statsPedidos.put("tasaExito", totalPedidos > 0 ? (pedidosCompletados * 100.0 / totalPedidos) : 0.0);
         resumen.put("estadisticasPedidos", statsPedidos);
+
+        // ⚡ Estadísticas por estado de envío
+        Map<String, Object> statsPorEstado = new HashMap<>();
+        statsPorEstado.put("enviosPlanificados", enviosPlanificados);
+        statsPorEstado.put("enviosEnRuta", enviosEnRuta);
+        statsPorEstado.put("enviosFinalizados", enviosFinalizados);
+        statsPorEstado.put("enviosEntregados", enviosEntregados);
+        statsPorEstado.put("enviosSinEstado", enviosSinEstado);
+        resumen.put("estadisticasPorEstado", statsPorEstado);
 
         // Estadísticas de productos
         Map<String, Object> statsProductos = new HashMap<>();
