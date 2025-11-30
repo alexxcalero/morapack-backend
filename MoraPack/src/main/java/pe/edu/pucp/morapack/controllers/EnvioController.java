@@ -300,12 +300,14 @@ public class EnvioController {
         int lineasSaltadas = 0;
 
         try {
-            // Verificar cuántos envíos ya existen en BD
-            long enviosExistentes = envioService.obtenerEnvios().size();
-            System.out.println("📊 Envíos existentes en BD: " + enviosExistentes);
+            // ⚡ NOTA: Ya no verificamos envíos existentes aquí para evitar cargar millones
+            // en memoria
+            // El usuario debe verificar con SELECT COUNT(*) FROM envio en MySQL
 
             if (skip > 0) {
                 System.out.println("⏭️ Continuando carga - saltando primeras " + skip + " líneas...");
+            } else {
+                System.out.println("📂 Iniciando carga desde el principio...");
             }
 
             // ⚡ OPTIMIZACIÓN: Cargar todos los aeropuertos UNA SOLA VEZ y crear un mapa
