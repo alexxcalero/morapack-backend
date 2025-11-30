@@ -1,6 +1,7 @@
 package pe.edu.pucp.morapack.controllers;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import pe.edu.pucp.morapack.dtos.PlanDeVueloResponse;
@@ -126,10 +127,16 @@ public class PlanDeVueloController {
     }
 
     @PostMapping("cargarMasivoArchivoPlanes/{fecha}")
-    public Map<String, Object> cargarPlanesMasivoVuelo(@RequestParam("arch") MultipartFile arch, @PathVariable String fecha) throws IOException {
+    @Transactional
+    public Map<String, Object> cargarPlanesMasivoVuelo(@RequestParam("arch") MultipartFile arch,
+            @PathVariable String fecha) throws IOException {
         long startTime = System.currentTimeMillis();
-        ArrayList<PlanDeVuelo> planes = new ArrayList<>();
         Map<String, Object> resultado = new HashMap<>();
+
+        // ⚡ OPTIMIZACIÓN: Guardar en lotes para evitar OutOfMemoryError
+        final int BATCH_SIZE = 5000;
+        ArrayList<PlanDeVuelo> batchPlanes = new ArrayList<>(BATCH_SIZE);
+        int totalPlanesGuardados = 0;
 
         // Parsear la fecha base
         String anio = fecha.substring(0, 4);
@@ -141,21 +148,32 @@ public class PlanDeVueloController {
 
         LocalDate fechaBase = LocalDate.of(aa, mm, dd);
 
-        int i = 1;
+        // ⚡ OPTIMIZACIÓN: Cargar aeropuertos en caché UNA SOLA VEZ
+        System.out.println("📂 Cargando aeropuertos en caché...");
+        ArrayList<Aeropuerto> todosAeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+        Map<String, Aeropuerto> aeropuertosPorCodigo = new HashMap<>();
+        for (Aeropuerto a : todosAeropuertos) {
+            aeropuertosPorCodigo.put(a.getCodigo(), a);
+        }
+        System.out.println("✅ " + todosAeropuertos.size() + " aeropuertos en caché");
+
         String planesDatos = new String(arch.getBytes());
         String[] lineas = planesDatos.split("\n");
+        int totalLineas = lineas.length;
+        System.out.println(
+                "📂 Procesando " + totalLineas + " rutas x 730 días (guardando en lotes de " + BATCH_SIZE + ")...");
 
+        int lineaActual = 0;
         for (String linea : lineas) {
+            lineaActual++;
             String data[] = linea.trim().split("-");
 
             if (data.length > 1) {
-                Optional<Aeropuerto> aeropuertoOptionalOrig = aeropuertoService.obtenerAeropuertoPorCodigo(data[0]);
-                Optional<Aeropuerto> aeropuertoOptionalDest = aeropuertoService.obtenerAeropuertoPorCodigo(data[1]);
+                // ⚡ OPTIMIZACIÓN: Usar caché en lugar de consultar BD
+                Aeropuerto aeropuertoOrigen = aeropuertosPorCodigo.get(data[0]);
+                Aeropuerto aeropuertoDest = aeropuertosPorCodigo.get(data[1]);
 
-                if (aeropuertoOptionalOrig.isPresent() && aeropuertoOptionalDest.isPresent()) {
-                    Aeropuerto aeropuertoOrigen = aeropuertoOptionalOrig.get();
-                    Aeropuerto aeropuertoDest = aeropuertoOptionalDest.get();
-
+                if (aeropuertoOrigen != null && aeropuertoDest != null) {
                     Integer ciudadOrigen = aeropuertoOrigen.getId();
                     Integer ciudadDestino = aeropuertoDest.getId();
                     String husoOrigen = aeropuertoOrigen.getHusoHorario();
@@ -174,8 +192,7 @@ public class PlanDeVueloController {
                         // Calcular si el vuelo acaba en el mismo o diferente día
                         Integer cantDias = planDeVueloService.planAcabaAlSiguienteDia(
                                 data[2], data[3], husoOrigen, husoDestino,
-                                fechaVuelo.getYear(), fechaVuelo.getMonthValue(), fechaVuelo.getDayOfMonth()
-                        );
+                                fechaVuelo.getYear(), fechaVuelo.getMonthValue(), fechaVuelo.getDayOfMonth());
 
                         fechaFin = LocalDateTime.of(fechaVuelo, hF).plusDays(cantDias);
 
@@ -191,33 +208,41 @@ public class PlanDeVueloController {
                                 .estado(1)
                                 .build();
 
-                        planes.add(plan);
-                        // 🔹 Log de progreso solo cada 100 días para evitar demasiado ruido
-                        if ((diaOffset + 1) % 100 == 0 || diaOffset == 0 || diaOffset == 729) {
-                            System.out.println("📊 [cargarMasivoArchivoPlanes] Línea " + i +
-                                    " - Día " + (diaOffset + 1) +
-                                    " (" + fechaBase + " → " + fechaVuelo + "), planes acumulados: " + planes.size());
+                        batchPlanes.add(plan);
+
+                        // ⚡ GUARDAR EN LOTES para evitar OutOfMemoryError
+                        if (batchPlanes.size() >= BATCH_SIZE) {
+                            planDeVueloService.insertarListaPlanesDeVuelo(batchPlanes);
+                            totalPlanesGuardados += batchPlanes.size();
+                            batchPlanes.clear(); // Liberar memoria
+                            System.out.println("💾 Guardados " + totalPlanesGuardados + " planes... (línea "
+                                    + lineaActual + "/" + totalLineas + ")");
                         }
-                        i++;
                     }
                 }
             }
         }
 
-        planDeVueloService.insertarListaPlanesDeVuelo(planes);
+        // Guardar el último lote (lo que quedó)
+        if (!batchPlanes.isEmpty()) {
+            planDeVueloService.insertarListaPlanesDeVuelo(batchPlanes);
+            totalPlanesGuardados += batchPlanes.size();
+            batchPlanes.clear();
+            System.out.println("💾 Guardado último lote. Total: " + totalPlanesGuardados + " planes");
+        }
 
         long endTime = System.currentTimeMillis();
         long durationInMillis = endTime - startTime;
         double durationInSeconds = durationInMillis / 1000.0;
 
-        System.out.println("✅ Vuelos generados: " + planes.size());
+        System.out.println("✅ Vuelos generados: " + totalPlanesGuardados);
         System.out.println("📅 Rango: " + fechaBase + " hasta " + fechaBase.plusDays(729));
         System.out.println("⏱️ Tiempo de ejecución: " + durationInSeconds + " segundos");
 
-        // 🔹 Devolver solo un resumen, similar a EnvioController.leerArchivoBack
+        // 🔹 Devolver solo un resumen
         resultado.put("estado", "éxito");
         resultado.put("mensaje", "Vuelos cargados correctamente desde archivo");
-        resultado.put("planesGenerados", planes.size());
+        resultado.put("planesGenerados", totalPlanesGuardados);
         resultado.put("fechaInicio", fechaBase.toString());
         resultado.put("fechaFin", fechaBase.plusDays(729).toString());
         resultado.put("tiempoEjecucionSegundos", durationInSeconds);

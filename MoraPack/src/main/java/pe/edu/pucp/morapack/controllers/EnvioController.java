@@ -1,6 +1,7 @@
 package pe.edu.pucp.morapack.controllers;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import pe.edu.pucp.morapack.models.*;
@@ -279,12 +280,17 @@ public class EnvioController {
     }
 
     @PostMapping("leerArchivoBack")
+    @Transactional
     public Map<String, Object> leerArchivoBack() {
         long startTime = System.currentTimeMillis();
-        ArrayList<Envio> envios = new ArrayList<>();
         Scanner scanner = null;
         InputStream inputStream = null;
         Map<String, Object> resultado = new java.util.HashMap<>();
+
+        // ⚡ OPTIMIZACIÓN: Guardar en lotes para evitar OutOfMemoryError
+        final int BATCH_SIZE = 5000;
+        ArrayList<Envio> batchEnvios = new ArrayList<>(BATCH_SIZE);
+        int totalEnviosGuardados = 0;
 
         try {
             // ⚡ OPTIMIZACIÓN: Cargar todos los aeropuertos UNA SOLA VEZ y crear un mapa
@@ -348,9 +354,9 @@ public class EnvioController {
             }
 
             // Procesar el archivo
-            int i = 0;
+            int lineasProcesadas = 0;
             int errores = 0;
-            System.out.println("📂 Procesando envíos del archivo...");
+            System.out.println("📂 Procesando envíos del archivo (guardando en lotes de " + BATCH_SIZE + ")...");
 
             while (scanner.hasNextLine()) {
                 String linea = scanner.nextLine().trim();
@@ -386,37 +392,51 @@ public class EnvioController {
                                 newEnvio.setAeropuertosOrigen(new ArrayList<>(hubs));
                             }
 
-                            envios.add(newEnvio);
+                            batchEnvios.add(newEnvio);
+
+                            // ⚡ GUARDAR EN LOTES para evitar OutOfMemoryError
+                            if (batchEnvios.size() >= BATCH_SIZE) {
+                                envioService.insertarListaEnvios(batchEnvios);
+                                totalEnviosGuardados += batchEnvios.size();
+                                batchEnvios.clear(); // Liberar memoria
+                                System.out.println("💾 Guardados " + totalEnviosGuardados + " envíos...");
+                            }
                         } catch (Exception e) {
                             errores++;
                         }
                     }
                 }
-                i++;
-                // ⚡ OPTIMIZACIÓN: Log cada 5000 envíos en lugar de cada uno
-                if (i % 5000 == 0) {
-                    System.out.println("📊 Procesados " + i + " líneas, " + envios.size() + " envíos válidos");
+                lineasProcesadas++;
+                // Log cada 50000 líneas
+                if (lineasProcesadas % 50000 == 0) {
+                    System.out.println("📊 Procesadas " + lineasProcesadas + " líneas...");
                 }
             }
 
-            System.out.println("📊 Envíos procesados del archivo: " + envios.size() + " (errores: " + errores + ")");
-
-            // Guardar todos los envíos en la base de datos
-            if (!envios.isEmpty()) {
-                System.out.println("💾 Guardando " + envios.size() + " envíos en BD...");
-                envioService.insertarListaEnvios(envios);
-                System.out.println("✅ Se cargaron " + envios.size() + " envíos desde el archivo");
-            } else {
-                System.err.println(
-                        "⚠️  El archivo se leyó pero no se generaron envíos. Verifique el formato del archivo.");
+            // Guardar el último lote (lo que quedó)
+            if (!batchEnvios.isEmpty()) {
+                envioService.insertarListaEnvios(batchEnvios);
+                totalEnviosGuardados += batchEnvios.size();
+                batchEnvios.clear();
+                System.out.println("💾 Guardado último lote. Total: " + totalEnviosGuardados + " envíos");
             }
+
+            System.out.println("✅ Carga completada: " + totalEnviosGuardados + " envíos (errores: " + errores + ")");
 
         } catch (FileNotFoundException e) {
             System.err.println("❌ Archivo de pedidos no encontrado: " + e.getMessage());
             e.printStackTrace();
+            resultado.put("estado", "error");
+            resultado.put("mensaje", "Archivo no encontrado: " + e.getMessage());
+            resultado.put("enviosCargados", totalEnviosGuardados);
+            return resultado;
         } catch (Exception e) {
             System.err.println("❌ Error al cargar envíos desde archivo: " + e.getMessage());
             e.printStackTrace();
+            resultado.put("estado", "error");
+            resultado.put("mensaje", "Error: " + e.getMessage());
+            resultado.put("enviosCargados", totalEnviosGuardados);
+            return resultado;
         } finally {
             // Cerrar recursos
             if (scanner != null) {
@@ -439,7 +459,7 @@ public class EnvioController {
         // ⚡ OPTIMIZACIÓN: Devolver solo un resumen en lugar de todos los envíos
         resultado.put("estado", "éxito");
         resultado.put("mensaje", "Envíos cargados correctamente");
-        resultado.put("enviosCargados", envios.size());
+        resultado.put("enviosCargados", totalEnviosGuardados);
         resultado.put("tiempoEjecucionSegundos", durationInSeconds);
         return resultado;
     }
