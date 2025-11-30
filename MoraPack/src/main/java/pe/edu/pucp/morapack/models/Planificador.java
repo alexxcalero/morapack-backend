@@ -1135,11 +1135,11 @@ public class Planificador {
                     long horasTranscurridas = java.time.Duration.between(
                             parte.getLlegadaFinal().toInstant(), tiempoSimuladoZoned.toInstant()).toHours();
 
-                    System.out.printf(
-                            "🔍 [LiberarProductos] Parte ID %d - Envío ID %d - Llegada: %s - Horas transcurridas: %d%n",
-                            parte.getId(), envio.getId(),
-                            parte.getLlegadaFinal().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
-                            horasTranscurridas);
+//                    System.out.printf(
+//                            "🔍 [LiberarProductos] Parte ID %d - Envío ID %d - Llegada: %s - Horas transcurridas: %d%n",
+//                            parte.getId(), envio.getId(),
+//                            parte.getLlegadaFinal().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+//                            horasTranscurridas);
 
                     if (horasTranscurridas >= 2) {
                         // Liberar capacidad del aeropuerto destino
