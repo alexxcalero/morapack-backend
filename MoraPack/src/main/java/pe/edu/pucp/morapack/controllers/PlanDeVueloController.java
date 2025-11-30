@@ -126,8 +126,9 @@ public class PlanDeVueloController {
         return planes;
     }
 
+    // ⚠️ SIN @Transactional para que cada lote haga commit inmediato y no se pierda
+    // si falla después
     @PostMapping("cargarMasivoArchivoPlanes/{fecha}")
-    @Transactional
     public Map<String, Object> cargarPlanesMasivoVuelo(@RequestParam("arch") MultipartFile arch,
             @PathVariable String fecha) throws IOException {
         long startTime = System.currentTimeMillis();
