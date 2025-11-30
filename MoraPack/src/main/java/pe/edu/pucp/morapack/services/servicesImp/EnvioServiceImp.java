@@ -522,6 +522,45 @@ public class EnvioServiceImp implements EnvioService {
     }
 
     /**
+     * ⚡ OPTIMIZADO CON LÍMITE: Obtiene solo envíos con partes asignadas NO
+     * entregadas,
+     * con un límite máximo para evitar OOM.
+     * Usa query nativa con LIMIT para evitar cargar demasiados registros.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<Envio> obtenerEnviosConPartesAsignadasLimitado(int limite) {
+        // Query con límite nativo
+        List<Envio> envios = envioRepository.findEnviosConPartesAsignadasLimitado(limite);
+
+        if (envios.isEmpty()) {
+            return envios;
+        }
+
+        // Recopilar IDs de envíos para la segunda query
+        List<Integer> envioIds = envios.stream()
+                .map(Envio::getId)
+                .collect(Collectors.toList());
+
+        // Query 2: Cargar partes asignadas y vuelosRuta
+        List<ParteAsignada> partesConVuelos = envioRepository.findPartesConVuelosByEnvioIds(envioIds);
+
+        // Crear mapa de envioId -> partes para asignar
+        Map<Integer, List<ParteAsignada>> partesPorEnvio = partesConVuelos.stream()
+                .collect(Collectors.groupingBy(p -> p.getEnvio().getId()));
+
+        // Asignar partes a cada envío
+        for (Envio envio : envios) {
+            List<ParteAsignada> partes = partesPorEnvio.get(envio.getId());
+            if (partes != null) {
+                envio.setParteAsignadas(new java.util.ArrayList<>(partes));
+            }
+        }
+
+        return envios;
+    }
+
+    /**
      * ⚡ OPTIMIZADO: Cuenta envíos por estado directamente en la base de datos.
      * Esto evita cargar todos los envíos en memoria y previene OutOfMemoryError.
      */

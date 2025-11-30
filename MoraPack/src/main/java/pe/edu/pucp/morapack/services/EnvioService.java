@@ -52,6 +52,12 @@ public interface EnvioService {
         List<Envio> obtenerEnviosConPartesAsignadas();
 
         /**
+         * ⚡ OPTIMIZADO CON LÍMITE: Obtiene solo envíos que tienen partes asignadas
+         * con un límite máximo para evitar OOM.
+         */
+        List<Envio> obtenerEnviosConPartesAsignadasLimitado(int limite);
+
+        /**
          * ⚡ OPTIMIZADO: Cuenta envíos por estado directamente en la base de datos.
          * Esto evita cargar todos los envíos en memoria.
          */
