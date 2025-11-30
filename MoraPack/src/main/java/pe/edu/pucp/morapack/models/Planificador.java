@@ -33,7 +33,7 @@ public class Planificador {
     private static final int K_NORMAL = 120; // Factor de consumo - planificar 240 minutos adelante (modo normal y
                                              // semanal)
     private static final int K_COLAPSO = 240; // Factor de consumo - planificar 480 minutos adelante (modo colapso)
-    private static final int TA_SEGUNDOS = 90; // Tiempo máximo de ejecución GRASP - 1.5 minutos
+    private static final int TA_SEGUNDOS = 100; // Tiempo máximo de ejecución GRASP - 1.5 minutos
 
     // Método para obtener el valor de K según el modo de simulación
     private int obtenerK() {

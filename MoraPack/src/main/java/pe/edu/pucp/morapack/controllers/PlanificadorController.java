@@ -478,6 +478,7 @@ public class PlanificadorController {
                 return response;
             }
 
+            int enviosActualizados = 0;
             int aeropuertosActualizados = 0;
             int planesActualizados = 0;
             int relacionesVuelosEliminadas = 0;
@@ -485,25 +486,31 @@ public class PlanificadorController {
 
             // ⚡ OPTIMIZACIÓN: Usar SQL nativo para TODO, evitar cargar entidades en memoria
 
-            // 1. Resetear capacidades de aeropuertos con SQL nativo
+            // 1. Resetear estados de envíos a null con SQL nativo
+            System.out.println("🧹 [LIMPIAR] Reseteando estados de envíos a NULL...");
+            Query queryEstados = entityManager.createNativeQuery("UPDATE envio SET estado = NULL");
+            enviosActualizados = queryEstados.executeUpdate();
+            System.out.println("✅ Estados de envíos reseteados: " + enviosActualizados + " envíos");
+
+            // 2. Resetear capacidades de aeropuertos con SQL nativo
             System.out.println("🧹 [LIMPIAR] Reseteando capacidades de aeropuertos...");
             Query queryAeropuertos = entityManager.createNativeQuery("UPDATE aeropuerto SET capacidad_ocupada = 0");
             aeropuertosActualizados = queryAeropuertos.executeUpdate();
             System.out.println("✅ Aeropuertos actualizados: " + aeropuertosActualizados);
 
-            // 2. Resetear capacidades de planes de vuelo con SQL nativo
+            // 3. Resetear capacidades de planes de vuelo con SQL nativo
             System.out.println("🧹 [LIMPIAR] Reseteando capacidades de vuelos...");
             Query queryPlanes = entityManager.createNativeQuery("UPDATE plan_de_vuelo SET capacidad_ocupada = 0");
             planesActualizados = queryPlanes.executeUpdate();
             System.out.println("✅ Planes actualizados: " + planesActualizados);
 
-            // 3. Eliminar relaciones ParteAsignadaPlanDeVuelo (tabla intermedia)
+            // 4. Eliminar relaciones ParteAsignadaPlanDeVuelo (tabla intermedia)
             System.out.println("🧹 [LIMPIAR] Eliminando relaciones vuelo-parte...");
             Query queryRelaciones = entityManager.createNativeQuery("DELETE FROM parte_asignada_plan_de_vuelo");
             relacionesVuelosEliminadas = queryRelaciones.executeUpdate();
             System.out.println("✅ Relaciones eliminadas: " + relacionesVuelosEliminadas);
 
-            // 4. Eliminar todas las partes asignadas
+            // 5. Eliminar todas las partes asignadas
             System.out.println("🧹 [LIMPIAR] Eliminando partes asignadas...");
             Query queryPartes = entityManager.createNativeQuery("DELETE FROM parte_asignada");
             partesEliminadas = queryPartes.executeUpdate();
@@ -518,6 +525,7 @@ public class PlanificadorController {
             response.put("estado", "exito");
             response.put("mensaje", "Planificación limpiada correctamente");
             response.put("detalles", Map.of(
+                    "enviosActualizados", enviosActualizados,
                     "aeropuertosActualizados", aeropuertosActualizados,
                     "planesActualizados", planesActualizados,
                     "relacionesVuelosEliminadas", relacionesVuelosEliminadas,
