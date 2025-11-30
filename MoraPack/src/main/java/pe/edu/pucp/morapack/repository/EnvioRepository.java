@@ -82,9 +82,20 @@ public interface EnvioRepository extends JpaRepository<Envio, Integer> {
         List<Envio> findEnviosConPartesAsignadasLimitado(@Param("limite") int limite);
 
         /**
+         * ⚡ VERSIÓN LIGERA: Carga partes SIN los vuelos de la ruta.
+         * Ideal para el catálogo del frontend donde no necesitamos los vuelos.
+         */
+        @Query("SELECT DISTINCT pa FROM ParteAsignada pa " +
+                        "LEFT JOIN FETCH pa.aeropuertoOrigen " +
+                        "WHERE pa.envio.id IN :envioIds AND (pa.entregado IS NULL OR pa.entregado = false)")
+        List<ParteAsignada> findPartesBasicasByEnvioIds(@Param("envioIds") List<Integer> envioIds);
+
+        /**
          * Segunda query para cargar vuelosRuta de las partes asignadas.
          * Se usa después de findEnviosConPartesAsignadas para evitar
          * MultipleBagFetchException.
+         * ⚠️ CUIDADO: Esta query puede cargar MUCHOS datos. Usar solo cuando sea
+         * necesario.
          */
         @Query("SELECT DISTINCT pa FROM ParteAsignada pa " +
                         "LEFT JOIN FETCH pa.vuelosRuta vr " +

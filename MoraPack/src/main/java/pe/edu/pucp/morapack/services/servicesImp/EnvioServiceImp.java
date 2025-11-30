@@ -525,7 +525,7 @@ public class EnvioServiceImp implements EnvioService {
      * ⚡ OPTIMIZADO CON LÍMITE: Obtiene solo envíos con partes asignadas NO
      * entregadas,
      * con un límite máximo para evitar OOM.
-     * Usa query nativa con LIMIT para evitar cargar demasiados registros.
+     * ⚠️ VERSIÓN LIGERA: NO carga los vuelos de la ruta para evitar OOM.
      */
     @Override
     @Transactional(readOnly = true)
@@ -542,18 +542,18 @@ public class EnvioServiceImp implements EnvioService {
                 .map(Envio::getId)
                 .collect(Collectors.toList());
 
-        // Query 2: Cargar partes asignadas y vuelosRuta
-        List<ParteAsignada> partesConVuelos = envioRepository.findPartesConVuelosByEnvioIds(envioIds);
+        // ⚡ Query 2: Cargar SOLO partes asignadas SIN vuelos (versión ligera)
+        List<ParteAsignada> partes = envioRepository.findPartesBasicasByEnvioIds(envioIds);
 
         // Crear mapa de envioId -> partes para asignar
-        Map<Integer, List<ParteAsignada>> partesPorEnvio = partesConVuelos.stream()
+        Map<Integer, List<ParteAsignada>> partesPorEnvio = partes.stream()
                 .collect(Collectors.groupingBy(p -> p.getEnvio().getId()));
 
         // Asignar partes a cada envío
         for (Envio envio : envios) {
-            List<ParteAsignada> partes = partesPorEnvio.get(envio.getId());
-            if (partes != null) {
-                envio.setParteAsignadas(new java.util.ArrayList<>(partes));
+            List<ParteAsignada> partesEnvio = partesPorEnvio.get(envio.getId());
+            if (partesEnvio != null) {
+                envio.setParteAsignadas(new java.util.ArrayList<>(partesEnvio));
             }
         }
 
