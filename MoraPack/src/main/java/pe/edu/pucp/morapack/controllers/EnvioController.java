@@ -68,14 +68,19 @@ public class EnvioController {
      * ⚡ ENDPOINT OPTIMIZADO: Retorna solo envíos pendientes con partes asignadas
      * NO entregadas, con datos mínimos para el frontend.
      * Esto evita cargar 43,000+ envíos y serializar 28MB de JSON.
+     * 
+     * @param limit Límite de envíos a retornar (por defecto 1000, máximo 5000)
      */
     @GetMapping("obtenerPendientes")
-    public List<Map<String, Object>> obtenerEnviosPendientes() {
+    public List<Map<String, Object>> obtenerEnviosPendientes(
+            @RequestParam(defaultValue = "1000") int limit) {
         long startTime = System.currentTimeMillis();
-        System.out.println("📦 [obtenerPendientes] Iniciando consulta optimizada...");
+        // Limitar a máximo 5000 para evitar OOM
+        int maxLimit = Math.min(limit, 5000);
+        System.out.println("📦 [obtenerPendientes] Iniciando consulta optimizada (limit=" + maxLimit + ")...");
 
-        // Obtener solo envíos que tienen partes asignadas con JOIN FETCH
-        List<Envio> enviosConPartes = envioService.obtenerEnviosConPartesAsignadas();
+        // ⚡ USAR MÉTODO CON LÍMITE para evitar cargar todo a memoria
+        List<Envio> enviosConPartes = envioService.obtenerEnviosConPartesAsignadasLimitado(maxLimit);
         System.out.println("📦 Envíos con partes encontrados: " + enviosConPartes.size());
 
         List<Map<String, Object>> resultado = new ArrayList<>();
