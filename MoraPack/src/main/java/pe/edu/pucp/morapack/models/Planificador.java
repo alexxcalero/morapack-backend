@@ -1366,7 +1366,7 @@ public class Planificador {
                                     // 💾 PERSISTIR inmediatamente el cambio de estado
                                     try {
                                         envioService.insertarEnvio(envio);
-                                        System.out.printf("  ✅ [Estado] Envío %d cambió a ENTREGADO (todas las partes entregadas) [💾 Persistido]%n", envio.getId());
+//                                        System.out.printf("  ✅ [Estado] Envío %d cambió a ENTREGADO (todas las partes entregadas) [💾 Persistido]%n", envio.getId());
                                     } catch (Exception e) {
                                         System.err.printf("❌ Error al persistir cambio de estado ENTREGADO: %s%n", e.getMessage());
                                     }
@@ -1547,7 +1547,7 @@ public class Planificador {
                     // 💾 PERSISTIR inmediatamente el cambio de estado
                     try {
                         envioService.insertarEnvio(envioReal);
-                        System.out.printf("  ✅ [Estado] Envío %d cambió a PLANIFICADO (ruta asignada) [💾 Persistido]%n", envioReal.getId());
+                        //System.out.printf("  ✅ [Estado] Envío %d cambió a PLANIFICADO (ruta asignada) [💾 Persistido]%n", envioReal.getId());
                     } catch (Exception e) {
                         System.err.printf("❌ Error al persistir cambio de estado PLANIFICADO: %s%n", e.getMessage());
                     }
@@ -1692,12 +1692,7 @@ public class Planificador {
                             eventosProgramados.add(futuro);
                             contadorEventos++;
 
-                            System.out.printf("  📅 Evento programado: Vuelo %d llegará a %s en %d min sim (%d seg real) - %s%n",
-                                    vuelo.getId(),
-                                    llegadaLocal.format(DateTimeFormatter.ofPattern("HH:mm")),
-                                    minutosSimulados,
-                                    delaySegundos,
-                                    llegadaLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+//                            System.out.printf("  📅 Evento programado: Vuelo %d llegará a %s en %d min sim (%d seg real) - %s%n", vuelo.getId(), llegadaLocal.format(DateTimeFormatter.ofPattern("HH:mm")), minutosSimulados, delaySegundos, llegadaLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                         }
                     }
 
@@ -1735,12 +1730,7 @@ public class Planificador {
                             eventosProgramados.add(futuro);
                             contadorEventos++;
 
-                            System.out.printf("  📅 Evento programado: Vuelo %d saldrá de %s en %d min sim (%d seg real) - %s%n",
-                                    vuelo.getId(),
-                                    salidaLocal.format(DateTimeFormatter.ofPattern("HH:mm")),
-                                    minutosSimulados,
-                                    delaySegundos,
-                                    salidaLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+//                            System.out.printf("  📅 Evento programado: Vuelo %d saldrá de %s en %d min sim (%d seg real) - %s%n", vuelo.getId(), salidaLocal.format(DateTimeFormatter.ofPattern("HH:mm")), minutosSimulados, delaySegundos, salidaLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                         }
                     }
                 }
@@ -1808,7 +1798,7 @@ public class Planificador {
                             if (envioReal.getEstado() != Envio.EstadoEnvio.FINALIZADO) {
                                 envioReal.setEstado(Envio.EstadoEnvio.FINALIZADO);
                                 envioService.insertarEnvio(envioReal);
-                                System.out.printf("  ✅ [Estado] Envío %d cambió a FINALIZADO (llegó a destino final)%n", envio.getId());
+                                //System.out.printf("  ✅ [Estado] Envío %d cambió a FINALIZADO (llegó a destino final)%n", envio.getId());
                             }
                         }
                     } catch (Exception e) {
@@ -1827,10 +1817,7 @@ public class Planificador {
                     e.printStackTrace();
                 }
 
-                System.out.printf("  ✈️ [Evento] Vuelo %d llegó a %s - Asignados %d productos (Aeropuerto Cap: %d/%d) [💾 Persistido]%n",
-                        vuelo != null && vuelo.getId() != null ? vuelo.getId() : "N/A",
-                        aeropuerto.getCodigo(), evento.getCantidad(),
-                        aeropuerto.getCapacidadOcupada(), aeropuerto.getCapacidadMaxima());
+//                System.out.printf("  ✈️ [Evento] Vuelo %d llegó a %s - Asignados %d productos (Aeropuerto Cap: %d/%d) [💾 Persistido]%n", vuelo != null && vuelo.getId() != null ? vuelo.getId() : "N/A", aeropuerto.getCodigo(), evento.getCantidad(), aeropuerto.getCapacidadOcupada(), aeropuerto.getCapacidadMaxima());
             } else if (evento.getTipo() == EventoTemporal.TipoEvento.SALIDA_VUELO) {
                 // Vuelo sale: desasignar capacidad en el aeropuerto origen
                 aeropuerto.desasignarCapacidad(evento.getCantidad());
@@ -1845,7 +1832,7 @@ public class Planificador {
                             if (envioReal.getEstado() != Envio.EstadoEnvio.EN_RUTA) {
                                 envioReal.setEstado(Envio.EstadoEnvio.EN_RUTA);
                                 envioService.insertarEnvio(envioReal);
-                                System.out.printf("  ✅ [Estado] Envío %d cambió a EN_RUTA (primer vuelo inició)%n", envio.getId());
+                                //System.out.printf("  ✅ [Estado] Envío %d cambió a EN_RUTA (primer vuelo inició)%n", envio.getId());
                             }
                         }
                     } catch (Exception e) {
@@ -1861,10 +1848,7 @@ public class Planificador {
                     e.printStackTrace();
                 }
 
-                System.out.printf("  ✈️ [Evento] Vuelo %d salió de %s - Desasignados %d productos (Aeropuerto Cap: %d/%d) [💾 Persistido]%n",
-                        evento.getVuelo() != null && evento.getVuelo().getId() != null ? evento.getVuelo().getId() : "N/A",
-                        aeropuerto.getCodigo(), evento.getCantidad(),
-                        aeropuerto.getCapacidadOcupada(), aeropuerto.getCapacidadMaxima());
+//                System.out.printf("  ✈️ [Evento] Vuelo %d salió de %s - Desasignados %d productos (Aeropuerto Cap: %d/%d) [💾 Persistido]%n", evento.getVuelo() != null && evento.getVuelo().getId() != null ? evento.getVuelo().getId() : "N/A", aeropuerto.getCodigo(), evento.getCantidad(), aeropuerto.getCapacidadOcupada(), aeropuerto.getCapacidadMaxima());
             }
         } catch (Exception e) {
             System.err.printf("❌ Error al procesar evento: %s%n", e.getMessage());
