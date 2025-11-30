@@ -520,4 +520,17 @@ public class EnvioServiceImp implements EnvioService {
 
         return envios;
     }
+
+    /**
+     * ⚡ OPTIMIZADO: Cuenta envíos por estado directamente en la base de datos.
+     * Esto evita cargar todos los envíos en memoria y previene OutOfMemoryError.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public long contarEnviosPorEstado(Envio.EstadoEnvio estado) {
+        if (estado == null) {
+            return envioRepository.countByEstadoIsNull();
+        }
+        return envioRepository.countByEstado(estado);
+    }
 }

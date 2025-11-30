@@ -50,4 +50,10 @@ public interface EnvioService {
          * Ideal para el catálogo de envíos pendientes en el frontend.
          */
         List<Envio> obtenerEnviosConPartesAsignadas();
+
+        /**
+         * ⚡ OPTIMIZADO: Cuenta envíos por estado directamente en la base de datos.
+         * Esto evita cargar todos los envíos en memoria.
+         */
+        long contarEnviosPorEstado(Envio.EstadoEnvio estado);
 }

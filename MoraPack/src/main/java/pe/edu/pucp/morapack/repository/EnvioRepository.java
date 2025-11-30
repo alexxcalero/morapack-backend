@@ -81,4 +81,17 @@ public interface EnvioRepository extends JpaRepository<Envio, Integer> {
                         "LEFT JOIN FETCH vr.planDeVuelo " +
                         "WHERE pa.envio.id IN :envioIds")
         ArrayList<ParteAsignada> findPartesConVuelosByEnvioIds(@Param("envioIds") List<Integer> envioIds);
+
+        /**
+         * ⚡ OPTIMIZADO: Cuenta envíos por estado directamente en la base de datos.
+         * Esto evita cargar todos los envíos en memoria.
+         */
+        @Query("SELECT COUNT(e) FROM Envio e WHERE e.estado = :estado")
+        long countByEstado(@Param("estado") Envio.EstadoEnvio estado);
+
+        /**
+         * ⚡ OPTIMIZADO: Cuenta envíos sin estado (null).
+         */
+        @Query("SELECT COUNT(e) FROM Envio e WHERE e.estado IS NULL")
+        long countByEstadoIsNull();
 }

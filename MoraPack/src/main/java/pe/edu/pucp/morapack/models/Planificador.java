@@ -928,20 +928,16 @@ public class Planificador {
     }
 
     /**
-     * ⚡ Calcula el total de envíos por estado desde la base de datos
+     * ⚡ OPTIMIZADO: Calcula el total de envíos por estado desde la base de datos.
+     * Usa COUNT directamente en la BD en lugar de cargar todos los envíos en memoria.
+     * Esto previene OutOfMemoryError cuando hay muchos envíos.
      */
     private int calcularTotalEnviosPorEstado(Envio.EstadoEnvio estado) {
         try {
-            List<Envio> todosEnvios = envioService.obtenerEnvios();
-            if (todosEnvios == null) {
-                return 0;
-            }
-
-            return (int) todosEnvios.stream()
-                    .filter(e -> e.getEstado() == estado)
-                    .count();
+            return (int) envioService.contarEnviosPorEstado(estado);
         } catch (Exception e) {
             System.err.printf("❌ Error al calcular envíos por estado %s: %s%n", estado, e.getMessage());
+            e.printStackTrace();
             return 0;
         }
     }
