@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 @AllArgsConstructor
 public class Grasp {
 
-    private static final int MAX_ITERACIONES = 1000;
+    private static final int MAX_ITERACIONES = 500;
     private static final int MAX_SIN_MEJORA = 5;
     private static final int DIAS_A_INSTANCIAR = 3;
 

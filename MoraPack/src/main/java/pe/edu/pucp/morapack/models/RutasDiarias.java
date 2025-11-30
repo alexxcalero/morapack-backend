@@ -81,7 +81,7 @@ public class RutasDiarias {
             beam.add(new PathState(origen, null, new ArrayList<>(), null, Integer.MAX_VALUE));
 
             Map<String, List<PlanDeVuelo>> vuelosPorOrigen = this.vuelosPorOrigenCache;
-            for(int nivel = 0; nivel < 4; nivel++) {
+            for(int nivel = 0; nivel < 3; nivel++) {
                 List<PathState> nuevosEstados = new ArrayList<>();
 
                 for(PathState ps : beam) {  // Iteramos en cada estado

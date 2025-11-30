@@ -165,7 +165,7 @@ public class PlanDeVueloController {
                     Integer capacidad = Integer.parseInt(data[4]);
 
                     // ✅ GENERAR PARA 730 DÍAS (2 años aprox.)
-                    for (int diaOffset = 0; diaOffset < 30; diaOffset++) {
+                    for (int diaOffset = 0; diaOffset < 730; diaOffset++) {
                         LocalDate fechaVuelo = fechaBase.plusDays(diaOffset);
 
                         LocalDateTime fechaInicio = LocalDateTime.of(fechaVuelo, hI);

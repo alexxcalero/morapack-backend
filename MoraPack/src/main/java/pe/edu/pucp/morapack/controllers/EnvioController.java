@@ -310,23 +310,23 @@ public class EnvioController {
             System.out.println("✅ " + hubs.size() + " hubs configurados");
 
             // Intentar leer desde el classpath primero (funciona en JAR y en desarrollo)
-            inputStream = getClass().getClassLoader().getResourceAsStream("envios/pedidos-diciembre22-31.txt");
+            inputStream = getClass().getClassLoader().getResourceAsStream("envios/pedidos-completos.txt");
 
             if (inputStream != null) {
-                System.out.println("📂 Leyendo archivo desde classpath: envios/pedidos-diciembre22-31.txt");
+                System.out.println("📂 Leyendo archivo desde classpath: envios/pedidos-completos.txt");
                 scanner = new Scanner(inputStream, "UTF-8");
             } else {
                 // Si no se encuentra en el classpath, intentar como archivo del sistema
-                File enviosFile = new File("src/main/resources/envios/pedidos-diciembre22-31.txt");
+                File enviosFile = new File("src/main/resources/envios/pedidos-completos.txt");
 
                 if (!enviosFile.exists()) {
                     // También intentar desde la raíz del proyecto
-                    enviosFile = new File("envios/pedidos-diciembre22-31.txt");
+                    enviosFile = new File("envios/pedidos-completos.txt");
 
                     if (!enviosFile.exists()) {
                         // Intentar con ruta absoluta relativa al directorio de trabajo
                         String workingDir = System.getProperty("user.dir");
-                        enviosFile = new File(workingDir + "/src/main/resources/envios/pedidos-diciembre22-31.txt");
+                        enviosFile = new File(workingDir + "/src/main/resources/envios/pedidos-completos.txt");
                     }
                 }
 
@@ -335,11 +335,11 @@ public class EnvioController {
                     scanner = new Scanner(enviosFile, "UTF-8");
                 } else {
                     System.err.println("❌ Archivo no encontrado. Buscado en:");
-                    System.err.println("  - classpath:envios/pedidos-diciembre22-31.txt");
-                    System.err.println("  - src/main/resources/envios/pedidos-diciembre22-31.txt");
-                    System.err.println("  - envios/pedidos-diciembre22-31.txt");
+                    System.err.println("  - classpath:envios/pedidos-completos.txt");
+                    System.err.println("  - src/main/resources/envios/pedidos-completos.txt");
+                    System.err.println("  - envios/pedidos-completos.txt");
                     System.err.println("  - " + System.getProperty("user.dir")
-                            + "/src/main/resources/envios/pedidos-diciembre22-31.txt");
+                            + "/src/main/resources/envios/pedidos-completos.txt");
                     resultado.put("estado", "error");
                     resultado.put("mensaje", "Archivo no encontrado");
                     resultado.put("enviosCargados", 0);
