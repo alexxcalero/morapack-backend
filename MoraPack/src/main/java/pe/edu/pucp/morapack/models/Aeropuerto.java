@@ -58,8 +58,7 @@ public class Aeropuerto {
         if(this.capacidadOcupada >= cantidad) {
             this.capacidadOcupada -= cantidad;
         } else {
-            System.err.printf("⚠️  Intento de desasignar más de lo asignado en aeropuerto %s: %d > %d%n",
-                    this.codigo, cantidad, this.capacidadOcupada);
+//            System.err.printf("⚠️  Intento de desasignar más de lo asignado en aeropuerto %s: %d > %d%n", this.codigo, cantidad, this.capacidadOcupada);
             this.capacidadOcupada = 0;
         }
     }
