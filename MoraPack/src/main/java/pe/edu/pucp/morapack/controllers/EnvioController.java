@@ -279,11 +279,15 @@ public class EnvioController {
         return resultado;
     }
 
-    // ⚠️ SIN @Transactional para que cada lote haga commit inmediato y no se pierda
-    // si falla después
-    // ⚡ RESUME AUTOMÁTICO: Si ya hay envíos en BD, continúa desde donde quedó
+    /**
+     * Carga envíos desde archivo. Soporta continuar desde donde falló.
+     * 
+     * @param skip Número de líneas a saltar (para continuar carga interrumpida).
+     *             Usar el valor de "enviosCargados" del intento anterior.
+     *             Ejemplo: /api/envios/leerArchivoBack?skip=2485000
+     */
     @PostMapping("leerArchivoBack")
-    public Map<String, Object> leerArchivoBack() {
+    public Map<String, Object> leerArchivoBack(@RequestParam(defaultValue = "0") int skip) {
         long startTime = System.currentTimeMillis();
         Scanner scanner = null;
         InputStream inputStream = null;
@@ -293,14 +297,15 @@ public class EnvioController {
         final int BATCH_SIZE = 5000;
         ArrayList<Envio> batchEnvios = new ArrayList<>(BATCH_SIZE);
         int totalEnviosGuardados = 0;
+        int lineasSaltadas = 0;
 
         try {
-            // ⚡ RESUME: Detectar cuántos envíos ya hay en BD para continuar desde ahí
-            // Usamos COUNT en BD en lugar de cargar todos los envíos
-            long enviosExistentes = envioService.contarEnvios();
-            int lineasASaltar = (int) enviosExistentes;
-            if (lineasASaltar > 0) {
-                System.out.println("🔄 RESUME: Ya hay " + lineasASaltar + " envíos en BD, saltando esas líneas...");
+            // Verificar cuántos envíos ya existen en BD
+            long enviosExistentes = envioService.obtenerEnvios().size();
+            System.out.println("📊 Envíos existentes en BD: " + enviosExistentes);
+
+            if (skip > 0) {
+                System.out.println("⏭️ Continuando carga - saltando primeras " + skip + " líneas...");
             }
 
             // ⚡ OPTIMIZACIÓN: Cargar todos los aeropuertos UNA SOLA VEZ y crear un mapa
@@ -363,26 +368,26 @@ public class EnvioController {
                 }
             }
 
+            // ⏭️ Saltar líneas si es continuación
+            while (lineasSaltadas < skip && scanner.hasNextLine()) {
+                scanner.nextLine();
+                lineasSaltadas++;
+                if (lineasSaltadas % 100000 == 0) {
+                    System.out.println("⏭️ Saltadas " + lineasSaltadas + "/" + skip + " líneas...");
+                }
+            }
+            if (skip > 0) {
+                System.out.println("⏭️ Saltadas " + lineasSaltadas + " líneas. Comenzando carga...");
+            }
+
             // Procesar el archivo
             int lineasProcesadas = 0;
-            int lineasSaltadas = 0;
             int errores = 0;
             System.out.println("📂 Procesando envíos del archivo (guardando en lotes de " + BATCH_SIZE + ")...");
 
             while (scanner.hasNextLine()) {
                 String linea = scanner.nextLine().trim();
                 if (linea.isEmpty()) {
-                    continue;
-                }
-
-                lineasProcesadas++;
-
-                // ⚡ RESUME: Saltar líneas ya procesadas
-                if (lineasProcesadas <= lineasASaltar) {
-                    lineasSaltadas++;
-                    if (lineasSaltadas % 100000 == 0) {
-                        System.out.println("⏭️ Saltando líneas... " + lineasSaltadas + "/" + lineasASaltar);
-                    }
                     continue;
                 }
 
@@ -421,7 +426,8 @@ public class EnvioController {
                                 envioService.insertarListaEnvios(batchEnvios);
                                 totalEnviosGuardados += batchEnvios.size();
                                 batchEnvios.clear(); // Liberar memoria
-                                System.out.println("💾 Guardados " + totalEnviosGuardados + " envíos...");
+                                System.out.println("💾 Guardados " + totalEnviosGuardados + " envíos (total con skip: "
+                                        + (skip + totalEnviosGuardados) + ")...");
                             }
                         } catch (Exception e) {
                             errores++;
@@ -443,8 +449,9 @@ public class EnvioController {
                 System.out.println("💾 Guardado último lote. Total: " + totalEnviosGuardados + " envíos");
             }
 
-            System.out.println("✅ Carga completada: " + totalEnviosGuardados + " nuevos envíos (saltados: "
-                    + lineasSaltadas + ", errores: " + errores + ")");
+            System.out.println(
+                    "✅ Carga completada: " + totalEnviosGuardados + " envíos nuevos (errores: " + errores + ")");
+            System.out.println("✅ Total en BD: " + (skip + totalEnviosGuardados) + " envíos");
 
         } catch (FileNotFoundException e) {
             System.err.println("❌ Archivo de pedidos no encontrado: " + e.getMessage());
@@ -452,6 +459,7 @@ public class EnvioController {
             resultado.put("estado", "error");
             resultado.put("mensaje", "Archivo no encontrado: " + e.getMessage());
             resultado.put("enviosCargados", totalEnviosGuardados);
+            resultado.put("totalConSkip", skip + totalEnviosGuardados);
             return resultado;
         } catch (Exception e) {
             System.err.println("❌ Error al cargar envíos desde archivo: " + e.getMessage());
@@ -459,6 +467,8 @@ public class EnvioController {
             resultado.put("estado", "error");
             resultado.put("mensaje", "Error: " + e.getMessage());
             resultado.put("enviosCargados", totalEnviosGuardados);
+            resultado.put("totalConSkip", skip + totalEnviosGuardados);
+            resultado.put("continuarCon", "skip=" + (skip + totalEnviosGuardados));
             return resultado;
         } finally {
             // Cerrar recursos
@@ -482,7 +492,9 @@ public class EnvioController {
         // ⚡ OPTIMIZACIÓN: Devolver solo un resumen en lugar de todos los envíos
         resultado.put("estado", "éxito");
         resultado.put("mensaje", "Envíos cargados correctamente");
-        resultado.put("enviosCargados", totalEnviosGuardados);
+        resultado.put("enviosCargadosNuevos", totalEnviosGuardados);
+        resultado.put("lineasSaltadas", skip);
+        resultado.put("totalEnvios", skip + totalEnviosGuardados);
         resultado.put("tiempoEjecucionSegundos", durationInSeconds);
         return resultado;
     }
