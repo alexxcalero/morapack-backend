@@ -76,9 +76,7 @@ public interface EnvioRepository extends JpaRepository<Envio, Integer> {
          * con partes NO entregadas, limitado a N registros para evitar OOM.
          */
         @Query(value = "SELECT DISTINCT e.* FROM envio e " +
-                        "INNER JOIN parte_asignada pa ON pa.envio_id = e.id " +
-                        "LEFT JOIN aeropuerto ao ON pa.aeropuerto_origen_id = ao.id " +
-                        "LEFT JOIN aeropuerto ad ON e.aeropuerto_destino_id = ad.id " +
+                        "INNER JOIN parte_asignada pa ON pa.id_envio = e.id " +
                         "WHERE pa.entregado IS NULL OR pa.entregado = false " +
                         "LIMIT :limite", nativeQuery = true)
         List<Envio> findEnviosConPartesAsignadasLimitado(@Param("limite") int limite);
