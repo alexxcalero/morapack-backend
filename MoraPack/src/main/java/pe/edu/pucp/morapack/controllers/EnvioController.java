@@ -51,6 +51,126 @@ public class EnvioController {
         return envioService.obtenerEnvioPorId(id);
     }
 
+    /**
+     * 🔍 BÚSQUEDA DE ENVÍOS: Permite buscar envíos por ID (completo o parcial)
+     * incluyendo sus rutas de vuelos. Útil para encontrar envíos específicos
+     * que están en aviones volando.
+     * 
+     * @param query Texto de búsqueda (puede ser ID completo o parte del ID)
+     * @param limit Límite de resultados (por defecto 50, máximo 100)
+     */
+    @GetMapping("buscar")
+    @Transactional(readOnly = true)
+    public Map<String, Object> buscarEnvios(
+            @RequestParam String query,
+            @RequestParam(defaultValue = "50") int limit) {
+
+        Map<String, Object> response = new HashMap<>();
+        long start = System.currentTimeMillis();
+
+        try {
+            int maxLimit = Math.min(limit, 100);
+            String queryTrimmed = query.trim();
+
+            if (queryTrimmed.isEmpty()) {
+                response.put("estado", "error");
+                response.put("mensaje", "Se requiere un término de búsqueda");
+                return response;
+            }
+
+            System.out.println("🔍 [buscarEnvios] Buscando: '" + queryTrimmed + "' (limit=" + maxLimit + ")");
+
+            // Buscar envíos cuyo ID contenga el término de búsqueda
+            List<Envio> enviosEncontrados = envioService.buscarEnviosPorIdConRutas(queryTrimmed, maxLimit);
+
+            // Convertir a formato de respuesta
+            List<Map<String, Object>> enviosFormateados = new ArrayList<>();
+
+            for (Envio envio : enviosEncontrados) {
+                Map<String, Object> envioMap = new HashMap<>();
+                envioMap.put("id", envio.getId());
+                envioMap.put("idEnvioPorAeropuerto", envio.getIdEnvioPorAeropuerto());
+                envioMap.put("numProductos", envio.getNumProductos());
+                envioMap.put("cliente", envio.getCliente());
+                envioMap.put("fechaIngreso", envio.getFechaIngreso());
+                envioMap.put("estado", envio.getEstado() != null ? envio.getEstado().name() : null);
+
+                // Aeropuerto destino
+                if (envio.getAeropuertoDestino() != null) {
+                    Map<String, Object> destino = new HashMap<>();
+                    destino.put("id", envio.getAeropuertoDestino().getId());
+                    destino.put("codigo", envio.getAeropuertoDestino().getCodigo());
+                    destino.put("ciudad", envio.getAeropuertoDestino().getCiudad());
+                    envioMap.put("aeropuertoDestino", destino);
+                }
+
+                // Partes asignadas con vuelos
+                List<Map<String, Object>> partesFormateadas = new ArrayList<>();
+                if (envio.getParteAsignadas() != null) {
+                    for (ParteAsignada parte : envio.getParteAsignadas()) {
+                        Map<String, Object> parteMap = new HashMap<>();
+                        parteMap.put("id", parte.getId());
+                        parteMap.put("cantidad", parte.getCantidad());
+                        parteMap.put("entregado", parte.getEntregado());
+
+                        // Aeropuerto origen de la parte
+                        if (parte.getAeropuertoOrigen() != null) {
+                            Map<String, Object> origen = new HashMap<>();
+                            origen.put("id", parte.getAeropuertoOrigen().getId());
+                            origen.put("codigo", parte.getAeropuertoOrigen().getCodigo());
+                            origen.put("ciudad", parte.getAeropuertoOrigen().getCiudad());
+                            parteMap.put("aeropuertoOrigen", origen);
+                        }
+
+                        // Vuelos de la ruta
+                        List<Map<String, Object>> vuelosRuta = new ArrayList<>();
+                        if (parte.getVuelosRuta() != null) {
+                            for (ParteAsignadaPlanDeVuelo vueloEnRuta : parte.getVuelosRuta()) {
+                                PlanDeVuelo vuelo = vueloEnRuta.getPlanDeVuelo();
+                                if (vuelo != null) {
+                                    Map<String, Object> vueloMap = new HashMap<>();
+                                    vueloMap.put("id", vuelo.getId());
+                                    vueloMap.put("orden", vueloEnRuta.getOrden());
+                                    vueloMap.put("ciudadOrigen", vuelo.getCiudadOrigen());
+                                    vueloMap.put("ciudadDestino", vuelo.getCiudadDestino());
+                                    vueloMap.put("horaSalida", vuelo.getHoraOrigen());
+                                    vueloMap.put("horaLlegada", vuelo.getHoraDestino());
+                                    vuelosRuta.add(vueloMap);
+                                }
+                            }
+                        }
+                        parteMap.put("vuelosRuta", vuelosRuta);
+                        partesFormateadas.add(parteMap);
+                    }
+                }
+                envioMap.put("parteAsignadas", partesFormateadas);
+                envioMap.put("totalPartes", partesFormateadas.size());
+                envioMap.put("totalVuelos", partesFormateadas.stream()
+                        .mapToInt(p -> ((List<?>) p.get("vuelosRuta")).size())
+                        .sum());
+
+                enviosFormateados.add(envioMap);
+            }
+
+            response.put("estado", "éxito");
+            response.put("envios", enviosFormateados);
+            response.put("cantidadEncontrados", enviosFormateados.size());
+            response.put("query", queryTrimmed);
+
+        } catch (Exception e) {
+            System.err.println("❌ Error en buscarEnvios: " + e.getMessage());
+            e.printStackTrace();
+            response.put("estado", "error");
+            response.put("mensaje", e.getMessage());
+        }
+
+        long elapsed = System.currentTimeMillis() - start;
+        response.put("tiempoMs", elapsed);
+        System.out.println("🔍 [buscarEnvios] Completado en " + elapsed + "ms");
+
+        return response;
+    }
+
     @GetMapping("obtenerTodosFecha/{fecha}")
     public ArrayList<Envio> obtenerEnviosPorFecha(@PathVariable String fecha) {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");

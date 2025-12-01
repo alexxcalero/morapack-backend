@@ -115,4 +115,24 @@ public interface EnvioRepository extends JpaRepository<Envio, Integer> {
          */
         @Query("SELECT COUNT(e) FROM Envio e WHERE e.estado IS NULL")
         long countByEstadoIsNull();
+
+        /**
+         * 🔍 Busca envíos por ID exacto, con límite de resultados.
+         * Incluye envíos con partes asignadas para poder cargar sus rutas.
+         */
+        @Query(value = "SELECT DISTINCT e.* FROM envio e " +
+                        "LEFT JOIN parte_asignada pa ON pa.id_envio = e.id " +
+                        "WHERE e.id = :id " +
+                        "LIMIT :limite", nativeQuery = true)
+        List<Envio> buscarPorIdExacto(@Param("id") Integer id, @Param("limite") int limite);
+
+        /**
+         * 🔍 Busca envíos cuyo ID contiene el patrón dado (búsqueda parcial).
+         * Útil para encontrar envíos cuando solo se conoce parte del ID.
+         */
+        @Query(value = "SELECT DISTINCT e.* FROM envio e " +
+                        "LEFT JOIN parte_asignada pa ON pa.id_envio = e.id " +
+                        "WHERE CAST(e.id AS CHAR) LIKE :patron " +
+                        "LIMIT :limite", nativeQuery = true)
+        List<Envio> buscarPorIdParcial(@Param("patron") String patron, @Param("limite") int limite);
 }
