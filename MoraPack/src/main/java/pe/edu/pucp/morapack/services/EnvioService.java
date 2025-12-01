@@ -58,6 +58,12 @@ public interface EnvioService {
         List<Envio> obtenerEnviosConPartesAsignadasLimitado(int limite);
 
         /**
+         * ⚡ PARA RUTAS: Obtiene envíos con partes Y sus vuelos de ruta cargados.
+         * Este método es más pesado pero necesario para mostrar aviones con envíos.
+         */
+        List<Envio> obtenerEnviosConPartesYVuelosLimitado(int limite);
+
+        /**
          * ⚡ OPTIMIZADO: Cuenta envíos por estado directamente en la base de datos.
          * Esto evita cargar todos los envíos en memoria.
          */

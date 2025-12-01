@@ -561,6 +561,45 @@ public class EnvioServiceImp implements EnvioService {
     }
 
     /**
+     * ⚡ PARA RUTAS DE ENVÍOS: Obtiene envíos con partes Y sus vuelos de ruta.
+     * Esta versión es más pesada pero necesaria para mostrar aviones con envíos en
+     * el mapa.
+     * ⚠️ USAR CON CUIDADO: Límite estricto recomendado (100-200 max).
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<Envio> obtenerEnviosConPartesYVuelosLimitado(int limite) {
+        // Query 1: Obtener envíos con partes asignadas (con límite)
+        List<Envio> envios = envioRepository.findEnviosConPartesAsignadasLimitado(limite);
+
+        if (envios.isEmpty()) {
+            return envios;
+        }
+
+        // Recopilar IDs de envíos
+        List<Integer> envioIds = envios.stream()
+                .map(Envio::getId)
+                .collect(Collectors.toList());
+
+        // Query 2: Cargar partes CON sus vuelos de ruta
+        List<ParteAsignada> partesConVuelos = envioRepository.findPartesConVuelosByEnvioIds(envioIds);
+
+        // Crear mapa de envioId -> partes
+        Map<Integer, List<ParteAsignada>> partesPorEnvio = partesConVuelos.stream()
+                .collect(Collectors.groupingBy(p -> p.getEnvio().getId()));
+
+        // Asignar partes a cada envío
+        for (Envio envio : envios) {
+            List<ParteAsignada> partesEnvio = partesPorEnvio.get(envio.getId());
+            if (partesEnvio != null) {
+                envio.setParteAsignadas(new java.util.ArrayList<>(partesEnvio));
+            }
+        }
+
+        return envios;
+    }
+
+    /**
      * ⚡ OPTIMIZADO: Cuenta envíos por estado directamente en la base de datos.
      * Esto evita cargar todos los envíos en memoria y previene OutOfMemoryError.
      */

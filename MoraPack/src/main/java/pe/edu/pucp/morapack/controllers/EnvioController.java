@@ -65,6 +65,183 @@ public class EnvioController {
     }
 
     /**
+     * ⚡ ENDPOINT PARA RUTAS DE ENVÍOS: Retorna envíos planificados CON sus rutas de
+     * vuelos.
+     * Este es el endpoint correcto para mostrar los aviones con envíos en el mapa.
+     * A diferencia de /obtenerPendientes, este SÍ incluye los vuelos de cada parte.
+     * 
+     * @param limit Límite de envíos (por defecto 100, máximo 200)
+     */
+    @GetMapping("obtenerPlanificadosConRutas")
+    @Transactional(readOnly = true)
+    public Map<String, Object> obtenerEnviosPlanificadosConRutas(
+            @RequestParam(defaultValue = "100") int limit) {
+        long startTime = System.currentTimeMillis();
+        int maxLimit = Math.min(limit, 200); // Límite estricto para evitar OOM
+        System.out.println("✈️ [obtenerPlanificadosConRutas] Iniciando (limit=" + maxLimit + ")...");
+
+        Map<String, Object> resultado = new HashMap<>();
+
+        // Cargar aeropuertos para resolver IDs a objetos
+        ArrayList<Aeropuerto> todosAeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+        Map<Integer, Aeropuerto> aeropuertosPorId = new HashMap<>();
+        for (Aeropuerto a : todosAeropuertos) {
+            aeropuertosPorId.put(a.getId(), a);
+        }
+
+        try {
+            // Obtener envíos con partes asignadas
+            List<Envio> enviosConPartes = envioService.obtenerEnviosConPartesYVuelosLimitado(maxLimit);
+            System.out.println("✈️ Envíos con partes y vuelos: " + enviosConPartes.size());
+
+            List<Map<String, Object>> enviosPlanificados = new ArrayList<>();
+            List<Map<String, Object>> vuelosUnicos = new ArrayList<>();
+            java.util.Set<Integer> vuelosVistos = new java.util.HashSet<>();
+
+            java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter
+                    .ofPattern("yyyy-MM-dd HH:mm");
+
+            for (Envio envio : enviosConPartes) {
+                if (envio.getParteAsignadas() == null || envio.getParteAsignadas().isEmpty()) {
+                    continue;
+                }
+
+                // Filtrar partes NO entregadas que tienen vuelos
+                List<ParteAsignada> partesConVuelos = new ArrayList<>();
+                for (ParteAsignada parte : envio.getParteAsignadas()) {
+                    if (!Boolean.TRUE.equals(parte.getEntregado()) &&
+                            parte.getVuelosRuta() != null && !parte.getVuelosRuta().isEmpty()) {
+                        partesConVuelos.add(parte);
+                    }
+                }
+
+                if (partesConVuelos.isEmpty())
+                    continue;
+
+                Map<String, Object> envioMap = new HashMap<>();
+                envioMap.put("id", envio.getId());
+                envioMap.put("idEnvioPorAeropuerto", envio.getIdEnvioPorAeropuerto());
+                envioMap.put("numProductos", envio.getNumProductos());
+                envioMap.put("cliente", envio.getCliente());
+                envioMap.put("fechaIngreso", envio.getFechaIngreso());
+
+                if (envio.getAeropuertoDestino() != null) {
+                    envioMap.put("aeropuertoDestino", Map.of(
+                            "id", envio.getAeropuertoDestino().getId(),
+                            "codigo", envio.getAeropuertoDestino().getCodigo(),
+                            "ciudad", envio.getAeropuertoDestino().getCiudad(),
+                            "latitud", envio.getAeropuertoDestino().getLatitud(),
+                            "longitud", envio.getAeropuertoDestino().getLongitud()));
+                }
+
+                // Procesar partes con sus vuelos
+                List<Map<String, Object>> partesMap = new ArrayList<>();
+                for (ParteAsignada parte : partesConVuelos) {
+                    Map<String, Object> parteMap = new HashMap<>();
+                    parteMap.put("id", parte.getId());
+                    parteMap.put("cantidad", parte.getCantidad());
+                    parteMap.put("llegadaFinal", parte.getLlegadaFinal());
+
+                    if (parte.getAeropuertoOrigen() != null) {
+                        parteMap.put("aeropuertoOrigen", Map.of(
+                                "id", parte.getAeropuertoOrigen().getId(),
+                                "codigo", parte.getAeropuertoOrigen().getCodigo(),
+                                "ciudad", parte.getAeropuertoOrigen().getCiudad(),
+                                "latitud", parte.getAeropuertoOrigen().getLatitud(),
+                                "longitud", parte.getAeropuertoOrigen().getLongitud()));
+                    }
+
+                    // Procesar vuelos de la ruta
+                    List<Map<String, Object>> vuelosRutaMap = new ArrayList<>();
+                    for (ParteAsignadaPlanDeVuelo vr : parte.getVuelosRuta()) {
+                        if (vr.getPlanDeVuelo() == null)
+                            continue;
+
+                        PlanDeVuelo vuelo = vr.getPlanDeVuelo();
+                        Map<String, Object> vueloMap = new HashMap<>();
+                        vueloMap.put("id", vuelo.getId());
+                        vueloMap.put("orden", vr.getOrden());
+
+                        // horaOrigen y horaDestino son los nombres correctos en PlanDeVuelo
+                        if (vuelo.getHoraOrigen() != null) {
+                            vueloMap.put("horaSalida", vuelo.getHoraOrigen().format(formatter) + " (UTC+00:00)");
+                        }
+                        if (vuelo.getHoraDestino() != null) {
+                            vueloMap.put("horaLlegada", vuelo.getHoraDestino().format(formatter) + " (UTC+00:00)");
+                        }
+
+                        // Origen - ciudadOrigen es Integer (ID), hay que buscar el aeropuerto
+                        if (vuelo.getCiudadOrigen() != null) {
+                            Aeropuerto origen = aeropuertosPorId.get(vuelo.getCiudadOrigen());
+                            if (origen != null) {
+                                vueloMap.put("ciudadOrigen", Map.of(
+                                        "id", origen.getId(),
+                                        "codigo", origen.getCodigo(),
+                                        "ciudad", origen.getCiudad(),
+                                        "latitud", origen.getLatitud(),
+                                        "longitud", origen.getLongitud()));
+                            }
+                        }
+
+                        // Destino - ciudadDestino es Integer (ID)
+                        if (vuelo.getCiudadDestino() != null) {
+                            Aeropuerto destino = aeropuertosPorId.get(vuelo.getCiudadDestino());
+                            if (destino != null) {
+                                vueloMap.put("ciudadDestino", Map.of(
+                                        "id", destino.getId(),
+                                        "codigo", destino.getCodigo(),
+                                        "ciudad", destino.getCiudad(),
+                                        "latitud", destino.getLatitud(),
+                                        "longitud", destino.getLongitud()));
+                            }
+                        }
+
+                        vuelosRutaMap.add(vueloMap);
+
+                        // Agregar vuelo a la lista global (sin duplicados)
+                        if (!vuelosVistos.contains(vuelo.getId())) {
+                            vuelosVistos.add(vuelo.getId());
+                            Map<String, Object> vueloGlobal = new HashMap<>(vueloMap);
+                            vueloGlobal.put("envioId", envio.getId());
+                            vueloGlobal.put("parteId", parte.getId());
+                            vueloGlobal.put("cantidad", parte.getCantidad());
+                            vuelosUnicos.add(vueloGlobal);
+                        }
+                    }
+                    parteMap.put("vuelosRuta", vuelosRutaMap);
+                    partesMap.add(parteMap);
+                }
+
+                envioMap.put("parteAsignadas", partesMap);
+                envioMap.put("totalVuelos", partesMap.stream()
+                        .mapToInt(p -> ((List<?>) p.get("vuelosRuta")).size())
+                        .sum());
+                enviosPlanificados.add(envioMap);
+            }
+
+            resultado.put("estado", "exito");
+            resultado.put("envios", enviosPlanificados);
+            resultado.put("cantidadEnvios", enviosPlanificados.size());
+            resultado.put("vuelos", vuelosUnicos);
+            resultado.put("cantidadVuelos", vuelosUnicos.size());
+
+        } catch (Exception e) {
+            System.err.println("❌ Error en obtenerPlanificadosConRutas: " + e.getMessage());
+            e.printStackTrace();
+            resultado.put("estado", "error");
+            resultado.put("mensaje", e.getMessage());
+            resultado.put("envios", new ArrayList<>());
+            resultado.put("vuelos", new ArrayList<>());
+        }
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        resultado.put("tiempoMs", elapsed);
+        System.out.println("✈️ [obtenerPlanificadosConRutas] ✅ Completado en " + elapsed + "ms");
+
+        return resultado;
+    }
+
+    /**
      * ⚡ ENDPOINT OPTIMIZADO: Retorna solo envíos pendientes con partes asignadas
      * NO entregadas, con datos mínimos para el frontend.
      * Esto evita cargar 43,000+ envíos y serializar 28MB de JSON.
