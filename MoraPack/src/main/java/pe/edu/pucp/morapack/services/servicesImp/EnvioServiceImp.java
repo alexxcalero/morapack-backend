@@ -611,4 +611,52 @@ public class EnvioServiceImp implements EnvioService {
         }
         return envioRepository.countByEstado(estado);
     }
+
+    /**
+     * 🔍 Busca envíos por ID (completo o parcial) incluyendo sus rutas de vuelos.
+     * Útil para encontrar envíos específicos que están en aviones volando.
+     * 
+     * @param query  Texto de búsqueda (puede ser ID completo o parte del ID)
+     * @param limite Límite de resultados
+     * @return Lista de envíos con sus partes y vuelos cargados
+     */
+    @Transactional(readOnly = true)
+    public List<Envio> buscarEnviosPorIdConRutas(String query, int limite) {
+        List<Envio> envios;
+
+        // Intentar parsear como número para búsqueda exacta
+        try {
+            Integer idExacto = Integer.parseInt(query);
+            // Búsqueda exacta por ID
+            envios = envioRepository.buscarPorIdExacto(idExacto, limite);
+        } catch (NumberFormatException e) {
+            // Búsqueda parcial (el query contiene dígitos pero puede tener otros
+            // caracteres)
+            String patron = "%" + query + "%";
+            envios = envioRepository.buscarPorIdParcial(patron, limite);
+        }
+
+        if (envios.isEmpty()) {
+            return envios;
+        }
+
+        // Cargar partes con vuelos (igual que obtenerEnviosConPartesYVuelosLimitado)
+        List<Integer> envioIds = envios.stream()
+                .map(Envio::getId)
+                .collect(Collectors.toList());
+
+        List<ParteAsignada> partesConVuelos = envioRepository.findPartesConVuelosByEnvioIds(envioIds);
+
+        Map<Integer, List<ParteAsignada>> partesPorEnvio = partesConVuelos.stream()
+                .collect(Collectors.groupingBy(p -> p.getEnvio().getId()));
+
+        for (Envio envio : envios) {
+            List<ParteAsignada> partesEnvio = partesPorEnvio.get(envio.getId());
+            if (partesEnvio != null) {
+                envio.setParteAsignadas(new java.util.ArrayList<>(partesEnvio));
+            }
+        }
+
+        return envios;
+    }
 }
