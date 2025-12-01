@@ -50,7 +50,8 @@ public class PlanificadorController {
                 planificadorIniciado = false;
             }
 
-            // ⚡ OPTIMIZACIÓN CRÍTICA: Solo cargar datos básicos (aeropuertos, continentes, países)
+            // ⚡ OPTIMIZACIÓN CRÍTICA: Solo cargar datos básicos (aeropuertos, continentes,
+            // países)
             // NO cargar todos los envíos ni vuelos (se cargarán por ciclo desde BD)
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
             ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
@@ -717,77 +718,60 @@ public class PlanificadorController {
     }
 
     /**
-     * ⚡ OPTIMIZADO: Endpoint ligero para obtener resumen de simulación.
-     * Usa estadísticas en memoria, NO carga todos los envíos.
+     * ⚡ OPTIMIZADO: Endpoint para obtener resumen de simulación.
+     * Usa consultas COUNT directas a BD (rápido, no carga todos los envíos).
      * Se llama al detener la simulación para mostrar el modal de resumen.
      */
     @GetMapping("/resumen-planificacion")
+    @Transactional(readOnly = true)
     public Map<String, Object> obtenerResumenPlanificacion() {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            if (planificador == null) {
-                // Sin planificador, devolver resumen vacío
-                response.put("estado", "sin_datos");
-                response.put("estadisticasPedidos", Map.of(
-                    "totalPedidos", 0,
-                    "pedidosCompletados", 0,
-                    "pedidosParciales", 0,
-                    "pedidosSinAsignar", 0,
-                    "tasaExito", 0.0
-                ));
-                response.put("estadisticasPorEstado", Map.of(
-                    "enviosPlanificados", 0,
-                    "enviosEnRuta", 0,
-                    "enviosFinalizados", 0,
-                    "enviosEntregados", 0
-                ));
-                response.put("informacionGeneral", Map.of(
-                    "cicloActual", 0,
-                    "enEjecucion", false
-                ));
-                return response;
-            }
+            // ⚡ Obtener conteos directamente de BD con consulta COUNT (muy rápido)
+            Map<String, Long> conteosPorEstado = obtenerConteosPorEstadoDB();
 
-            // ⚡ Usar estadísticas en memoria (ligero, sin consultas pesadas)
-            Map<String, Object> stats = planificador.getEstadisticasActuales();
-            
+            long totalEnvios = conteosPorEstado.values().stream().mapToLong(Long::longValue).sum();
+            long enviosPlanificados = conteosPorEstado.getOrDefault("PLANIFICADO", 0L);
+            long enviosEnRuta = conteosPorEstado.getOrDefault("EN_RUTA", 0L);
+            long enviosFinalizados = conteosPorEstado.getOrDefault("FINALIZADO", 0L);
+            long enviosEntregados = conteosPorEstado.getOrDefault("ENTREGADO", 0L);
+            long enviosRegistrados = conteosPorEstado.getOrDefault("REGISTRADO", 0L);
+
             // Estadísticas de pedidos
             Map<String, Object> statsPedidos = new HashMap<>();
-            int totalProcesados = stats.get("totalEnviosProcesados") != null 
-                ? ((Number) stats.get("totalEnviosProcesados")).intValue() : 0;
-            int totalPlanificados = stats.get("totalPedidosPlanificados") != null 
-                ? ((Number) stats.get("totalPedidosPlanificados")).intValue() : 0;
-            int entregados = stats.get("totalEnviosEntregados") != null 
-                ? ((Number) stats.get("totalEnviosEntregados")).intValue() : 0;
-            
-            statsPedidos.put("totalPedidos", totalProcesados > 0 ? totalProcesados : totalPlanificados);
-            statsPedidos.put("pedidosCompletados", entregados);
-            statsPedidos.put("pedidosParciales", 0); // Calculado de stats si existe
-            statsPedidos.put("pedidosSinAsignar", 0);
-            statsPedidos.put("tasaExito", totalProcesados > 0 
-                ? (entregados * 100.0 / totalProcesados) : 0.0);
+            statsPedidos.put("totalPedidos", totalEnvios);
+            statsPedidos.put("pedidosCompletados", enviosEntregados);
+            statsPedidos.put("pedidosParciales", enviosFinalizados);
+            statsPedidos.put("pedidosSinAsignar", enviosRegistrados);
+            statsPedidos.put("tasaExito", totalEnvios > 0
+                    ? (enviosEntregados * 100.0 / totalEnvios)
+                    : 0.0);
             response.put("estadisticasPedidos", statsPedidos);
-            
+
             // Estadísticas por estado
             Map<String, Object> statsPorEstado = new HashMap<>();
-            statsPorEstado.put("enviosPlanificados", stats.get("totalEnviosPlanificados") != null 
-                ? ((Number) stats.get("totalEnviosPlanificados")).intValue() : 0);
-            statsPorEstado.put("enviosEnRuta", stats.get("totalEnviosEnRuta") != null 
-                ? ((Number) stats.get("totalEnviosEnRuta")).intValue() : 0);
-            statsPorEstado.put("enviosFinalizados", stats.get("totalEnviosFinalizados") != null 
-                ? ((Number) stats.get("totalEnviosFinalizados")).intValue() : 0);
-            statsPorEstado.put("enviosEntregados", entregados);
+            statsPorEstado.put("enviosPlanificados", enviosPlanificados);
+            statsPorEstado.put("enviosEnRuta", enviosEnRuta);
+            statsPorEstado.put("enviosFinalizados", enviosFinalizados);
+            statsPorEstado.put("enviosEntregados", enviosEntregados);
+            statsPorEstado.put("enviosRegistrados", enviosRegistrados);
             response.put("estadisticasPorEstado", statsPorEstado);
-            
+
             // Información general
             Map<String, Object> infoGeneral = new HashMap<>();
-            infoGeneral.put("cicloActual", planificador.getCicloActual());
+            infoGeneral.put("cicloActual", planificador != null ? planificador.getCicloActual() : 0);
             infoGeneral.put("enEjecucion", planificadorIniciado);
-            infoGeneral.put("ultimaEjecucion", stats.get("ultimaEjecucion"));
-            infoGeneral.put("totalCiclosCompletados", stats.get("totalCiclosCompletados"));
+            infoGeneral.put("totalEnviosBD", totalEnvios);
+
+            // Obtener estadísticas en memoria si están disponibles
+            if (planificador != null) {
+                Map<String, Object> stats = planificador.getEstadisticasActuales();
+                infoGeneral.put("ultimaEjecucion", stats.get("ultimaEjecucion"));
+                infoGeneral.put("totalCiclosCompletados", stats.get("totalCiclosCompletados"));
+            }
             response.put("informacionGeneral", infoGeneral);
-            
+
             response.put("estado", "éxito");
             response.put("timestamp", LocalDateTime.now().toString());
 
@@ -801,6 +785,31 @@ public class PlanificadorController {
         }
 
         return response;
+    }
+
+    /**
+     * ⚡ Consulta COUNT agrupada por estado - muy rápida incluso con millones de
+     * registros
+     */
+    private Map<String, Long> obtenerConteosPorEstadoDB() {
+        Map<String, Long> conteos = new HashMap<>();
+        try {
+            // Consulta SQL nativa con GROUP BY para obtener todos los conteos en una sola
+            // query
+            Query query = entityManager.createNativeQuery(
+                    "SELECT estado, COUNT(*) as cantidad FROM envio GROUP BY estado");
+            @SuppressWarnings("unchecked")
+            List<Object[]> resultados = query.getResultList();
+
+            for (Object[] fila : resultados) {
+                String estado = (String) fila[0];
+                Long cantidad = ((Number) fila[1]).longValue();
+                conteos.put(estado, cantidad);
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ Error al obtener conteos por estado: " + e.getMessage());
+        }
+        return conteos;
     }
 
     @GetMapping("/vuelos-ultimo-ciclo")
