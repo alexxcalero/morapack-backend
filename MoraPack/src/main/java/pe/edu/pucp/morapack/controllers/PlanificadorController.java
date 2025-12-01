@@ -34,6 +34,10 @@ public class PlanificadorController {
     private Planificador planificador;
     private boolean planificadorIniciado = false;
 
+    // ⚡ Guardar fechas de simulación para el resumen
+    private LocalDateTime fechaInicioSimulacion;
+    private LocalDateTime fechaFinSimulacion;
+
     // Endpoint para iniciar el planificador programado (modo normal)
     @PostMapping("/iniciar")
     public Map<String, Object> iniciarPlanificadorProgramado() {
@@ -138,6 +142,10 @@ public class PlanificadorController {
                 response.put("mensaje", "La fecha de inicio debe ser anterior a la fecha de fin");
                 return response;
             }
+
+            // ⚡ Guardar fechas para el resumen
+            this.fechaInicioSimulacion = fechaInicio;
+            this.fechaFinSimulacion = fechaFin;
 
             // Cargar datos necesarios
             System.out.println("📂 Cargando aeropuertos...");
@@ -260,6 +268,10 @@ public class PlanificadorController {
                 return response;
             }
 
+            // ⚡ Guardar fechas para el resumen
+            this.fechaInicioSimulacion = fechaInicio;
+            this.fechaFinSimulacion = fechaFin;
+
             // Cargar vuelos para la semana desde el archivo
             System.out.println("📂 Cargando vuelos para la semana desde archivo...");
             LocalDate fechaBase = fechaInicio.toLocalDate();
@@ -367,6 +379,10 @@ public class PlanificadorController {
 
             // Parsear fecha (el frontend ya envía la fecha en UTC)
             LocalDateTime fechaInicio = LocalDateTime.parse(fechaInicioStr);
+
+            // ⚡ Guardar fechas para el resumen (colapso: sin fecha fin definida)
+            this.fechaInicioSimulacion = fechaInicio;
+            this.fechaFinSimulacion = null; // Sin límite para simulación colapso
 
             // Cargar datos necesarios
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
@@ -720,7 +736,7 @@ public class PlanificadorController {
     /**
      * ⚡ OPTIMIZADO: Endpoint para obtener resumen de simulación.
      * Usa consultas COUNT directas a BD (rápido, no carga todos los envíos).
-     * Se llama al detener la simulación para mostrar el modal de resumen.
+     * Filtra solo los envíos del rango de fechas de la simulación actual.
      */
     @GetMapping("/resumen-planificacion")
     @Transactional(readOnly = true)
@@ -729,7 +745,9 @@ public class PlanificadorController {
 
         try {
             // ⚡ Obtener conteos directamente de BD con consulta COUNT (muy rápido)
-            Map<String, Long> conteosPorEstado = obtenerConteosPorEstadoDB();
+            // Filtra por las fechas de la simulación actual
+            Map<String, Long> conteosPorEstado = obtenerConteosPorEstadoDB(
+                    fechaInicioSimulacion, fechaFinSimulacion);
 
             long totalEnvios = conteosPorEstado.values().stream().mapToLong(Long::longValue).sum();
             long enviosPlanificados = conteosPorEstado.getOrDefault("PLANIFICADO", 0L);
@@ -737,13 +755,15 @@ public class PlanificadorController {
             long enviosFinalizados = conteosPorEstado.getOrDefault("FINALIZADO", 0L);
             long enviosEntregados = conteosPorEstado.getOrDefault("ENTREGADO", 0L);
             long enviosRegistrados = conteosPorEstado.getOrDefault("REGISTRADO", 0L);
+            // Envíos sin estado (NULL) = no procesados aún
+            long enviosSinEstado = conteosPorEstado.getOrDefault("NULL", 0L);
 
             // Estadísticas de pedidos
             Map<String, Object> statsPedidos = new HashMap<>();
             statsPedidos.put("totalPedidos", totalEnvios);
             statsPedidos.put("pedidosCompletados", enviosEntregados);
             statsPedidos.put("pedidosParciales", enviosFinalizados);
-            statsPedidos.put("pedidosSinAsignar", enviosRegistrados);
+            statsPedidos.put("pedidosSinAsignar", enviosRegistrados + enviosSinEstado);
             statsPedidos.put("tasaExito", totalEnvios > 0
                     ? (enviosEntregados * 100.0 / totalEnvios)
                     : 0.0);
@@ -755,7 +775,7 @@ public class PlanificadorController {
             statsPorEstado.put("enviosEnRuta", enviosEnRuta);
             statsPorEstado.put("enviosFinalizados", enviosFinalizados);
             statsPorEstado.put("enviosEntregados", enviosEntregados);
-            statsPorEstado.put("enviosRegistrados", enviosRegistrados);
+            statsPorEstado.put("enviosRegistrados", enviosRegistrados + enviosSinEstado);
             response.put("estadisticasPorEstado", statsPorEstado);
 
             // Información general
@@ -763,6 +783,8 @@ public class PlanificadorController {
             infoGeneral.put("cicloActual", planificador != null ? planificador.getCicloActual() : 0);
             infoGeneral.put("enEjecucion", planificadorIniciado);
             infoGeneral.put("totalEnviosBD", totalEnvios);
+            infoGeneral.put("fechaInicio", fechaInicioSimulacion != null ? fechaInicioSimulacion.toString() : null);
+            infoGeneral.put("fechaFin", fechaFinSimulacion != null ? fechaFinSimulacion.toString() : null);
 
             // Obtener estadísticas en memoria si están disponibles
             if (planificador != null) {
@@ -790,14 +812,37 @@ public class PlanificadorController {
     /**
      * ⚡ Consulta COUNT agrupada por estado - muy rápida incluso con millones de
      * registros
+     * Filtra por rango de fechas de la simulación
      */
-    private Map<String, Long> obtenerConteosPorEstadoDB() {
+    private Map<String, Long> obtenerConteosPorEstadoDB(LocalDateTime fechaInicio, LocalDateTime fechaFin) {
         Map<String, Long> conteos = new HashMap<>();
         try {
-            // Consulta SQL nativa con GROUP BY para obtener todos los conteos en una sola
-            // query
-            Query query = entityManager.createNativeQuery(
-                    "SELECT estado, COUNT(*) as cantidad FROM envio GROUP BY estado");
+            String sql;
+            Query query;
+
+            if (fechaInicio != null && fechaFin != null) {
+                // Filtrar por rango de fechas completo
+                sql = "SELECT COALESCE(estado, 'NULL') as estado, COUNT(*) as cantidad " +
+                        "FROM envio " +
+                        "WHERE fecha_ingreso >= :fechaInicio AND fecha_ingreso <= :fechaFin " +
+                        "GROUP BY estado";
+                query = entityManager.createNativeQuery(sql);
+                query.setParameter("fechaInicio", fechaInicio);
+                query.setParameter("fechaFin", fechaFin);
+            } else if (fechaInicio != null) {
+                // Solo fecha inicio (simulación colapso sin límite)
+                sql = "SELECT COALESCE(estado, 'NULL') as estado, COUNT(*) as cantidad " +
+                        "FROM envio " +
+                        "WHERE fecha_ingreso >= :fechaInicio " +
+                        "GROUP BY estado";
+                query = entityManager.createNativeQuery(sql);
+                query.setParameter("fechaInicio", fechaInicio);
+            } else {
+                // Sin fechas, contar todos (fallback)
+                sql = "SELECT COALESCE(estado, 'NULL') as estado, COUNT(*) as cantidad FROM envio GROUP BY estado";
+                query = entityManager.createNativeQuery(sql);
+            }
+
             @SuppressWarnings("unchecked")
             List<Object[]> resultados = query.getResultList();
 
@@ -808,6 +853,7 @@ public class PlanificadorController {
             }
         } catch (Exception e) {
             System.err.println("⚠️ Error al obtener conteos por estado: " + e.getMessage());
+            e.printStackTrace();
         }
         return conteos;
     }
