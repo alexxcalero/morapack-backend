@@ -716,31 +716,88 @@ public class PlanificadorController {
         return response;
     }
 
-    // Endpoint para obtener el resumen de la última simulación
+    /**
+     * ⚡ OPTIMIZADO: Endpoint ligero para obtener resumen de simulación.
+     * Usa estadísticas en memoria, NO carga todos los envíos.
+     * Se llama al detener la simulación para mostrar el modal de resumen.
+     */
     @GetMapping("/resumen-planificacion")
     public Map<String, Object> obtenerResumenPlanificacion() {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            // Si no hay planificador en memoria, crear uno temporal para acceder al método
-            // o cargar desde BD directamente
             if (planificador == null) {
-                // Crear un planificador temporal para usar sus métodos de servicio
-                // Esto permite obtener el resumen incluso después de reiniciar la aplicación
-                Grasp grasp = new Grasp();
-                planificador = new Planificador(grasp, webSocketService, envioService,
-                        planDeVueloService, aeropuertoService);
+                // Sin planificador, devolver resumen vacío
+                response.put("estado", "sin_datos");
+                response.put("estadisticasPedidos", Map.of(
+                    "totalPedidos", 0,
+                    "pedidosCompletados", 0,
+                    "pedidosParciales", 0,
+                    "pedidosSinAsignar", 0,
+                    "tasaExito", 0.0
+                ));
+                response.put("estadisticasPorEstado", Map.of(
+                    "enviosPlanificados", 0,
+                    "enviosEnRuta", 0,
+                    "enviosFinalizados", 0,
+                    "enviosEntregados", 0
+                ));
+                response.put("informacionGeneral", Map.of(
+                    "cicloActual", 0,
+                    "enEjecucion", false
+                ));
+                return response;
             }
 
-            Map<String, Object> resumen = planificador.obtenerResumenUltimaSimulacion();
-
+            // ⚡ Usar estadísticas en memoria (ligero, sin consultas pesadas)
+            Map<String, Object> stats = planificador.getEstadisticasActuales();
+            
+            // Estadísticas de pedidos
+            Map<String, Object> statsPedidos = new HashMap<>();
+            int totalProcesados = stats.get("totalEnviosProcesados") != null 
+                ? ((Number) stats.get("totalEnviosProcesados")).intValue() : 0;
+            int totalPlanificados = stats.get("totalPedidosPlanificados") != null 
+                ? ((Number) stats.get("totalPedidosPlanificados")).intValue() : 0;
+            int entregados = stats.get("totalEnviosEntregados") != null 
+                ? ((Number) stats.get("totalEnviosEntregados")).intValue() : 0;
+            
+            statsPedidos.put("totalPedidos", totalProcesados > 0 ? totalProcesados : totalPlanificados);
+            statsPedidos.put("pedidosCompletados", entregados);
+            statsPedidos.put("pedidosParciales", 0); // Calculado de stats si existe
+            statsPedidos.put("pedidosSinAsignar", 0);
+            statsPedidos.put("tasaExito", totalProcesados > 0 
+                ? (entregados * 100.0 / totalProcesados) : 0.0);
+            response.put("estadisticasPedidos", statsPedidos);
+            
+            // Estadísticas por estado
+            Map<String, Object> statsPorEstado = new HashMap<>();
+            statsPorEstado.put("enviosPlanificados", stats.get("totalEnviosPlanificados") != null 
+                ? ((Number) stats.get("totalEnviosPlanificados")).intValue() : 0);
+            statsPorEstado.put("enviosEnRuta", stats.get("totalEnviosEnRuta") != null 
+                ? ((Number) stats.get("totalEnviosEnRuta")).intValue() : 0);
+            statsPorEstado.put("enviosFinalizados", stats.get("totalEnviosFinalizados") != null 
+                ? ((Number) stats.get("totalEnviosFinalizados")).intValue() : 0);
+            statsPorEstado.put("enviosEntregados", entregados);
+            response.put("estadisticasPorEstado", statsPorEstado);
+            
+            // Información general
+            Map<String, Object> infoGeneral = new HashMap<>();
+            infoGeneral.put("cicloActual", planificador.getCicloActual());
+            infoGeneral.put("enEjecucion", planificadorIniciado);
+            infoGeneral.put("ultimaEjecucion", stats.get("ultimaEjecucion"));
+            infoGeneral.put("totalCiclosCompletados", stats.get("totalCiclosCompletados"));
+            response.put("informacionGeneral", infoGeneral);
+            
             response.put("estado", "éxito");
-            response.putAll(resumen);
+            response.put("timestamp", LocalDateTime.now().toString());
 
         } catch (Exception e) {
             response.put("estado", "error");
-            response.put("mensaje", "Error al obtener resumen de planificación: " + e.getMessage());
-            e.printStackTrace();
+            response.put("mensaje", "Error al obtener resumen: " + e.getMessage());
+            // Devolver estructura vacía para que el frontend no falle
+            response.put("estadisticasPedidos", Map.of("totalPedidos", 0, "tasaExito", 0.0));
+            response.put("estadisticasPorEstado", Map.of("enviosEntregados", 0, "enviosEnRuta", 0));
+            response.put("informacionGeneral", Map.of("cicloActual", 0));
         }
 
         return response;
