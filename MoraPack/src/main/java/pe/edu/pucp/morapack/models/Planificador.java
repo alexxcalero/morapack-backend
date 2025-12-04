@@ -60,8 +60,10 @@ public class Planificador {
     // ⚡ SISTEMA DE EVENTOS TEMPORALES: Separar planificación (GRASP) de ejecución temporal
     // Scheduler dedicado para eventos temporales (ejecución individual en tiempo exacto)
     private ScheduledExecutorService schedulerEventos;
-    // Lista de ScheduledFuture para poder cancelar eventos si es necesario
-    private List<ScheduledFuture<?>> eventosProgramados = new ArrayList<>();
+    // ✅ Lista thread-safe de ScheduledFuture para poder cancelar eventos si es necesario
+    // Collections.synchronizedList previene ConcurrentModificationException cuando se modifica
+    // desde múltiples threads (crearEventosTemporales y limpiarEventosEjecutados)
+    private final List<ScheduledFuture<?>> eventosProgramados = Collections.synchronizedList(new ArrayList<>());
 
     /**
      * Clase interna para representar eventos temporales (llegada/salida de vuelos)
@@ -224,25 +226,55 @@ public class Planificador {
         }
 
         // ⚡ Inicializar scheduler dedicado para eventos temporales
+        // ✅ OPTIMIZADO: Ajustar threads según núcleos disponibles para reducir context switching
         if (schedulerEventos == null) {
-            schedulerEventos = Executors.newScheduledThreadPool(10); // Pool de 10 hilos para eventos
-            System.out.println("⏰ Scheduler de eventos temporales inicializado");
+            int numCores = Runtime.getRuntime().availableProcessors();
+            int numThreadsEventos = numCores <= 2 ? 2 : Math.min(4, numCores);
+            schedulerEventos = Executors.newScheduledThreadPool(numThreadsEventos);
+            System.out.printf("⏰ Scheduler de eventos temporales inicializado con %d threads (para %d núcleos)%n",
+                numThreadsEventos, numCores);
+        }
+
+        // ✅ INICIALIZAR ultimoTiempoEjecucion antes del primer ciclo
+        if (ultimoTiempoEjecucion == null) {
+            ultimoTiempoEjecucion = tiempoInicioSimulacion;
         }
 
         // Ejecutar el primer ciclo inmediatamente
         try {
             ejecutarCicloPlanificacion(tiempoInicioSimulacion);
+            // ✅ Asegurar que ultimoTiempoEjecucion esté inicializado después del primer ciclo
+            if (ultimoTiempoEjecucion == null) {
+                ultimoTiempoEjecucion = tiempoInicioSimulacion;
+            }
         } catch (Exception e) {
             System.err.printf("❌ Error al ejecutar el primer ciclo: %s%n", e.getMessage());
             e.printStackTrace();
+            // ✅ INICIALIZAR ultimoTiempoEjecucion incluso si hay error
+            if (ultimoTiempoEjecucion == null) {
+                ultimoTiempoEjecucion = tiempoInicioSimulacion;
+            }
             // Continuar con la programación aunque haya error en el primer ciclo
         }
 
         // Programar ejecuciones posteriores cada SA_MINUTOS minutos
         if (scheduler != null) {
             tareaProgramada = scheduler.scheduleAtFixedRate(() -> {
-                LocalDateTime tiempoActual = obtenerTiempoActualSimulacion();
-                ejecutarCicloPlanificacion(tiempoActual);
+                try {
+                    // ✅ Verificar que ultimoTiempoEjecucion no sea null
+                    if (ultimoTiempoEjecucion == null) {
+                        System.err.println("⚠️ ADVERTENCIA: ultimoTiempoEjecucion es null, usando tiempoInicioSimulacion");
+                        ultimoTiempoEjecucion = tiempoInicioSimulacion != null ? tiempoInicioSimulacion : LocalDateTime.now();
+                    }
+                    LocalDateTime tiempoActual = obtenerTiempoActualSimulacion();
+                    ejecutarCicloPlanificacion(tiempoActual);
+                } catch (Exception e) {
+                    System.err.printf("❌ Error crítico en tarea programada (ciclo %d): %s%n",
+                        cicloActual.get() + 1, e.getMessage());
+                    e.printStackTrace();
+                    // ✅ NO detener automáticamente, solo registrar el error
+                    // El planificador continuará intentando en el siguiente ciclo
+                }
             }, SA_MINUTOS, SA_MINUTOS, TimeUnit.MINUTES);
 
             // ✅ Programar tarea separada para verificar liberación de productos cada hora
@@ -292,16 +324,19 @@ public class Planificador {
 
         // ⚡ Cancelar todos los eventos temporales programados
         if (eventosProgramados != null) {
-            int eventosCancelados = 0;
-            for (ScheduledFuture<?> evento : eventosProgramados) {
-                if (evento != null && !evento.isCancelled() && !evento.isDone()) {
-                    evento.cancel(false);
-                    eventosCancelados++;
+            // ✅ Sincronizar el acceso para evitar ConcurrentModificationException
+            synchronized (eventosProgramados) {
+                int eventosCancelados = 0;
+                for (ScheduledFuture<?> evento : eventosProgramados) {
+                    if (evento != null && !evento.isCancelled() && !evento.isDone()) {
+                        evento.cancel(false);
+                        eventosCancelados++;
+                    }
                 }
-            }
-            eventosProgramados.clear();
-            if (eventosCancelados > 0) {
-                System.out.printf("🛑 Cancelados %d eventos temporales pendientes%n", eventosCancelados);
+                eventosProgramados.clear();
+                if (eventosCancelados > 0) {
+                    System.out.printf("🛑 Cancelados %d eventos temporales pendientes%n", eventosCancelados);
+                }
             }
         }
 
@@ -445,6 +480,9 @@ public class Planificador {
                 // ⚡ Los eventos temporales se ejecutan individualmente cuando les toca
                 // (programados con ScheduledExecutorService en crearEventosTemporales)
 
+                // ✅ LIMPIAR EVENTOS EJECUTADOS cuando no hay pedidos (momento ideal para limpieza)
+                limpiarEventosEjecutados();
+
                 ultimoTiempoEjecucion = tiempoEjecucion;
 
                 // ✅ IMPORTANTE: Actualizar el horizonte aunque no haya pedidos
@@ -510,6 +548,9 @@ public class Planificador {
             // ⚡ CREAR EVENTOS TEMPORALES: Convertir las rutas planificadas en eventos
             // que se procesarán cuando el tiempo avance
             crearEventosTemporales(solucion, inicioHorizonte);
+
+            // ✅ LIMPIAR EVENTOS EJECUTADOS para liberar memoria
+            limpiarEventosEjecutados();
 
             // ✅ PERSISTIR CAMBIOS EN LA BASE DE DATOS
             try {
@@ -1683,14 +1724,22 @@ public class Planificador {
                             );
 
                             // Programar el evento para ejecutarse después del delay calculado
-                            ScheduledFuture<?> futuro = schedulerEventos.schedule(
-                                    () -> procesarEvento(eventoLlegada),
-                                    delaySegundos,
-                                    TimeUnit.SECONDS
-                            );
+                            try {
+                                ScheduledFuture<?> futuro = schedulerEventos.schedule(
+                                        () -> procesarEvento(eventoLlegada),
+                                        delaySegundos,
+                                        TimeUnit.SECONDS
+                                );
 
-                            eventosProgramados.add(futuro);
-                            contadorEventos++;
+                                eventosProgramados.add(futuro);
+                                contadorEventos++;
+                            } catch (RejectedExecutionException e) {
+                                System.err.printf("⚠️ Scheduler de eventos saturado, evento de llegada rechazado (Vuelo %d). Threads activos: %d%n",
+                                    vuelo.getId() != null ? vuelo.getId() : -1,
+                                    schedulerEventos instanceof ThreadPoolExecutor ?
+                                        ((ThreadPoolExecutor)schedulerEventos).getActiveCount() : -1);
+                                // Continuar con el siguiente evento en lugar de fallar completamente
+                            }
 
 //                            System.out.printf("  📅 Evento programado: Vuelo %d llegará a %s en %d min sim (%d seg real) - %s%n", vuelo.getId(), llegadaLocal.format(DateTimeFormatter.ofPattern("HH:mm")), minutosSimulados, delaySegundos, llegadaLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                         }
@@ -1721,14 +1770,22 @@ public class Planificador {
                             );
 
                             // Programar el evento para ejecutarse después del delay calculado
-                            ScheduledFuture<?> futuro = schedulerEventos.schedule(
-                                    () -> procesarEvento(eventoSalida),
-                                    delaySegundos,
-                                    TimeUnit.SECONDS
-                            );
+                            try {
+                                ScheduledFuture<?> futuro = schedulerEventos.schedule(
+                                        () -> procesarEvento(eventoSalida),
+                                        delaySegundos,
+                                        TimeUnit.SECONDS
+                                );
 
-                            eventosProgramados.add(futuro);
-                            contadorEventos++;
+                                eventosProgramados.add(futuro);
+                                contadorEventos++;
+                            } catch (RejectedExecutionException e) {
+                                System.err.printf("⚠️ Scheduler de eventos saturado, evento de salida rechazado (Vuelo %d). Threads activos: %d%n",
+                                    vuelo.getId() != null ? vuelo.getId() : -1,
+                                    schedulerEventos instanceof ThreadPoolExecutor ?
+                                        ((ThreadPoolExecutor)schedulerEventos).getActiveCount() : -1);
+                                // Continuar con el siguiente evento en lugar de fallar completamente
+                            }
 
 //                            System.out.printf("  📅 Evento programado: Vuelo %d saldrá de %s en %d min sim (%d seg real) - %s%n", vuelo.getId(), salidaLocal.format(DateTimeFormatter.ofPattern("HH:mm")), minutosSimulados, delaySegundos, salidaLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                         }
@@ -1739,6 +1796,43 @@ public class Planificador {
 
         System.out.printf("📅 [crearEventosTemporales] Programados %d eventos temporales desde %s%n",
                 contadorEventos, tiempoReferencia.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+    }
+
+    /**
+     * ✅ Limpia eventos temporales que ya se ejecutaron o fueron cancelados.
+     * Esto previene la acumulación de memoria y reduce el consumo de recursos.
+     * Usa sincronización explícita para evitar ConcurrentModificationException.
+     */
+    private void limpiarEventosEjecutados() {
+        if (eventosProgramados == null || eventosProgramados.isEmpty()) {
+            return;
+        }
+
+        // ✅ Sincronizar el acceso para evitar ConcurrentModificationException
+        // cuando otro thread está agregando eventos mientras limpiamos
+        synchronized (eventosProgramados) {
+            int antes = eventosProgramados.size();
+
+            // Crear una lista temporal con los eventos a mantener
+            List<ScheduledFuture<?>> eventosAMantener = new ArrayList<>();
+            for (ScheduledFuture<?> futuro : eventosProgramados) {
+                if (futuro != null && !futuro.isDone() && !futuro.isCancelled()) {
+                    eventosAMantener.add(futuro);
+                }
+            }
+
+            // Reemplazar la lista completa (más seguro que removeIf en contexto concurrente)
+            eventosProgramados.clear();
+            eventosProgramados.addAll(eventosAMantener);
+
+            int despues = eventosProgramados.size();
+
+            // Solo log si hay muchos eventos o si se limpiaron muchos
+            if (antes > 1000 || (antes - despues) > 100) {
+                System.out.printf("🧹 [limpiarEventosEjecutados] Limpiados %d eventos ejecutados (quedan %d pendientes)%n",
+                    antes - despues, despues);
+            }
+        }
     }
 
     /**
@@ -1760,6 +1854,12 @@ public class Planificador {
      */
     private void procesarEvento(EventoTemporal evento) {
         try {
+            // ✅ Limpiar eventos ejecutados periódicamente (cada 100 eventos procesados aproximadamente)
+            // Esto se hace de forma probabilística para no impactar el rendimiento
+            if (eventosProgramados != null && eventosProgramados.size() > 1000 &&
+                Math.random() < 0.1) { // 10% de probabilidad de limpiar
+                limpiarEventosEjecutados();
+            }
             Optional<Aeropuerto> aeropuertoOpt = aeropuertoService.obtenerAeropuertoPorId(evento.getAeropuertoId());
             if (!aeropuertoOpt.isPresent()) {
                 System.err.printf("⚠️ Aeropuerto ID %d no encontrado para evento%n", evento.getAeropuertoId());
