@@ -1,0 +1,10 @@
+21   VIDP   Delhi               India           delh    +5     480     Latitude: 28° 33' 59" N   Longitude:  77° 06' 11" E
+22   OSDI   Damasco             Siria           dama    +3     400     Latitude: 33° 24' 41" N   Longitude:  36° 30' 56" E
+23   OERK   Riad                Arabia Saudita  riad    +3     420     Latitude: 24° 57' 28" N   Longitude:  46° 41' 56" E
+24   OMDB   Dubai               Emiratos A.U    emir    +4     420     Latitude: 25° 15' 10" N   Longitude:  55° 21' 52" E
+25   OAKB   Kabul               Afganistan      kabu    +4     480     Latitude: 34° 33' 56" N   Longitude:  69° 12' 39" E
+26   OOMS   Mascate             Oman            masc    +4     460     Latitude: 23° 35' 22" N   Longitude:  58° 17' 03" E
+27   OYSN   Sana                Yemen           sana    +3     420     Latitude: 15° 28' 34" N   Longitude:  44° 13' 11" E
+28   OPKC   Karachi             Pakistan        kara    +5     410     Latitude: 24° 54' 00" N   Longitude:  67° 09' 00" E
+29   UBBB   Baku                Azerbaiyan      baku    +2     400     Latitude: 40° 28' 02" N   Longitude:  50° 02' 48" E
+30   OJAI   Aman                Jordania        aman    +3     400     Latitude: 31° 43' 21" N   Longitude:  35° 59' 36" E

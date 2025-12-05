@@ -1,0 +1,10 @@
+11   LATI   Tirana              Albania         tira    +2     410     Latitude: 41° 24' 53" N   Longitude:  19° 43' 14" E
+12   EDDI   Berlin              Alemania        berl    +2     480     Latitude: 52° 28' 25" N   Longitude:  13° 24' 06" E﻿
+13   LOWW   Viena               Austria         vien    +2     430     Latitude: 48° 06' 39" N   Longitude:  16° 34' 15" E
+14   EBCI   Bruselas            Belgica         brus    +2     440     Latitude: 50° 27' 33" N   Longitude:  04° 27' 13" E
+15   UMMS   Minsk               Bielorrusia     mins    +3     400     Latitude: 53° 52' 57" N   Longitude:  28° 01' 57" E
+16   LBSF   Sofia               Bulgaria        sofi    +3     400     Latitude: 42° 41' 25" N   Longitude:  23° 24' 17" E
+17   LKPR   Praga               Checa           prag    +2     400     Latitude: 50° 06' 05" N   Longitude:  14° 15' 56" E
+18   LDZA   Zagreb              Croacia         zagr    +2     420     Latitude: 45° 44' 34" N   Longitude:  16° 04' 07" E
+19   EKCH   Copenhague          Dinamarca       cope    +2     480     Latitude: 55° 37' 05" N   Longitude:  12° 39' 22" E﻿
+20   EHAM   Amsterdam           Holanda         amst    +2     480     Latitude: 52° 18' 00" N   Longitude:  04° 45' 54" E
