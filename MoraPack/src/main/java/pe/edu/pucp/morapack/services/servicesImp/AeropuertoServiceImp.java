@@ -9,6 +9,7 @@ import pe.edu.pucp.morapack.repository.AeropuertoRepository;
 import pe.edu.pucp.morapack.services.AeropuertoService;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -39,5 +40,17 @@ public class AeropuertoServiceImp implements AeropuertoService {
 
     public void aumentarProductosEnAlmacen(Integer cantProductos) {
 
+    }
+
+    /**
+     * ⚡ OPTIMIZADO: Obtiene múltiples aeropuertos por IDs en una sola consulta.
+     */
+    public List<Aeropuerto> obtenerAeropuertosPorIds(List<Integer> aeropuertoIds) {
+        if (aeropuertoIds == null || aeropuertoIds.isEmpty()) {
+            return new ArrayList<Aeropuerto>();
+        }
+        ArrayList<Aeropuerto> resultado = new ArrayList<>();
+        aeropuertoRepository.findAllById(aeropuertoIds).forEach(resultado::add);
+        return resultado;
     }
 }

@@ -60,8 +60,10 @@ public class Planificador {
     // ⚡ SISTEMA DE EVENTOS TEMPORALES: Separar planificación (GRASP) de ejecución temporal
     // Scheduler dedicado para eventos temporales (ejecución individual en tiempo exacto)
     private ScheduledExecutorService schedulerEventos;
-    // Lista de ScheduledFuture para poder cancelar eventos si es necesario
-    private List<ScheduledFuture<?>> eventosProgramados = new ArrayList<>();
+    // ✅ Lista thread-safe de ScheduledFuture para poder cancelar eventos si es necesario
+    // Collections.synchronizedList previene ConcurrentModificationException cuando se modifica
+    // desde múltiples threads (crearEventosTemporales y limpiarEventosEjecutados)
+    private final List<ScheduledFuture<?>> eventosProgramados = Collections.synchronizedList(new ArrayList<>());
 
     /**
      * Clase interna para representar eventos temporales (llegada/salida de vuelos)
@@ -224,25 +226,55 @@ public class Planificador {
         }
 
         // ⚡ Inicializar scheduler dedicado para eventos temporales
+        // ✅ OPTIMIZADO: Ajustar threads según núcleos disponibles para reducir context switching
         if (schedulerEventos == null) {
-            schedulerEventos = Executors.newScheduledThreadPool(10); // Pool de 10 hilos para eventos
-            System.out.println("⏰ Scheduler de eventos temporales inicializado");
+            int numCores = Runtime.getRuntime().availableProcessors();
+            int numThreadsEventos = numCores <= 2 ? 2 : Math.min(4, numCores);
+            schedulerEventos = Executors.newScheduledThreadPool(numThreadsEventos);
+            System.out.printf("⏰ Scheduler de eventos temporales inicializado con %d threads (para %d núcleos)%n",
+                numThreadsEventos, numCores);
+        }
+
+        // ✅ INICIALIZAR ultimoTiempoEjecucion antes del primer ciclo
+        if (ultimoTiempoEjecucion == null) {
+            ultimoTiempoEjecucion = tiempoInicioSimulacion;
         }
 
         // Ejecutar el primer ciclo inmediatamente
         try {
             ejecutarCicloPlanificacion(tiempoInicioSimulacion);
+            // ✅ Asegurar que ultimoTiempoEjecucion esté inicializado después del primer ciclo
+            if (ultimoTiempoEjecucion == null) {
+                ultimoTiempoEjecucion = tiempoInicioSimulacion;
+            }
         } catch (Exception e) {
             System.err.printf("❌ Error al ejecutar el primer ciclo: %s%n", e.getMessage());
             e.printStackTrace();
+            // ✅ INICIALIZAR ultimoTiempoEjecucion incluso si hay error
+            if (ultimoTiempoEjecucion == null) {
+                ultimoTiempoEjecucion = tiempoInicioSimulacion;
+            }
             // Continuar con la programación aunque haya error en el primer ciclo
         }
 
         // Programar ejecuciones posteriores cada SA_MINUTOS minutos
         if (scheduler != null) {
             tareaProgramada = scheduler.scheduleAtFixedRate(() -> {
-                LocalDateTime tiempoActual = obtenerTiempoActualSimulacion();
-                ejecutarCicloPlanificacion(tiempoActual);
+                try {
+                    // ✅ Verificar que ultimoTiempoEjecucion no sea null
+                    if (ultimoTiempoEjecucion == null) {
+                        System.err.println("⚠️ ADVERTENCIA: ultimoTiempoEjecucion es null, usando tiempoInicioSimulacion");
+                        ultimoTiempoEjecucion = tiempoInicioSimulacion != null ? tiempoInicioSimulacion : LocalDateTime.now();
+                    }
+                    LocalDateTime tiempoActual = obtenerTiempoActualSimulacion();
+                    ejecutarCicloPlanificacion(tiempoActual);
+                } catch (Exception e) {
+                    System.err.printf("❌ Error crítico en tarea programada (ciclo %d): %s%n",
+                        cicloActual.get() + 1, e.getMessage());
+                    e.printStackTrace();
+                    // ✅ NO detener automáticamente, solo registrar el error
+                    // El planificador continuará intentando en el siguiente ciclo
+                }
             }, SA_MINUTOS, SA_MINUTOS, TimeUnit.MINUTES);
 
             // ✅ Programar tarea separada para verificar liberación de productos cada hora
@@ -292,16 +324,19 @@ public class Planificador {
 
         // ⚡ Cancelar todos los eventos temporales programados
         if (eventosProgramados != null) {
-            int eventosCancelados = 0;
-            for (ScheduledFuture<?> evento : eventosProgramados) {
-                if (evento != null && !evento.isCancelled() && !evento.isDone()) {
-                    evento.cancel(false);
-                    eventosCancelados++;
+            // ✅ Sincronizar el acceso para evitar ConcurrentModificationException
+            synchronized (eventosProgramados) {
+                int eventosCancelados = 0;
+                for (ScheduledFuture<?> evento : eventosProgramados) {
+                    if (evento != null && !evento.isCancelled() && !evento.isDone()) {
+                        evento.cancel(false);
+                        eventosCancelados++;
+                    }
                 }
-            }
-            eventosProgramados.clear();
-            if (eventosCancelados > 0) {
-                System.out.printf("🛑 Cancelados %d eventos temporales pendientes%n", eventosCancelados);
+                eventosProgramados.clear();
+                if (eventosCancelados > 0) {
+                    System.out.printf("🛑 Cancelados %d eventos temporales pendientes%n", eventosCancelados);
+                }
             }
         }
 
@@ -445,6 +480,9 @@ public class Planificador {
                 // ⚡ Los eventos temporales se ejecutan individualmente cuando les toca
                 // (programados con ScheduledExecutorService en crearEventosTemporales)
 
+                // ✅ LIMPIAR EVENTOS EJECUTADOS cuando no hay pedidos (momento ideal para limpieza)
+                limpiarEventosEjecutados();
+
                 ultimoTiempoEjecucion = tiempoEjecucion;
 
                 // ✅ IMPORTANTE: Actualizar el horizonte aunque no haya pedidos
@@ -465,7 +503,12 @@ public class Planificador {
             recargarDatosBase(inicioHorizonte, finHorizonte);
 
             // 4. Ejecutar GRASP con timeout
+            System.out.println("🚀 [ANTES] Ejecutando GRASP...");
+            long inicioGrasp = System.currentTimeMillis();
             Solucion solucion = ejecutarGRASPConTimeout(pedidosParaPlanificar, tiempoEjecucion);
+            long tiempoGrasp = System.currentTimeMillis() - inicioGrasp;
+            System.out.printf("✅ [DESPUÉS] GRASP terminado en %d ms. Solución con %d envíos%n",
+                    tiempoGrasp, solucion != null && solucion.getEnvios() != null ? solucion.getEnvios().size() : 0);
             this.ultimaSolucion = solucion;
             actualizarEstadisticas(solucion, ciclo, System.currentTimeMillis() - inicioCiclo);
 
@@ -491,7 +534,11 @@ public class Planificador {
 
                 // ✅ PERSISTIR CAMBIOS EN LA BASE DE DATOS (aunque haya pedidos sin ruta)
                 try {
+                    System.out.println("💾 [ANTES] Iniciando persistirCambios (pedidos sin ruta)...");
+                    long inicioPersistir = System.currentTimeMillis();
                     persistirCambios(solucion);
+                    long tiempoPersistir = System.currentTimeMillis() - inicioPersistir;
+                    System.out.printf("💾 [DESPUÉS] persistirCambios terminado en %d ms%n", tiempoPersistir);
                     System.out.println("💾 Cambios persistidos en la base de datos");
                 } catch (Exception e) {
                     System.err.printf("❌ Error al persistir cambios: %s%n", e.getMessage());
@@ -511,9 +558,16 @@ public class Planificador {
             // que se procesarán cuando el tiempo avance
             crearEventosTemporales(solucion, inicioHorizonte);
 
+            // ✅ LIMPIAR EVENTOS EJECUTADOS para liberar memoria
+            limpiarEventosEjecutados();
+
             // ✅ PERSISTIR CAMBIOS EN LA BASE DE DATOS
             try {
+                System.out.println("💾 [ANTES] Iniciando persistirCambios...");
+                long inicioPersistir = System.currentTimeMillis();
                 persistirCambios(solucion);
+                long tiempoPersistir = System.currentTimeMillis() - inicioPersistir;
+                System.out.printf("💾 [DESPUÉS] persistirCambios terminado en %d ms%n", tiempoPersistir);
                 System.out.println("💾 Cambios persistidos en la base de datos");
             } catch (Exception e) {
                 System.err.printf("❌ Error al persistir cambios: %s%n", e.getMessage());
@@ -1447,41 +1501,112 @@ public class Planificador {
     }
 
     /**
-     * Persiste los cambios en la base de datos después de ejecutar GRASP
+     * ⚡ OPTIMIZADO: Persiste los cambios en la base de datos después de ejecutar GRASP
      * - Guarda las partes asignadas nuevas con sus rutas
      * - Actualiza la capacidad ocupada de los planes de vuelo
      * - Actualiza la capacidad ocupada de los aeropuertos
+     *
+     * Optimizaciones:
+     * - Carga todos los envíos de una vez (batch)
+     * - Carga todos los vuelos de una vez (batch)
+     * - Carga todos los aeropuertos de una vez (batch)
+     * - Guarda envíos en lotes en lugar de uno por uno
      */
     private void persistirCambios(Solucion solucion) {
         if (solucion == null || solucion.getEnvios() == null || solucion.getEnvios().isEmpty()) {
             return;
         }
 
-        // Conjuntos para rastrear qué objetos fueron modificados
+        // ⚡ PASO 1: Recopilar todos los IDs que necesitamos cargar
+        Set<Integer> envioIds = new HashSet<>();
+        Set<Integer> vueloIds = new HashSet<>();
+        Set<Integer> aeropuertoIds = new HashSet<>();
+
+        for (Envio envioCopia : solucion.getEnvios()) {
+            if (envioCopia.getId() == null) {
+                continue;
+            }
+            envioIds.add(envioCopia.getId());
+
+            if (envioCopia.getParteAsignadas() != null) {
+                for (ParteAsignada parteCopia : envioCopia.getParteAsignadas()) {
+                    if (parteCopia.getAeropuertoOrigen() != null && parteCopia.getAeropuertoOrigen().getId() != null) {
+                        aeropuertoIds.add(parteCopia.getAeropuertoOrigen().getId());
+                    }
+
+                    if (parteCopia.getRuta() != null) {
+                        for (int i = 0; i < parteCopia.getRuta().size(); i++) {
+                            PlanDeVuelo vueloCopia = parteCopia.getRuta().get(i);
+                            if (vueloCopia.getId() != null) {
+                                vueloIds.add(vueloCopia.getId());
+
+                                if (vueloCopia.getCiudadDestino() != null) {
+                                    aeropuertoIds.add(vueloCopia.getCiudadDestino());
+                                }
+                                if (i > 0 && vueloCopia.getCiudadOrigen() != null) {
+                                    aeropuertoIds.add(vueloCopia.getCiudadOrigen());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ⚡ PASO 2: Cargar TODAS las entidades de una vez (batch)
+        System.out.printf("📦 [persistirCambios] Cargando %d envíos, %d vuelos, %d aeropuertos en batch...%n",
+                envioIds.size(), vueloIds.size(), aeropuertoIds.size());
+
+        // Cargar envíos con partes inicializadas
+        Map<Integer, Envio> enviosMap = new HashMap<>();
+        if (!envioIds.isEmpty()) {
+            List<Envio> enviosCargados = envioService.obtenerEnviosPorIdsConPartes(new ArrayList<>(envioIds));
+            for (Envio envio : enviosCargados) {
+                enviosMap.put(envio.getId(), envio);
+            }
+        }
+
+        // Cargar vuelos
+        Map<Integer, PlanDeVuelo> vuelosMap = new HashMap<>();
+        if (!vueloIds.isEmpty()) {
+            List<PlanDeVuelo> vuelosCargados = planDeVueloService.obtenerPlanesDeVueloPorIds(new ArrayList<>(vueloIds));
+            for (PlanDeVuelo vuelo : vuelosCargados) {
+                vuelosMap.put(vuelo.getId(), vuelo);
+            }
+        }
+
+        // Cargar aeropuertos
+        Map<Integer, Aeropuerto> aeropuertosMap = new HashMap<>();
+        if (!aeropuertoIds.isEmpty()) {
+            List<Aeropuerto> aeropuertosCargados = aeropuertoService.obtenerAeropuertosPorIds(new ArrayList<>(aeropuertoIds));
+            for (Aeropuerto aeropuerto : aeropuertosCargados) {
+                aeropuertosMap.put(aeropuerto.getId(), aeropuerto);
+            }
+        }
+
+        System.out.printf("✅ [persistirCambios] Cargados: %d envíos, %d vuelos, %d aeropuertos%n",
+                enviosMap.size(), vuelosMap.size(), aeropuertosMap.size());
+
+        // ⚡ PASO 3: Procesar envíos y crear partes asignadas (todo en memoria)
         Set<Integer> planesDeVueloModificados = new HashSet<>();
         Set<Integer> aeropuertosModificados = new HashSet<>();
         List<Envio> enviosParaActualizar = new ArrayList<>();
 
-        // 1. Procesar cada envío y sus partes asignadas
         for (Envio envioCopia : solucion.getEnvios()) {
             if (envioCopia.getId() == null) {
-                continue; // Saltar envíos sin ID (nuevos)
+                continue;
             }
 
-            // Cargar el envío real de la BD y forzar la carga de partes asignadas
-            // dentro de una transacción para evitar LazyInitializationException
-            Optional<Envio> envioOpt = envioService.obtenerEnvioPorIdConPartesInicializadas(envioCopia.getId());
-            if (envioOpt.isEmpty()) {
+            Envio envioReal = enviosMap.get(envioCopia.getId());
+            if (envioReal == null) {
                 System.err.printf("⚠️ No se encontró el envío %d en la BD%n", envioCopia.getId());
                 continue;
             }
 
-            Envio envioReal = envioOpt.get();
-
             // Procesar cada parte asignada nueva
             if (envioCopia.getParteAsignadas() != null) {
                 for (ParteAsignada parteCopia : envioCopia.getParteAsignadas()) {
-                    // Verificar si esta parte ya existe en el envío real
+                    // Verificar si esta parte ya existe
                     boolean parteExiste = false;
                     if (envioReal.getParteAsignadas() != null) {
                         for (ParteAsignada parteExistente : envioReal.getParteAsignadas()) {
@@ -1492,34 +1617,32 @@ public class Planificador {
                         }
                     }
 
-                    // Si la parte es nueva (sin ID) o no existe, crearla
+                    // Si la parte es nueva, crearla
                     if (parteCopia.getId() == null || !parteExiste) {
-                        // Crear nueva parte asignada
                         ParteAsignada nuevaParte = new ParteAsignada();
                         nuevaParte.setEnvio(envioReal);
                         nuevaParte.setCantidad(parteCopia.getCantidad());
                         nuevaParte.setLlegadaFinal(parteCopia.getLlegadaFinal());
-                        nuevaParte.setAeropuertoOrigen(parteCopia.getAeropuertoOrigen());
 
-                        // Copiar la ruta transient - cargar los planes de vuelo reales de BD
+                        // Usar aeropuerto del mapa
+                        if (parteCopia.getAeropuertoOrigen() != null && parteCopia.getAeropuertoOrigen().getId() != null) {
+                            nuevaParte.setAeropuertoOrigen(aeropuertosMap.get(parteCopia.getAeropuertoOrigen().getId()));
+                        }
+
+                        // Construir ruta usando vuelos del mapa
                         if (parteCopia.getRuta() != null && !parteCopia.getRuta().isEmpty()) {
                             List<PlanDeVuelo> rutaReal = new ArrayList<>();
                             for (int i = 0; i < parteCopia.getRuta().size(); i++) {
                                 PlanDeVuelo vueloCopia = parteCopia.getRuta().get(i);
                                 if (vueloCopia.getId() != null) {
-                                    Optional<PlanDeVuelo> vueloOpt = planDeVueloService
-                                            .obtenerPlanDeVueloPorId(vueloCopia.getId());
-                                    if (vueloOpt.isPresent()) {
-                                        rutaReal.add(vueloOpt.get());
+                                    PlanDeVuelo vueloReal = vuelosMap.get(vueloCopia.getId());
+                                    if (vueloReal != null) {
+                                        rutaReal.add(vueloReal);
                                         planesDeVueloModificados.add(vueloCopia.getId());
 
-                                        // Agregar aeropuerto destino (siempre se asigna capacidad cuando llega)
                                         if (vueloCopia.getCiudadDestino() != null) {
                                             aeropuertosModificados.add(vueloCopia.getCiudadDestino());
                                         }
-
-                                        // Agregar aeropuerto origen (si NO es el primer vuelo, se desasigna capacidad
-                                        // cuando despega)
                                         if (i > 0 && vueloCopia.getCiudadOrigen() != null) {
                                             aeropuertosModificados.add(vueloCopia.getCiudadOrigen());
                                         }
@@ -1527,11 +1650,9 @@ public class Planificador {
                                 }
                             }
                             nuevaParte.setRuta(rutaReal);
-                            // Sincronizar la ruta con BD antes de persistir
                             nuevaParte.sincronizarRutaConBD();
                         }
 
-                        // Agregar a la lista de partes del envío
                         if (envioReal.getParteAsignadas() == null) {
                             envioReal.setParteAsignadas(new ArrayList<>());
                         }
@@ -1540,30 +1661,21 @@ public class Planificador {
                 }
             }
 
-            // ⚡ CAMBIAR ESTADO: Si el envío tiene partes asignadas (ruta), establecer PLANIFICADO
+            // Cambiar estado a PLANIFICADO si tiene partes
             if (envioReal.getParteAsignadas() != null && !envioReal.getParteAsignadas().isEmpty()) {
                 if (envioReal.getEstado() == null || envioReal.getEstado() != Envio.EstadoEnvio.PLANIFICADO) {
                     envioReal.setEstado(Envio.EstadoEnvio.PLANIFICADO);
-                    // 💾 PERSISTIR inmediatamente el cambio de estado
-                    try {
-                        envioService.insertarEnvio(envioReal);
-                        //System.out.printf("  ✅ [Estado] Envío %d cambió a PLANIFICADO (ruta asignada) [💾 Persistido]%n", envioReal.getId());
-                    } catch (Exception e) {
-                        System.err.printf("❌ Error al persistir cambio de estado PLANIFICADO: %s%n", e.getMessage());
-                    }
                 }
             }
 
             enviosParaActualizar.add(envioReal);
         }
 
-        // 2. Actualizar planes de vuelo con su capacidad ocupada
+        // ⚡ PASO 4: Actualizar capacidades de vuelos y aeropuertos (usar mapas)
         List<PlanDeVuelo> planesParaActualizar = new ArrayList<>();
         for (Integer planId : planesDeVueloModificados) {
-            Optional<PlanDeVuelo> planOpt = planDeVueloService.obtenerPlanDeVueloPorId(planId);
-            if (planOpt.isPresent()) {
-                PlanDeVuelo planReal = planOpt.get();
-                // Buscar el plan en el grasp para obtener la capacidad actualizada
+            PlanDeVuelo planReal = vuelosMap.get(planId);
+            if (planReal != null) {
                 Integer capacidadAsignada = calcularCapacidadAsignada(planId, solucion.getEnvios());
                 if (capacidadAsignada != null) {
                     planReal.setCapacidadOcupada(capacidadAsignada);
@@ -1572,13 +1684,10 @@ public class Planificador {
             }
         }
 
-        // 3. Actualizar aeropuertos con su capacidad ocupada
         List<Aeropuerto> aeropuertosParaActualizar = new ArrayList<>();
         for (Integer aeropuertoId : aeropuertosModificados) {
-            Optional<Aeropuerto> aeropuertoOpt = aeropuertoService.obtenerAeropuertoPorId(aeropuertoId);
-            if (aeropuertoOpt.isPresent()) {
-                Aeropuerto aeropuertoReal = aeropuertoOpt.get();
-                // Buscar el aeropuerto en el grasp para obtener la capacidad actualizada
+            Aeropuerto aeropuertoReal = aeropuertosMap.get(aeropuertoId);
+            if (aeropuertoReal != null) {
                 Aeropuerto aeropuertoGrasp = obtenerAeropuertoPorId(aeropuertoId);
                 if (aeropuertoGrasp != null && aeropuertoGrasp.getCapacidadOcupada() != null) {
                     aeropuertoReal.setCapacidadOcupada(aeropuertoGrasp.getCapacidadOcupada());
@@ -1587,19 +1696,19 @@ public class Planificador {
             }
         }
 
-        // 4. Persistir todos los cambios
+        // ⚡ PASO 5: Persistir todos los cambios en lotes
         try {
-            // Guardar envíos (esto guardará las partes asignadas por cascade)
-            for (Envio envio : enviosParaActualizar) {
-                envioService.insertarEnvio(envio);
+            // Guardar envíos en lote (esto guardará las partes asignadas por cascade)
+            if (!enviosParaActualizar.isEmpty()) {
+                envioService.insertarListaEnvios(new ArrayList<>(enviosParaActualizar));
             }
 
-            // Guardar planes de vuelo
+            // Guardar planes de vuelo en lote
             if (!planesParaActualizar.isEmpty()) {
                 planDeVueloService.insertarListaPlanesDeVuelo(new ArrayList<>(planesParaActualizar));
             }
 
-            // Guardar aeropuertos
+            // Guardar aeropuertos en lote
             if (!aeropuertosParaActualizar.isEmpty()) {
                 aeropuertoService.insertarListaAeropuertos(new ArrayList<>(aeropuertosParaActualizar));
             }
@@ -1683,14 +1792,22 @@ public class Planificador {
                             );
 
                             // Programar el evento para ejecutarse después del delay calculado
-                            ScheduledFuture<?> futuro = schedulerEventos.schedule(
-                                    () -> procesarEvento(eventoLlegada),
-                                    delaySegundos,
-                                    TimeUnit.SECONDS
-                            );
+                            try {
+                                ScheduledFuture<?> futuro = schedulerEventos.schedule(
+                                        () -> procesarEvento(eventoLlegada),
+                                        delaySegundos,
+                                        TimeUnit.SECONDS
+                                );
 
-                            eventosProgramados.add(futuro);
-                            contadorEventos++;
+                                eventosProgramados.add(futuro);
+                                contadorEventos++;
+                            } catch (RejectedExecutionException e) {
+                                System.err.printf("⚠️ Scheduler de eventos saturado, evento de llegada rechazado (Vuelo %d). Threads activos: %d%n",
+                                    vuelo.getId() != null ? vuelo.getId() : -1,
+                                    schedulerEventos instanceof ThreadPoolExecutor ?
+                                        ((ThreadPoolExecutor)schedulerEventos).getActiveCount() : -1);
+                                // Continuar con el siguiente evento en lugar de fallar completamente
+                            }
 
 //                            System.out.printf("  📅 Evento programado: Vuelo %d llegará a %s en %d min sim (%d seg real) - %s%n", vuelo.getId(), llegadaLocal.format(DateTimeFormatter.ofPattern("HH:mm")), minutosSimulados, delaySegundos, llegadaLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                         }
@@ -1721,14 +1838,22 @@ public class Planificador {
                             );
 
                             // Programar el evento para ejecutarse después del delay calculado
-                            ScheduledFuture<?> futuro = schedulerEventos.schedule(
-                                    () -> procesarEvento(eventoSalida),
-                                    delaySegundos,
-                                    TimeUnit.SECONDS
-                            );
+                            try {
+                                ScheduledFuture<?> futuro = schedulerEventos.schedule(
+                                        () -> procesarEvento(eventoSalida),
+                                        delaySegundos,
+                                        TimeUnit.SECONDS
+                                );
 
-                            eventosProgramados.add(futuro);
-                            contadorEventos++;
+                                eventosProgramados.add(futuro);
+                                contadorEventos++;
+                            } catch (RejectedExecutionException e) {
+                                System.err.printf("⚠️ Scheduler de eventos saturado, evento de salida rechazado (Vuelo %d). Threads activos: %d%n",
+                                    vuelo.getId() != null ? vuelo.getId() : -1,
+                                    schedulerEventos instanceof ThreadPoolExecutor ?
+                                        ((ThreadPoolExecutor)schedulerEventos).getActiveCount() : -1);
+                                // Continuar con el siguiente evento en lugar de fallar completamente
+                            }
 
 //                            System.out.printf("  📅 Evento programado: Vuelo %d saldrá de %s en %d min sim (%d seg real) - %s%n", vuelo.getId(), salidaLocal.format(DateTimeFormatter.ofPattern("HH:mm")), minutosSimulados, delaySegundos, salidaLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                         }
@@ -1739,6 +1864,43 @@ public class Planificador {
 
         System.out.printf("📅 [crearEventosTemporales] Programados %d eventos temporales desde %s%n",
                 contadorEventos, tiempoReferencia.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+    }
+
+    /**
+     * ✅ Limpia eventos temporales que ya se ejecutaron o fueron cancelados.
+     * Esto previene la acumulación de memoria y reduce el consumo de recursos.
+     * Usa sincronización explícita para evitar ConcurrentModificationException.
+     */
+    private void limpiarEventosEjecutados() {
+        if (eventosProgramados == null || eventosProgramados.isEmpty()) {
+            return;
+        }
+
+        // ✅ Sincronizar el acceso para evitar ConcurrentModificationException
+        // cuando otro thread está agregando eventos mientras limpiamos
+        synchronized (eventosProgramados) {
+            int antes = eventosProgramados.size();
+
+            // Crear una lista temporal con los eventos a mantener
+            List<ScheduledFuture<?>> eventosAMantener = new ArrayList<>();
+            for (ScheduledFuture<?> futuro : eventosProgramados) {
+                if (futuro != null && !futuro.isDone() && !futuro.isCancelled()) {
+                    eventosAMantener.add(futuro);
+                }
+            }
+
+            // Reemplazar la lista completa (más seguro que removeIf en contexto concurrente)
+            eventosProgramados.clear();
+            eventosProgramados.addAll(eventosAMantener);
+
+            int despues = eventosProgramados.size();
+
+            // Solo log si hay muchos eventos o si se limpiaron muchos
+            if (antes > 1000 || (antes - despues) > 100) {
+                System.out.printf("🧹 [limpiarEventosEjecutados] Limpiados %d eventos ejecutados (quedan %d pendientes)%n",
+                    antes - despues, despues);
+            }
+        }
     }
 
     /**
@@ -1760,6 +1922,12 @@ public class Planificador {
      */
     private void procesarEvento(EventoTemporal evento) {
         try {
+            // ✅ Limpiar eventos ejecutados periódicamente (cada 100 eventos procesados aproximadamente)
+            // Esto se hace de forma probabilística para no impactar el rendimiento
+            if (eventosProgramados != null && eventosProgramados.size() > 1000 &&
+                Math.random() < 0.1) { // 10% de probabilidad de limpiar
+                limpiarEventosEjecutados();
+            }
             Optional<Aeropuerto> aeropuertoOpt = aeropuertoService.obtenerAeropuertoPorId(evento.getAeropuertoId());
             if (!aeropuertoOpt.isPresent()) {
                 System.err.printf("⚠️ Aeropuerto ID %d no encontrado para evento%n", evento.getAeropuertoId());
