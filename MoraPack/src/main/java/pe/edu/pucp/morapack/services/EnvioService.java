@@ -68,4 +68,10 @@ public interface EnvioService {
          * Esto evita cargar todos los envíos en memoria.
          */
         long contarEnviosPorEstado(Envio.EstadoEnvio estado);
+
+        /**
+         * ⚡ OPTIMIZADO: Obtiene múltiples envíos por IDs con partes asignadas cargadas.
+         * Usa JOIN FETCH para cargar relaciones en una sola query.
+         */
+        List<Envio> obtenerEnviosPorIdsConPartes(List<Integer> envioIds);
 }

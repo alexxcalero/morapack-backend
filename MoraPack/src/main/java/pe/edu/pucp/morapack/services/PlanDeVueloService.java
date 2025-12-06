@@ -5,6 +5,7 @@ import pe.edu.pucp.morapack.models.PlanDeVuelo;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 public interface PlanDeVueloService {
@@ -16,4 +17,9 @@ public interface PlanDeVueloService {
     Integer planAcabaAlSiguienteDia(String tInicio, String tFin, String husoOrigen, String husoDestino, Integer aa, Integer mm, Integer dd);
     ArrayList<PlanDeVuelo> obtenerVuelosEnRango(LocalDateTime fechaInicio, String husoHorarioInicio, LocalDateTime fechaFin, String husoHorarioFin);
     ArrayList<PlanDeVuelo> obtenerVuelosDesdeFecha(LocalDateTime fechaInicio, String husoHorarioInicio);
+
+    /**
+     * ⚡ OPTIMIZADO: Obtiene múltiples planes de vuelo por IDs en una sola consulta.
+     */
+    List<PlanDeVuelo> obtenerPlanesDeVueloPorIds(List<Integer> vueloIds);
 }

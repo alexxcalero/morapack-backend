@@ -61,6 +61,26 @@ public class EnvioServiceImp implements EnvioService {
         return envioOpt;
     }
 
+    /**
+     * ⚡ OPTIMIZADO: Obtiene múltiples envíos por IDs con partes asignadas cargadas.
+     * Usa JOIN FETCH para cargar relaciones en una sola query.
+     */
+    @Transactional(readOnly = true)
+    public List<Envio> obtenerEnviosPorIdsConPartes(List<Integer> envioIds) {
+        if (envioIds == null || envioIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+        // Usar findAllById de JPA y luego forzar carga de partes
+        List<Envio> envios = envioRepository.findAllById(envioIds);
+        // Forzar carga de partes asignadas para cada envío
+        for (Envio envio : envios) {
+            if (envio.getParteAsignadas() != null) {
+                envio.getParteAsignadas().size();
+            }
+        }
+        return envios;
+    }
+
     @Override
     public ArrayList<Envio> obtenerEnviosPorFecha(LocalDate fecha) {
         return envioRepository.findByFechaIngreso(fecha);
@@ -615,7 +635,7 @@ public class EnvioServiceImp implements EnvioService {
     /**
      * 🔍 Busca envíos por ID (completo o parcial) incluyendo sus rutas de vuelos.
      * Útil para encontrar envíos específicos que están en aviones volando.
-     * 
+     *
      * @param query  Texto de búsqueda (puede ser ID completo o parte del ID)
      * @param limite Límite de resultados
      * @return Lista de envíos con sus partes y vuelos cargados

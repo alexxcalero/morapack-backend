@@ -2,6 +2,7 @@ package pe.edu.pucp.morapack.services;
 
 import pe.edu.pucp.morapack.models.Aeropuerto;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 public interface AeropuertoService {
@@ -14,4 +15,9 @@ public interface AeropuertoService {
     Optional<Aeropuerto> obtenerAeropuertoPorCodigo(String codigo);
 
     ArrayList<Aeropuerto> obtenerTodosAeropuertos();
+
+    /**
+     * ⚡ OPTIMIZADO: Obtiene múltiples aeropuertos por IDs en una sola consulta.
+     */
+    List<Aeropuerto> obtenerAeropuertosPorIds(List<Integer> aeropuertoIds);
 }

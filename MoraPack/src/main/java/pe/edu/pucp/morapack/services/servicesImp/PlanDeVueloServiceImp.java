@@ -10,6 +10,7 @@ import pe.edu.pucp.morapack.services.PlanDeVueloService;
 
 import java.time.*;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -171,5 +172,16 @@ public class PlanDeVueloServiceImp implements PlanDeVueloService {
         Integer offsetDestino = Integer.parseInt(vuelo.getHusoHorarioDestino());
         ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
         return vuelo.getHoraDestino().atZone(zoneDestino);
+    }
+
+    /**
+     * ⚡ OPTIMIZADO: Obtiene múltiples planes de vuelo por IDs en una sola consulta.
+     */
+    @Override
+    public List<PlanDeVuelo> obtenerPlanesDeVueloPorIds(List<Integer> vueloIds) {
+        if (vueloIds == null || vueloIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return new ArrayList<>(planDeVueloRepository.findAllById(vueloIds));
     }
 }
