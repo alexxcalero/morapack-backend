@@ -1517,7 +1517,9 @@ public class Planificador {
         // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar solo vuelos relevantes para este ciclo
         // Rango: desde inicioHorizonte hasta inicioHorizonte + 4 días (plazo máximo de
         // entrega + margen para caché entre ciclos)
-        LocalDateTime finConsultaVuelos = inicioHorizonte.plusDays(4);
+        // ⚡ OPTIMIZACIÓN: Cargar vuelos para 4 días + 1 día extra de margen
+        // Esto permite que el caché cubra ~6 ciclos (24h / 4h por ciclo)
+        LocalDateTime finConsultaVuelos = inicioHorizonte.plusDays(5);
 
         // ⚡ CACHÉ DE VUELOS: Reusar vuelos si el rango solapa significativamente con el
         // caché
@@ -1534,8 +1536,8 @@ public class Planificador {
             boolean finCubierto = !finConsultaVuelos.isAfter(cacheVuelosFin);
             usarCache = inicioEnRango && finCubierto;
 
-            // DEBUG: Mostrar por qué no se usa el caché
-            if (!usarCache) {
+            // DEBUG: Mostrar por qué no se usa el caché (solo si no se usa)
+            if (!usarCache && horasDesdeInicioCache < 48) { // Solo mostrar si estamos cerca
                 System.out.printf("⚠️ [CACHÉ] No usado: horasDesdeInicio=%d (<=24?%s), finCubierto=%s%n",
                         horasDesdeInicioCache, inicioEnRango, finCubierto);
                 System.out.printf("   finConsultaVuelos=%s, cacheFin=%s%n",
@@ -1547,11 +1549,11 @@ public class Planificador {
         ArrayList<PlanDeVuelo> planesActualizados;
 
         if (usarCache) {
-            System.out.printf("⚡ [recargarDatosBase] USANDO CACHÉ de vuelos (%d vuelos, ahorrando ~60s de BD)%n",
+            System.out.printf("⚡ [recargarDatosBase] USANDO CACHÉ de vuelos (%d vuelos, ahorrando consulta BD)%n",
                     vuelosCacheados.size());
             planesActualizados = vuelosCacheados;
         } else {
-            System.out.printf("📊 [recargarDatosBase] Cargando vuelos desde %s hasta %s (3 días desde inicio)%n",
+            System.out.printf("📊 [recargarDatosBase] Cargando vuelos desde %s hasta %s (5 días para caché)%n",
                     inicioHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
                     finConsultaVuelos.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
