@@ -17,8 +17,9 @@ import java.util.stream.Collectors;
 @AllArgsConstructor
 public class Grasp {
 
-    private static final int MAX_ITERACIONES = 100;
-    private static final int MAX_SIN_MEJORA = 3;
+    // ⚡ OPTIMIZADO: Reducir iteraciones para completar en < 90 segundos
+    private static final int MAX_ITERACIONES = 30; // Antes: 100
+    private static final int MAX_SIN_MEJORA = 2; // Antes: 3
     private static final int DIAS_A_INSTANCIAR = 3;
 
     private ArrayList<Aeropuerto> aeropuertos;
@@ -37,9 +38,11 @@ public class Grasp {
     private Map<Integer, Aeropuerto> aeropuertoById;
     private Map<String, Duration> deadlineCache = new HashMap<>();
 
-    // ⚡ SISTEMA DE RESERVAS: Para separar planificación (GRASP) de ejecución temporal
+    // ⚡ SISTEMA DE RESERVAS: Para separar planificación (GRASP) de ejecución
+    // temporal
     // Las reservas permiten verificar capacidades sin asignar realmente
-    // Las asignaciones reales se harán cuando los vuelos lleguen (eventos temporales)
+    // Las asignaciones reales se harán cuando los vuelos lleguen (eventos
+    // temporales)
     private Map<Integer, Integer> reservasVuelos = new HashMap<>(); // vueloId -> cantidad reservada
     private Map<Integer, Integer> reservasAeropuertos = new HashMap<>(); // aeropuertoId -> cantidad reservada
 
@@ -286,8 +289,10 @@ public class Grasp {
     }
 
     /**
-     * ⚡ SISTEMA DE RESERVAS: Métodos para reservar capacidades sin asignarlas realmente.
-     * Las asignaciones reales se harán cuando los vuelos lleguen (eventos temporales).
+     * ⚡ SISTEMA DE RESERVAS: Métodos para reservar capacidades sin asignarlas
+     * realmente.
+     * Las asignaciones reales se harán cuando los vuelos lleguen (eventos
+     * temporales).
      */
 
     /**
@@ -437,7 +442,8 @@ public class Grasp {
                 CandidatoRuta escogido = rcl.get(ThreadLocalRandom.current().nextInt(rcl.size()));
 
                 // ⚡ Verificación de capacidad considerando RESERVAS (no asignaciones reales)
-                // Las asignaciones reales se harán cuando los vuelos lleguen (eventos temporales)
+                // Las asignaciones reales se harán cuando los vuelos lleguen (eventos
+                // temporales)
                 Integer capacidadReal = Integer.MAX_VALUE;
                 for (PlanDeVuelo v : escogido.getTramos()) {
                     // Por cada vuelo de la ruta candidata elegida, se va a identificar la minima
@@ -445,13 +451,15 @@ public class Grasp {
                     capacidadReal = Math.min(capacidadReal, getCapacidadLibreConReservas(v));
                 }
 
-                // Verificar también capacidad de aeropuertos intermedios y destino (considerando reservas)
+                // Verificar también capacidad de aeropuertos intermedios y destino
+                // (considerando reservas)
                 for (int i = 0; i < escogido.getTramos().size(); i++) {
                     PlanDeVuelo vuelo = escogido.getTramos().get(i);
                     Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
                     if (destinoAeropuerto != null) {
                         // Los productos llegan al aeropuerto destino cuando el vuelo llega
-                        // Verificar capacidad disponible en el aeropuerto destino (considerando reservas)
+                        // Verificar capacidad disponible en el aeropuerto destino (considerando
+                        // reservas)
                         int capacidadLibreAeropuerto = getCapacidadLibreAeropuertoConReservas(destinoAeropuerto);
                         capacidadReal = Math.min(capacidadReal, capacidadLibreAeropuerto);
                     }
@@ -462,16 +470,17 @@ public class Grasp {
                     break;
 
                 // ⚡ RESERVAR capacidad en vuelos (NO asignar realmente)
-                // Las asignaciones reales se harán cuando los vuelos lleguen (eventos temporales)
+                // Las asignaciones reales se harán cuando los vuelos lleguen (eventos
+                // temporales)
                 for (PlanDeVuelo v : escogido.getTramos())
                     reservarVuelo(v, cant);
 
                 // ⚡ RESERVAR capacidad en aeropuertos (NO asignar realmente)
                 // Para cada vuelo en la ruta:
                 // - Si NO es el primer vuelo: liberar reserva del aeropuerto de origen
-                //   (los productos salen cuando el vuelo despega)
+                // (los productos salen cuando el vuelo despega)
                 // - Siempre: reservar capacidad en el aeropuerto de destino
-                //   (los productos llegan cuando el vuelo aterriza)
+                // (los productos llegan cuando el vuelo aterriza)
                 for (int i = 0; i < escogido.getTramos().size(); i++) {
                     PlanDeVuelo vuelo = escogido.getTramos().get(i);
 
@@ -484,7 +493,8 @@ public class Grasp {
                         }
                     }
 
-                    // Reservar capacidad en el aeropuerto de destino (los productos llegan cuando el
+                    // Reservar capacidad en el aeropuerto de destino (los productos llegan cuando
+                    // el
                     // vuelo aterriza)
                     Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
                     if (destinoAeropuerto != null) {
@@ -550,7 +560,8 @@ public class Grasp {
             // Estamos en el aeropuerto de origen, sin vuelos tomados y espacio infinito
             beam.add(new PathState(origen, null, new ArrayList<>(), null, Integer.MAX_VALUE));
 
-            for (int nivel = 0; nivel < 5; nivel++) {
+            // ⚡ OPTIMIZADO: Reducir niveles de búsqueda de 5 a 3 para acelerar
+            for (int nivel = 0; nivel < 3; nivel++) {
                 List<PathState> nuevosEstados = new ArrayList<>();
 
                 for (PathState ps : beam) { // Iteramos en cada estado
@@ -626,8 +637,9 @@ public class Grasp {
                 // Se ordena por scoreRuta
                 nuevosEstados.sort(Comparator
                         .comparingLong(ps -> scoreRuta(ps.getTramos(), ps.getLlegadaUltimoVuelo(), envio, origen)));
-                if (nuevosEstados.size() > 10)
-                    nuevosEstados = nuevosEstados.subList(0, 10);
+                // ⚡ OPTIMIZADO: Reducir beam size de 10 a 5 para acelerar
+                if (nuevosEstados.size() > 5)
+                    nuevosEstados = nuevosEstados.subList(0, 5);
 
                 beam = nuevosEstados;
 
@@ -681,7 +693,8 @@ public class Grasp {
 
                     // Liberar/restaurar reservas de aeropuertos
                     // Para cada vuelo en la ruta (en orden inverso para restaurar correctamente):
-                    // - Liberar reserva del aeropuerto de destino (los productos ya no llegarán ahí)
+                    // - Liberar reserva del aeropuerto de destino (los productos ya no llegarán
+                    // ahí)
                     // - Si NO es el primer vuelo: restaurar reserva del aeropuerto de origen (los
                     // productos vuelven a estar ahí)
                     for (int i = rutaActual.size() - 1; i >= 0; i--) {
@@ -718,7 +731,8 @@ public class Grasp {
                             for (PlanDeVuelo v : c.getTramos()) {
                                 Aeropuerto destinoAeropuerto = getAeropuertoById(v.getCiudadDestino());
                                 if (destinoAeropuerto != null
-                                        && getCapacidadLibreAeropuertoConReservas(destinoAeropuerto) < parte.getCantidad()) {
+                                        && getCapacidadLibreAeropuertoConReservas(destinoAeropuerto) < parte
+                                                .getCantidad()) {
                                     return false;
                                 }
                             }
@@ -737,9 +751,9 @@ public class Grasp {
                     // ⚡ RESERVAR capacidad en aeropuertos (NO asignar realmente)
                     // Para cada vuelo en la ruta:
                     // - Si NO es el primer vuelo: liberar reserva del aeropuerto de origen
-                    //   (los productos salen cuando el vuelo despega)
+                    // (los productos salen cuando el vuelo despega)
                     // - Siempre: reservar capacidad en el aeropuerto de destino
-                    //   (los productos llegan cuando el vuelo aterriza)
+                    // (los productos llegan cuando el vuelo aterriza)
                     for (int i = 0; i < c.getTramos().size(); i++) {
                         PlanDeVuelo vuelo = c.getTramos().get(i);
 
@@ -752,7 +766,8 @@ public class Grasp {
                             }
                         }
 
-                        // Reservar capacidad en el aeropuerto de destino (los productos llegan cuando el
+                        // Reservar capacidad en el aeropuerto de destino (los productos llegan cuando
+                        // el
                         // vuelo aterriza)
                         Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
                         if (destinoAeropuerto != null) {
