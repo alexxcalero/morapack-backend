@@ -517,19 +517,9 @@ public class Planificador {
                 tiempoSimuladoActual = inicioHorizonte;
             }
 
-            // ⚡ Los eventos temporales se ejecutan individualmente cuando les toca
-            // (programados con ScheduledExecutorService en crearEventosTemporales)
-
-            // ✅ Liberar productos que llegaron al destino final hace más de 2 horas
-            // IMPORTANTE: Esta validación debe ejecutarse SIEMPRE, incluso si no hay
-            // pedidos para planificar
-            // Usar el tiempo simulado actual (que avanza más granularmente) en lugar del
-            // inicio del horizonte
-            // Esto permite verificar liberaciones exactamente cuando pasen 2 horas, no solo
-            // al inicio de cada ciclo
-            if (tiempoSimuladoActual != null) {
-                liberarProductosEntregados(tiempoSimuladoActual);
-            }
+            // ⚡ OPTIMIZACIÓN: La liberación de productos se ejecuta en una tarea separada
+            // (cada 90 segundos) para no bloquear el ciclo GRASP
+            // No llamar a liberarProductosEntregados aquí - se maneja automáticamente
 
             if (pedidosParaPlanificar.isEmpty()) {
                 System.out.println("✅ No hay pedidos pendientes en este horizonte");
@@ -1516,33 +1506,29 @@ public class Planificador {
      */
     private void recargarDatosBase(LocalDateTime inicioHorizonte, LocalDateTime finHorizonte) {
         // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar solo vuelos relevantes para este ciclo
-        // Rango: desde inicioHorizonte hasta inicioHorizonte + 5 días + 24h de margen
-        // El margen de 24h permite que el caché cubra 6 ciclos (6 × 4h = 24h)
-        // sin necesidad de recargar, ya que cada ciclo avanza 4h el horizonte
-        LocalDateTime finConsultaVuelos = inicioHorizonte.plusDays(5).plusHours(24);
+        // Rango: desde inicioHorizonte hasta inicioHorizonte + 6 días
+        // El margen de 6 días (en lugar de 5 días + 24h) permite que el caché cubra
+        // múltiples ciclos sin necesidad de recargar, ya que cada ciclo avanza 4h
+        LocalDateTime finConsultaVuelos = inicioHorizonte.plusDays(6);
 
         // ⚡ CACHÉ DE VUELOS: Reusar vuelos si el rango solapa significativamente con el
         // caché
-        // Solo recargar si no hay caché o si el inicio del horizonte ha avanzado más de
-        // 24 horas (6 ciclos de 4 horas cada uno)
+        // Solo recargar si no hay caché o si el nuevo finConsultaVuelos excede el
+        // cacheFin
         boolean usarCache = false;
         if (vuelosCacheados != null && cacheVuelosInicio != null && cacheVuelosFin != null) {
             // Verificar si el nuevo rango está cubierto por el caché
-            // El caché cubre inicioHorizonte si: cacheInicio <= inicioHorizonte <=
-            // cacheInicio + 24h
-            // Y si finConsultaVuelos <= cacheFin
-            long horasDesdeInicioCache = java.time.Duration.between(cacheVuelosInicio, inicioHorizonte).toHours();
-            boolean inicioEnRango = horasDesdeInicioCache >= 0 && horasDesdeInicioCache <= 24;
+            // El caché cubre el rango si: inicioHorizonte >= cacheInicio Y
+            // finConsultaVuelos <= cacheFin
+            boolean inicioCubierto = !inicioHorizonte.isBefore(cacheVuelosInicio);
             boolean finCubierto = !finConsultaVuelos.isAfter(cacheVuelosFin);
-            usarCache = inicioEnRango && finCubierto;
+            usarCache = inicioCubierto && finCubierto;
 
             // DEBUG: Mostrar por qué no se usa el caché (solo si no se usa)
-            if (!usarCache && horasDesdeInicioCache < 48) { // Solo mostrar si estamos cerca
-                System.out.printf("⚠️ [CACHÉ] No usado: horasDesdeInicio=%d (<=24?%s), finCubierto=%s%n",
-                        horasDesdeInicioCache, inicioEnRango, finCubierto);
-                System.out.printf("   finConsultaVuelos=%s, cacheFin=%s%n",
-                        finConsultaVuelos.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
-                        cacheVuelosFin.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+            if (!usarCache) {
+                long horasFaltantesFin = java.time.Duration.between(cacheVuelosFin, finConsultaVuelos).toHours();
+                System.out.printf("⚠️ [CACHÉ] No usado: inicioCubierto=%s, finCubierto=%s (falta %dh)%n",
+                        inicioCubierto, finCubierto, horasFaltantesFin);
             }
         }
 
@@ -1554,7 +1540,7 @@ public class Planificador {
             planesActualizados = vuelosCacheados;
         } else {
             System.out.printf(
-                    "📊 [recargarDatosBase] Cargando vuelos desde %s hasta %s (5 días + 24h margen para caché)%n",
+                    "📊 [recargarDatosBase] Cargando vuelos desde %s hasta %s (6 días para caché)%n",
                     inicioHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
                     finConsultaVuelos.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
