@@ -445,6 +445,169 @@ public class PlanificadorController {
         return response;
     }
 
+    // Endpoint para iniciar operaciones diarias (tiempo real)
+    @PostMapping("/iniciar-operaciones-diarias")
+    public Map<String, Object> iniciarOperacionesDiarias(@RequestBody Map<String, Object> request) {
+        System.out.println("🎯 [ENDPOINT] iniciar-operaciones-diarias - PETICIÓN RECIBIDA a las " + LocalDateTime.now());
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Validar parámetros
+            Object codigoAeropuertoDestinoObj = request.get("codigoAeropuertoDestino");
+            Object numProductosObj = request.get("numProductos");
+            Object clienteObj = request.get("cliente");
+            Object fechaAparicionStr = request.get("fechaAparicion");
+
+            if (codigoAeropuertoDestinoObj == null || numProductosObj == null || clienteObj == null || fechaAparicionStr == null) {
+                response.put("estado", "error");
+                response.put("mensaje", "Se requieren los parámetros: 'codigoAeropuertoDestino', 'numProductos', 'cliente' y 'fechaAparicion'");
+                return response;
+            }
+
+            String codigoAeropuertoDestino = codigoAeropuertoDestinoObj.toString().trim().toUpperCase();
+            Integer numProductos = Integer.parseInt(numProductosObj.toString());
+            String cliente = clienteObj.toString();
+
+            // La fecha de aparición viene en UTC desde el frontend
+            LocalDateTime fechaAparicionUTC = LocalDateTime.parse(fechaAparicionStr.toString());
+
+            // Obtener aeropuerto destino por código
+            Optional<Aeropuerto> aeropuertoDestinoOpt = aeropuertoService.obtenerAeropuertoPorCodigo(codigoAeropuertoDestino);
+            if (aeropuertoDestinoOpt.isEmpty()) {
+                response.put("estado", "error");
+                response.put("mensaje", "Aeropuerto destino no encontrado con código: " + codigoAeropuertoDestino);
+                return response;
+            }
+
+            Aeropuerto aeropuertoDestino = aeropuertoDestinoOpt.get();
+            String husoHorarioDestino = aeropuertoDestino.getHusoHorario();
+            if (husoHorarioDestino == null) {
+                response.put("estado", "error");
+                response.put("mensaje", "El aeropuerto destino no tiene huso horario configurado");
+                return response;
+            }
+
+            // Convertir la fecha de aparición de UTC al huso horario del destino
+            // La fecha viene en UTC, debemos convertirla al huso horario del destino antes de guardarla
+            Integer offsetDestino = Integer.parseInt(husoHorarioDestino);
+            ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
+
+            // Crear ZonedDateTime en UTC y convertir al huso horario del destino
+            ZonedDateTime fechaAparicionZonedUTC = fechaAparicionUTC.atZone(ZoneOffset.UTC);
+            ZonedDateTime fechaAparicionZonedDestino = fechaAparicionZonedUTC.withZoneSameInstant(zoneDestino);
+            LocalDateTime fechaAparicionDestino = fechaAparicionZonedDestino.toLocalDateTime();
+
+            System.out.printf("🕒 Conversión de fecha: UTC=%s -> Destino (UTC%+d)=%s%n",
+                    fechaAparicionUTC.toString(), offsetDestino, fechaAparicionDestino.toString());
+
+            // Crear el envío con la fecha convertida al huso horario del destino
+            Envio nuevoEnvio = new Envio();
+            nuevoEnvio.setAeropuertoDestino(aeropuertoDestino);
+            nuevoEnvio.setNumProductos(numProductos);
+            nuevoEnvio.setCliente(cliente);
+            nuevoEnvio.setFechaIngreso(fechaAparicionDestino); // Fecha en huso horario del destino
+            nuevoEnvio.setHusoHorarioDestino(husoHorarioDestino);
+            nuevoEnvio.setEstado(null); // Estado NULL para operaciones diarias
+            nuevoEnvio.setParteAsignadas(new ArrayList<>());
+
+            // Guardar el envío en BD
+            Envio envioGuardado = envioService.insertarEnvio(nuevoEnvio);
+
+            // ⚡ Inicializar zonedFechaIngreso manualmente (ya que @PostLoad solo se ejecuta al cargar desde BD)
+            if (envioGuardado.getZonedFechaIngreso() == null && envioGuardado.getFechaIngreso() != null && envioGuardado.getHusoHorarioDestino() != null) {
+                // Reutilizar las variables ya definidas arriba
+                envioGuardado.setZonedFechaIngreso(envioGuardado.getFechaIngreso().atZone(zoneDestino));
+            }
+
+            System.out.println("✅ Envío creado con ID: " + envioGuardado.getId());
+
+            // Verificar si el planificador ya está en ejecución
+            boolean planificadorYaActivo = planificador != null && planificador.estaEnEjecucion();
+
+            if (!planificadorYaActivo) {
+                // Primera vez: iniciar el planificador
+                System.out.println("🚀 Iniciando planificador en modo OPERACIONES_DIARIAS...");
+
+                // Cargar datos necesarios
+                System.out.println("📂 Cargando aeropuertos...");
+                ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+                System.out.println("✅ Aeropuertos cargados: " + aeropuertos.size());
+
+                System.out.println("📂 Cargando continentes...");
+                ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
+                System.out.println("✅ Continentes cargados: " + continentes.size());
+
+                System.out.println("📂 Cargando países...");
+                ArrayList<Pais> paises = paisService.obtenerTodosPaises();
+                System.out.println("✅ Países cargados: " + paises.size());
+
+                // ⚡ OPTIMIZACIÓN CRÍTICA: NO cargar todos los vuelos al inicio en modo OPERACIONES_DIARIAS
+                // En su lugar, se cargarán por ciclo desde BD (solo los del horizonte actual + 3 días)
+                // Esto evita cargar millones de vuelos en memoria (ej: 3000 vuelos/día × 365 días = 1M+ vuelos)
+                System.out.println("📂 [OPTIMIZACIÓN] Vuelos se cargarán por ciclo desde BD (solo horizonte actual + 3 días)");
+
+                // Configurar GRASP
+                System.out.println("⚙️ Configurando GRASP...");
+                Grasp grasp = new Grasp();
+                grasp.setAeropuertos(aeropuertos);
+                grasp.setContinentes(continentes);
+                grasp.setPaises(paises);
+                grasp.setEnvios(new ArrayList<>()); // Lista vacía inicial - se cargarán por ciclo
+                grasp.setPlanesDeVuelo(new ArrayList<>()); // Lista vacía inicial - se cargarán por ciclo
+                grasp.setHubsPropio();
+                System.out.println("✅ GRASP configurado (vuelos y envíos se cargarán por ciclo)");
+
+                // Crear e iniciar el planificador en modo OPERACIONES_DIARIAS
+                // Usar la fecha en UTC para el inicio del planificador
+                System.out.println("⚙️ Creando planificador en modo OPERACIONES_DIARIAS...");
+                planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
+                        aeropuertoService);
+                planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.OPERACIONES_DIARIAS,
+                        fechaAparicionUTC, null); // Sin fecha fin, usar fecha en UTC
+
+                planificadorIniciado = true;
+
+                response.put("estado", "éxito");
+                response.put("mensaje", "Operaciones diarias iniciadas y envío creado correctamente");
+                response.put("envioCreado", Map.of(
+                        "id", envioGuardado.getId(),
+                        "cliente", envioGuardado.getCliente(),
+                        "numProductos", envioGuardado.getNumProductos(),
+                        "fechaAparicion", fechaAparicionUTC.toString(),
+                        "fechaAparicionDestino", fechaAparicionDestino.toString()));
+                response.put("planificadorIniciado", true);
+                response.put("configuracion", Map.of(
+                        "modo", "OPERACIONES_DIARIAS",
+                        "fechaInicio", fechaAparicionUTC.toString(),
+                        "k_factor", 1,
+                        "sa_minutos", 2,
+                        "ta_segundos", 70));
+            } else {
+                // Planificador ya activo: solo crear el envío
+                System.out.println("ℹ️ Planificador ya en ejecución, solo se creó el envío");
+
+                response.put("estado", "éxito");
+                response.put("mensaje", "Envío creado correctamente (planificador ya en ejecución)");
+                response.put("envioCreado", Map.of(
+                        "id", envioGuardado.getId(),
+                        "cliente", envioGuardado.getCliente(),
+                        "numProductos", envioGuardado.getNumProductos(),
+                        "fechaAparicion", fechaAparicionUTC.toString(),
+                        "fechaAparicionDestino", fechaAparicionDestino.toString()));
+                response.put("planificadorIniciado", false);
+            }
+
+            response.put("timestamp", LocalDateTime.now().toString());
+
+        } catch (Exception e) {
+            response.put("estado", "error");
+            response.put("mensaje", "Error al iniciar operaciones diarias: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return response;
+    }
+
     // Endpoint para detener el planificador
     @PostMapping("/detener")
     public Map<String, Object> detenerPlanificador() {

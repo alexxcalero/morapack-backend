@@ -74,4 +74,10 @@ public interface EnvioService {
          * Usa JOIN FETCH para cargar relaciones en una sola query.
          */
         List<Envio> obtenerEnviosPorIdsConPartes(List<Integer> envioIds);
+
+        /**
+         * ⚡ OPERACIONES DIARIAS: Obtiene envíos con estado NULL (sin filtrar por fecha).
+         * El filtrado por fecha se hace en memoria considerando husos horarios.
+         */
+        ArrayList<Envio> obtenerEnviosPendientes();
 }

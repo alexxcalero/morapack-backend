@@ -679,4 +679,13 @@ public class EnvioServiceImp implements EnvioService {
 
         return envios;
     }
+
+    /**
+     * ⚡ OPERACIONES DIARIAS: Obtiene envíos con estado NULL (sin filtrar por fecha).
+     * El filtrado por fecha se hace en memoria considerando husos horarios.
+     */
+    @Override
+    public ArrayList<Envio> obtenerEnviosPendientes() {
+        return envioRepository.findByEstadoIsNull();
+    }
 }

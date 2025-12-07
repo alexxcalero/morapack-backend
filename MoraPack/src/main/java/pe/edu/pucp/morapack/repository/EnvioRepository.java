@@ -137,4 +137,11 @@ public interface EnvioRepository extends JpaRepository<Envio, Integer> {
                         "WHERE CAST(e.id AS CHAR) LIKE :patron " +
                         "LIMIT :limite", nativeQuery = true)
         List<Envio> buscarPorIdParcial(@Param("patron") String patron, @Param("limite") int limite);
+
+        /**
+         * ⚡ OPERACIONES DIARIAS: Obtiene envíos con estado NULL (sin filtrar por fecha).
+         * El filtrado por fecha se hace en memoria considerando husos horarios.
+         */
+        @Query("SELECT e FROM Envio e WHERE e.estado IS NULL")
+        ArrayList<Envio> findByEstadoIsNull();
 }

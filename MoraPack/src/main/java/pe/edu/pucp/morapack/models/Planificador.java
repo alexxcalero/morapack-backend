@@ -37,6 +37,9 @@ public class Planificador {
 
     // Método para obtener el valor de K según el modo de simulación
     private int obtenerK() {
+        if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS) {
+            return 1; // K=1 para operaciones diarias en tiempo real
+        }
         return modoSimulacion == ModoSimulacion.COLAPSO ? K_COLAPSO : K_NORMAL;
     }
 
@@ -149,7 +152,8 @@ public class Planificador {
     public enum ModoSimulacion {
         NORMAL, // Modo original - planifica todos los pedidos
         SEMANAL, // Simulación semanal con fecha inicio y fin
-        COLAPSO // Simulación de colapso - solo fecha inicio
+        COLAPSO, // Simulación de colapso - solo fecha inicio
+        OPERACIONES_DIARIAS // Operaciones diarias en tiempo real - K=1, sin fecha fin
     }
 
     private ModoSimulacion modoSimulacion = ModoSimulacion.NORMAL;
@@ -206,7 +210,7 @@ public class Planificador {
 
         // Determinar tiempo de inicio según el modo
         try {
-            if (modo == ModoSimulacion.SEMANAL || modo == ModoSimulacion.COLAPSO) {
+            if (modo == ModoSimulacion.SEMANAL || modo == ModoSimulacion.COLAPSO || modo == ModoSimulacion.OPERACIONES_DIARIAS) {
                 if (fechaInicio == null) {
                     System.err.println("❌ Error: fechaInicio es null en modo " + modo);
                     enEjecucion = false;
@@ -233,6 +237,9 @@ public class Planificador {
                     }
                     System.out.printf("⏰ Tiempo de fin de simulación: %s%n",
                             fechaFin.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                } else if (modo == ModoSimulacion.OPERACIONES_DIARIAS) {
+                    // Modo OPERACIONES_DIARIAS no tiene fecha fin
+                    System.out.println("⏰ Modo OPERACIONES_DIARIAS: Sin fecha fin (tiempo real)");
                 }
             } else {
                 // Modo normal - obtener el primer pedido como referencia temporal
@@ -654,7 +661,73 @@ public class Planificador {
     private List<Envio> obtenerPedidosEnVentana(LocalDateTime inicio, LocalDateTime fin) {
         List<Envio> pedidosNuevos = new ArrayList<>();
 
-        // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar envíos desde BD solo del rango actual
+        // ⚡ MODO OPERACIONES_DIARIAS: Cargar envíos con estado NULL y filtrar por fecha considerando husos horarios
+        if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS) {
+            System.out.printf("📦 [obtenerPedidosEnVentana] Modo OPERACIONES_DIARIAS: Cargando envíos con estado NULL hasta %s (UTC)%n",
+                    inicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+
+            try {
+                // Cargar todos los envíos con estado NULL
+                List<Envio> enviosPendientes = envioService.obtenerEnviosPendientes();
+                System.out.printf("✅ [obtenerPedidosEnVentana] Envíos pendientes (estado NULL) cargados: %d%n", enviosPendientes.size());
+
+                // Convertir el inicio del horizonte a UTC para comparar
+                ZonedDateTime inicioUTC = inicio.atZone(ZoneOffset.UTC);
+
+                // Filtrar envíos cuya fechaIngreso (en su huso horario) <= inicio (en UTC)
+                // Convertir cada fechaIngreso a UTC usando su huso horario
+                for (Envio envio : enviosPendientes) {
+                    // ⚡ Inicializar zonedFechaIngreso si es null (defensa adicional)
+                    if (envio.getZonedFechaIngreso() == null && envio.getFechaIngreso() != null && envio.getHusoHorarioDestino() != null) {
+                        try {
+                            Integer offsetDestino = Integer.parseInt(envio.getHusoHorarioDestino());
+                            ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
+                            envio.setZonedFechaIngreso(envio.getFechaIngreso().atZone(zoneDestino));
+                        } catch (Exception e) {
+                            System.err.printf("⚠️ Error al inicializar zonedFechaIngreso para envío %d: %s%n",
+                                    envio.getId(), e.getMessage());
+                            continue; // Saltar este envío si no se puede inicializar
+                        }
+                    }
+
+                    // Si aún es null después del intento de inicialización, saltar este envío
+                    if (envio.getZonedFechaIngreso() == null) {
+                        System.err.printf("⚠️ Envío %d no tiene zonedFechaIngreso inicializado, saltando...%n", envio.getId());
+                        continue;
+                    }
+
+                    // Convertir la fecha de ingreso del envío a UTC para comparar correctamente
+                    ZonedDateTime tiempoPedidoUTC = envio.getZonedFechaIngreso()
+                            .withZoneSameInstant(ZoneOffset.UTC);
+
+                    // Incluir solo envíos cuya fechaIngreso (en UTC) <= inicio (en UTC)
+                    if (!tiempoPedidoUTC.isAfter(inicioUTC)) {
+                        pedidosNuevos.add(crearCopiaEnvio(envio));
+                    }
+                }
+
+                System.out.printf("✅ [obtenerPedidosEnVentana] Envíos filtrados (fechaIngreso <= inicio horizonte): %d%n", pedidosNuevos.size());
+
+                // ⚡ Configurar hubs para los envíos filtrados
+                ArrayList<Aeropuerto> hubs = grasp.getHubs();
+                if (hubs != null && !hubs.isEmpty()) {
+                    ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
+                    for (Envio e : pedidosNuevos) {
+                        e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
+                    }
+                    System.out.printf("⚙️ [obtenerPedidosEnVentana] Hubs configurados para %d envíos%n",
+                            pedidosNuevos.size());
+                }
+
+                return pedidosNuevos;
+            } catch (Exception e) {
+                System.err.printf("❌ Error al cargar envíos pendientes desde BD: %s%n", e.getMessage());
+                e.printStackTrace();
+                return new ArrayList<>();
+            }
+        }
+
+        // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar envíos desde BD solo del rango actual (modos NORMAL, SEMANAL, COLAPSO)
         // Esto evita mantener todos los envíos en memoria
         List<Envio> enviosEnRango;
         if (enviosOriginales != null && !enviosOriginales.isEmpty()) {
@@ -752,6 +825,8 @@ public class Planificador {
         copia.setCliente(original.getCliente());
         copia.setAeropuertosOrigen(new ArrayList<>(original.getAeropuertosOrigen()));
         copia.setAeropuertoDestino(original.getAeropuertoDestino());
+        copia.setFechaIngreso(original.getFechaIngreso());
+        copia.setHusoHorarioDestino(original.getHusoHorarioDestino());
         copia.setZonedFechaIngreso(original.getZonedFechaIngreso());
         copia.setIdEnvioPorAeropuerto(original.getIdEnvioPorAeropuerto());
         copia.setNumProductos(original.getNumProductos());
@@ -1762,14 +1837,26 @@ public class Planificador {
         }
 
         // ⚡ PASO 4: Actualizar capacidades de vuelos y aeropuertos (usar mapas)
+        // ⚠️ IMPORTANTE: La capacidad ocupada debe ACUMULARSE, no reemplazarse
+        // Se suma la capacidad actual en BD + la capacidad adicional del ciclo actual
         List<PlanDeVuelo> planesParaActualizar = new ArrayList<>();
         for (Integer planId : planesDeVueloModificados) {
             PlanDeVuelo planReal = vuelosMap.get(planId);
             if (planReal != null) {
-                Integer capacidadAsignada = calcularCapacidadAsignada(planId, solucion.getEnvios());
-                if (capacidadAsignada != null) {
-                    planReal.setCapacidadOcupada(capacidadAsignada);
+                // Obtener la capacidad ocupada actual desde BD (puede tener asignaciones de ciclos anteriores)
+                Integer capacidadActualBD = planReal.getCapacidadOcupada() != null ? planReal.getCapacidadOcupada() : 0;
+
+                // Calcular solo la capacidad adicional que se está asignando en ESTE ciclo
+                Integer capacidadAdicionalCiclo = calcularCapacidadAsignada(planId, solucion.getEnvios());
+
+                if (capacidadAdicionalCiclo != null && capacidadAdicionalCiclo > 0) {
+                    // ⚡ ACUMULAR: Sumar la capacidad actual + la adicional del ciclo
+                    Integer nuevaCapacidadOcupada = capacidadActualBD + capacidadAdicionalCiclo;
+                    planReal.setCapacidadOcupada(nuevaCapacidadOcupada);
                     planesParaActualizar.add(planReal);
+
+                    System.out.printf("📊 Vuelo %d: Capacidad actual BD=%d + Adicional ciclo=%d = Total=%d%n",
+                            planId, capacidadActualBD, capacidadAdicionalCiclo, nuevaCapacidadOcupada);
                 }
             }
         }
@@ -1830,9 +1917,22 @@ public class Planificador {
             return;
         }
 
-        // Factor de conversión: 1 segundo real = 2 minutos simulados
-        // Esto significa que la simulación corre 120x más rápido que el tiempo real
-        final double FACTOR_CONVERSION = 2.0; // minutos simulados por segundo real
+        // Factor de conversión según el modo de simulación
+        // - SEMANAL/COLAPSO: 1 segundo real = 2 minutos simulados (simulación acelerada 120x)
+        // - OPERACIONES_DIARIAS: 1 minuto simulado = 1 minuto real (tiempo real, sin adelantamiento)
+        final double FACTOR_CONVERSION;
+        if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS) {
+            // En operaciones diarias, los eventos se ejecutan en tiempo real (sin factor de adelantamiento)
+            // Si un vuelo sale en 2 minutos simulados, debe ejecutarse en 2 minutos reales
+            // delaySegundos = minutosSimulados * 60 / FACTOR_CONVERSION
+            // Para tiempo real: delaySegundos = minutosSimulados * 60
+            // Entonces: FACTOR_CONVERSION = 1.0 (1 minuto simulado = 1 minuto real)
+            FACTOR_CONVERSION = 1.0 / 60.0; // minutos simulados por segundo real (tiempo real: 1 min = 60 seg)
+        } else {
+            // En modos SEMANAL/COLAPSO, la simulación corre acelerada
+            // 1 segundo real = 2 minutos simulados (120x más rápido)
+            FACTOR_CONVERSION = 2.0; // minutos simulados por segundo real
+        }
 
         LocalDateTime tiempoSimuladoActual = this.tiempoSimuladoActual != null
                 ? this.tiempoSimuladoActual
@@ -1870,6 +1970,12 @@ public class Planificador {
                         long minutosSimulados = Duration.between(tiempoSimuladoActual, llegadaLocal).toMinutes();
                         if (minutosSimulados >= 0) { // Solo programar eventos futuros
                             long delaySegundos = (long) (minutosSimulados / FACTOR_CONVERSION);
+
+                            // Log para verificar el cálculo en modo OPERACIONES_DIARIAS
+                            if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS && contadorEventos < 5) {
+                                System.out.printf("⏰ [OPERACIONES_DIARIAS] Evento llegada: %d min sim → %d seg real (tiempo real)%n",
+                                        minutosSimulados, delaySegundos);
+                            }
 
                             EventoTemporal eventoLlegada = new EventoTemporal(
                                     llegada,
@@ -1920,6 +2026,12 @@ public class Planificador {
                         long minutosSimulados = Duration.between(tiempoSimuladoActual, salidaLocal).toMinutes();
                         if (minutosSimulados >= 0) { // Solo programar eventos futuros
                             long delaySegundos = (long) (minutosSimulados / FACTOR_CONVERSION);
+
+                            // Log para verificar el cálculo en modo OPERACIONES_DIARIAS
+                            if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS && contadorEventos < 5) {
+                                System.out.printf("⏰ [OPERACIONES_DIARIAS] Evento salida: %d min sim → %d seg real (tiempo real)%n",
+                                        minutosSimulados, delaySegundos);
+                            }
 
                             EventoTemporal eventoSalida = new EventoTemporal(
                                     salida,
