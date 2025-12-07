@@ -74,10 +74,12 @@ public interface EnvioRepository extends JpaRepository<Envio, Integer> {
         /**
          * ⚡ OPTIMIZADO CON LÍMITE: Obtiene SOLO envíos que tienen partes asignadas
          * con partes NO entregadas, limitado a N registros para evitar OOM.
+         * ⚠️ ORDENADO por fecha_ingreso DESC para obtener los más recientes primero.
          */
         @Query(value = "SELECT DISTINCT e.* FROM envio e " +
                         "INNER JOIN parte_asignada pa ON pa.id_envio = e.id " +
                         "WHERE pa.entregado IS NULL OR pa.entregado = false " +
+                        "ORDER BY e.fecha_ingreso DESC " +
                         "LIMIT :limite", nativeQuery = true)
         List<Envio> findEnviosConPartesAsignadasLimitado(@Param("limite") int limite);
 
