@@ -1515,11 +1515,10 @@ public class Planificador {
      */
     private void recargarDatosBase(LocalDateTime inicioHorizonte, LocalDateTime finHorizonte) {
         // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar solo vuelos relevantes para este ciclo
-        // Rango: desde inicioHorizonte hasta inicioHorizonte + 4 días (plazo máximo de
-        // entrega + margen para caché entre ciclos)
-        // ⚡ OPTIMIZACIÓN: Cargar vuelos para 4 días + 1 día extra de margen
-        // Esto permite que el caché cubra ~6 ciclos (24h / 4h por ciclo)
-        LocalDateTime finConsultaVuelos = inicioHorizonte.plusDays(5);
+        // Rango: desde inicioHorizonte hasta inicioHorizonte + 5 días + 24h de margen
+        // El margen de 24h permite que el caché cubra 6 ciclos (6 × 4h = 24h)
+        // sin necesidad de recargar, ya que cada ciclo avanza 4h el horizonte
+        LocalDateTime finConsultaVuelos = inicioHorizonte.plusDays(5).plusHours(24);
 
         // ⚡ CACHÉ DE VUELOS: Reusar vuelos si el rango solapa significativamente con el
         // caché
@@ -1553,7 +1552,8 @@ public class Planificador {
                     vuelosCacheados.size());
             planesActualizados = vuelosCacheados;
         } else {
-            System.out.printf("📊 [recargarDatosBase] Cargando vuelos desde %s hasta %s (5 días para caché)%n",
+            System.out.printf(
+                    "📊 [recargarDatosBase] Cargando vuelos desde %s hasta %s (5 días + 24h margen para caché)%n",
                     inicioHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
                     finConsultaVuelos.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
