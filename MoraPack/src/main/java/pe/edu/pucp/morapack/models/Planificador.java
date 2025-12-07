@@ -26,6 +26,7 @@ public class Planificador {
     private ScheduledFuture<?> tareaProgramada;
     private ScheduledFuture<?> tareaLiberacionProductos;
     private boolean enEjecucion = false;
+    private volatile boolean cicloEnEjecucion = false; // ⚡ Flag para evitar que liberarProductos compita con GRASP
     private LocalDateTime tiempoSimuladoActual; // Tiempo simulado actual para verificaciones de liberación
 
     // Configuración de planificación programada
@@ -326,6 +327,12 @@ public class Planificador {
                 if (!enEjecucion)
                     return;
 
+                // ⚡ OPTIMIZACIÓN: No ejecutar si hay un ciclo GRASP en proceso
+                // Esto evita competir por recursos de BD y CPU
+                if (cicloEnEjecucion) {
+                    return;
+                }
+
                 // Avanzar el tiempo simulado en 1 hora para verificaciones
                 LocalDateTime nuevoTiempoSimulado = tiempoSimuladoActual.plusHours(1);
 
@@ -342,7 +349,7 @@ public class Planificador {
 
                 // Verificar y liberar productos que llegaron hace más de 2 horas
                 liberarProductosEntregados(tiempoSimuladoActual);
-            }, 30, 30, TimeUnit.SECONDS); // Ejecutar cada 30 segundos reales = 1 hora simulada
+            }, 90, 90, TimeUnit.SECONDS); // ⚡ Ejecutar cada 90 segundos (antes 30s) para reducir overhead
         } else {
             System.err.println("❌ Error: scheduler es null, no se puede programar la tarea");
             enEjecucion = false;
@@ -456,6 +463,10 @@ public class Planificador {
         if (!enEjecucion)
             return;
 
+        // ⚡ Marcar que el ciclo está en ejecución para evitar que liberarProductos
+        // compita
+        cicloEnEjecucion = true;
+
         long inicioCiclo = System.currentTimeMillis();
         int ciclo = cicloActual.incrementAndGet();
         ultimaEjecucion = LocalDateTime.now();
@@ -530,6 +541,9 @@ public class Planificador {
                 // limpieza)
                 limpiarEventosEjecutados();
 
+                // ⚡ Marcar ciclo como terminado
+                cicloEnEjecucion = false;
+
                 ultimoTiempoEjecucion = tiempoEjecucion;
 
                 // ✅ IMPORTANTE: Actualizar el horizonte aunque no haya pedidos
@@ -598,6 +612,8 @@ public class Planificador {
                 // Mostrar resultados
                 mostrarResultadosCiclo(solucion, pedidosParaPlanificar, ciclo);
 
+                // ⚡ Marcar ciclo como terminado
+                cicloEnEjecucion = false;
                 return;
             }
 
@@ -637,6 +653,9 @@ public class Planificador {
                     solucion.getEnviosCompletados(), solucion.getEnvios().size());
 
             ultimoTiempoEjecucion = tiempoEjecucion;
+
+            // ⚡ Marcar ciclo como terminado
+            cicloEnEjecucion = false;
             // } catch(TimeoutException e) {
             // // ✅ ENVIAR ERROR VÍA WEBSOCKET
             // webSocketService.enviarError("Timeout después de " + TA_SEGUNDOS + "
@@ -648,6 +667,8 @@ public class Planificador {
             webSocketService.enviarError("Error: " + e.getMessage(), ciclo);
             System.err.printf("❌ CICLO %d - ERROR: %s%n", ciclo, e.getMessage());
             actualizarEstadisticasError(ciclo, e.getMessage());
+            // ⚡ Marcar ciclo como terminado incluso en error
+            cicloEnEjecucion = false;
         }
     }
 
@@ -1265,15 +1286,14 @@ public class Planificador {
      */
     private void liberarProductosEntregados(LocalDateTime tiempoSimulado) {
         try {
-            System.out.printf("🔍 [LiberarProductos] Iniciando verificación a las %s (tiempo simulado)%n",
-                    tiempoSimulado.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
-
-            // ⚡ OPTIMIZACIÓN: Obtener envíos CON partes asignadas desde BD para evitar
-            // LazyInitializationException
-            // Calculamos el rango de fechas basado en el tiempo simulado actual
+            // ⚡ OPTIMIZACIÓN: Reducir rango de consulta a solo envíos candidatos a
+            // liberación
+            // Solo necesitamos envíos cuya llegadaFinal sea >= 2 horas antes del tiempo
+            // simulado
             LocalDateTime fechaInicio = this.tiempoInicioSimulacion != null ? this.tiempoInicioSimulacion
                     : tiempoSimulado.minusDays(1);
-            LocalDateTime fechaFin = tiempoSimulado.plusDays(1);
+            // Solo consultar hasta el tiempo simulado actual (no futuro)
+            LocalDateTime fechaFin = tiempoSimulado;
 
             // Usar el método con JOIN FETCH para cargar las partes asignadas
             List<Envio> enviosConPartes;
@@ -1281,8 +1301,7 @@ public class Planificador {
                 enviosConPartes = new ArrayList<>(envioService.obtenerEnviosEnRangoConPartes(
                         fechaInicio, "0", fechaFin, "0"));
             } catch (Exception e) {
-                System.err.println("⚠️ Error al obtener envíos con partes, usando lista en memoria: " + e.getMessage());
-                // Fallback: usar envíos en memoria (pueden causar lazy exception)
+                // Fallback silencioso: usar envíos en memoria
                 enviosConPartes = this.enviosOriginales != null ? new ArrayList<>(this.enviosOriginales)
                         : new ArrayList<>();
             }
@@ -1307,14 +1326,9 @@ public class Planificador {
             List<ParteAsignada> partesParaActualizar = new ArrayList<>();
             int productosLiberados = 0;
             int partesEntregadas = 0;
-            int enviosConPartesCount = 0;
-            int partesSinLlegadaFinal = 0;
-            int partesNoLlegaronDestino = 0;
-            int partesMenosDe2Horas = 0;
 
             for (Envio envio : envios) {
                 // Ya filtrados: tienen partes asignadas y aeropuerto destino
-                enviosConPartesCount++;
                 Integer aeropuertoDestinoId = envio.getAeropuertoDestino().getId();
 
                 for (ParteAsignada parte : envio.getParteAsignadas()) {
@@ -1326,7 +1340,6 @@ public class Planificador {
 
                     // Verificar que la parte tenga llegada final
                     if (parte.getLlegadaFinal() == null) {
-                        partesSinLlegadaFinal++;
                         continue;
                     }
 
@@ -1347,7 +1360,6 @@ public class Planificador {
 
                     // Solo procesar si llegó al destino final
                     if (!llegoADestinoFinal) {
-                        partesNoLlegaronDestino++;
                         continue;
                     }
 
@@ -1401,35 +1413,24 @@ public class Planificador {
                             aeropuertosActualizados.put(aeropuertoDestinoId, aeropuertoParaActualizar);
                         }
 
-                        // Guardar capacidad antes de desasignar para logging
-                        Integer capacidadAntes = aeropuertoParaActualizar.getCapacidadOcupada();
-
                         // Desasignar capacidad
                         aeropuertoParaActualizar.desasignarCapacidad(parte.getCantidad());
 
-                        System.out.printf(
-                                "✅ [LiberarProductos] Desasignando %d productos del aeropuerto %s (ID: %d) - Capacidad: %d -> %d%n",
-                                parte.getCantidad(), aeropuertoParaActualizar.getCodigo(),
-                                aeropuertoDestinoId, capacidadAntes, aeropuertoParaActualizar.getCapacidadOcupada());
+                        // ⚡ OPTIMIZACIÓN: Reducir logging (solo contadores, resumen al final)
 
                         productosLiberados += parte.getCantidad();
                         parte.setEntregado(true);
                         partesParaActualizar.add(parte);
                         partesEntregadas++;
-
-                        System.out.printf("📦 Productos entregados: Parte ID %d del Envío ID %d - " +
-                                "%d productos liberados del aeropuerto %s después de %d horas%n",
-                                parte.getId(), envio.getId(), parte.getCantidad(),
-                                aeropuertoParaActualizar.getCodigo(), horasTranscurridas);
-                    } else {
-                        partesMenosDe2Horas++;
                     }
                 }
             }
 
-            System.out.printf("🔍 [LiberarProductos] Resumen: %d envíos con partes, %d partes sin llegadaFinal, " +
-                    "%d partes no llegaron a destino, %d partes con menos de 2 horas%n",
-                    enviosConPartesCount, partesSinLlegadaFinal, partesNoLlegaronDestino, partesMenosDe2Horas);
+            // ⚡ Solo log resumen si hay partes para procesar
+            if (partesEntregadas > 0) {
+                System.out.printf("✅ [LiberarProductos] Liberadas %d partes, %d productos de %d aeropuertos%n",
+                        partesEntregadas, productosLiberados, aeropuertosActualizados.size());
+            }
 
             // Persistir los cambios
             if (!partesParaActualizar.isEmpty()) {
