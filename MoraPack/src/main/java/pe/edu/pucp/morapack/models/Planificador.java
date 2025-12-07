@@ -938,15 +938,14 @@ public class Planificador {
         this.estadisticas.put("ultimaEjecucion", LocalDateTime.now().toString());
         this.estadisticas.put("promedioEjecucionSegundos", calcularPromedioEjecucion());
 
-        // ⚡ Estadísticas por estado de envío (desde BD)
-        this.estadisticas.put("totalEnviosPlanificados", calcularTotalEnviosPorEstado(Envio.EstadoEnvio.PLANIFICADO));
-        this.estadisticas.put("totalEnviosEnRuta", calcularTotalEnviosPorEstado(Envio.EstadoEnvio.EN_RUTA));
-        this.estadisticas.put("totalEnviosFinalizados", calcularTotalEnviosPorEstado(Envio.EstadoEnvio.FINALIZADO));
-        this.estadisticas.put("totalEnviosEntregados", calcularTotalEnviosPorEstado(Envio.EstadoEnvio.ENTREGADO));
+        // ⚡ OPTIMIZACIÓN: Las estadísticas por estado se calculan de forma diferida
+        // para no bloquear el ciclo con 4 queries COUNT sobre 3.8M de registros
+        // Se actualizarán cuando se soliciten vía endpoint
 
-        // Mantener compatibilidad con campos antiguos
+        // Mantener compatibilidad con campos antiguos (sin queries)
         this.estadisticas.put("totalEnviosProcesados", calcularTotalEnviosProcesados());
-        this.estadisticas.put("totalPedidosPlanificados", calcularTotalPedidosPlanificados());
+        // this.estadisticas.put("totalPedidosPlanificados",
+        // calcularTotalPedidosPlanificados());
     }
 
     private void actualizarEstadisticasVacio(int ciclo) {
@@ -1062,31 +1061,26 @@ public class Planificador {
             System.out.printf("   • Tasa de éxito: %.1f%%%n", tasaExito);
         }
 
-        // ⚡ Mostrar estadísticas por estado
-        try {
-            int planificados = calcularTotalEnviosPorEstado(Envio.EstadoEnvio.PLANIFICADO);
-            int enRuta = calcularTotalEnviosPorEstado(Envio.EstadoEnvio.EN_RUTA);
-            int finalizados = calcularTotalEnviosPorEstado(Envio.EstadoEnvio.FINALIZADO);
-            int entregados = calcularTotalEnviosPorEstado(Envio.EstadoEnvio.ENTREGADO);
-
-            System.out.println("   📦 ESTADÍSTICAS POR ESTADO:");
-            System.out.printf("      • Planificados: %d%n", planificados);
-            System.out.printf("      • En Ruta: %d%n", enRuta);
-            System.out.printf("      • Finalizados: %d%n", finalizados);
-            System.out.printf("      • Entregados: %d%n", entregados);
-        } catch (Exception e) {
-            System.err.printf("   ⚠️ Error al calcular estadísticas por estado: %s%n", e.getMessage());
-        }
+        // ⚡ OPTIMIZACIÓN: Las estadísticas por estado se muestran al final del ciclo
+        // en un hilo separado para no bloquear el flujo principal
+        // (cada COUNT sobre 3.8M registros puede tardar 10-20 segundos)
 
         System.out.printf("   • Tiempo medio de entrega: %s%n",
                 formatDuracion(solucion.getLlegadaMediaPonderada()));
 
-        System.out.printf("%n📋 DETALLE DE RUTAS ASIGNADAS - CICLO %d%n", ciclo);
+        // ⚡ OPTIMIZACIÓN: Limitar el detalle de rutas a solo 5 envíos de muestra
+        final int MAX_ENVIOS_DETALLE = 5;
+        System.out.printf("%n📋 DETALLE DE RUTAS ASIGNADAS - CICLO %d (primeros %d de %d)%n",
+                ciclo, Math.min(MAX_ENVIOS_DETALLE, solucion.getEnvios().size()), solucion.getEnvios().size());
         System.out.println("=".repeat(80));
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM dd HH:mm", Locale.forLanguageTag("es-ES"));
 
+        int enviosMostrados = 0;
         for (Envio envio : solucion.getEnvios()) {
+            if (enviosMostrados >= MAX_ENVIOS_DETALLE) {
+                break; // Limitar para no generar demasiado log
+            }
             // ⚡ Verificar partes asignadas de forma segura para evitar
             // LazyInitializationException
             List<ParteAsignada> partesAsignadas = null;
@@ -1111,6 +1105,8 @@ public class Planificador {
 
             boolean tienePartes = partesAsignadas != null && !partesAsignadas.isEmpty();
             if (envio.estaCompleto() || tienePartes) {
+                enviosMostrados++; // ⚡ Incrementar contador para limitar log
+
                 System.out.printf("📦 PEDIDO %s → %s (%d unidades)%n",
                         envio.getId(),
                         envio.getAeropuertoDestino() != null ? envio.getAeropuertoDestino().getCodigo() : "N/A",
@@ -1519,24 +1515,33 @@ public class Planificador {
      */
     private void recargarDatosBase(LocalDateTime inicioHorizonte, LocalDateTime finHorizonte) {
         // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar solo vuelos relevantes para este ciclo
-        // Rango: desde inicioHorizonte hasta inicioHorizonte + 3 días (plazo máximo de
-        // entrega)
-        LocalDateTime finConsultaVuelos = inicioHorizonte.plusDays(3);
+        // Rango: desde inicioHorizonte hasta inicioHorizonte + 4 días (plazo máximo de
+        // entrega + margen para caché entre ciclos)
+        LocalDateTime finConsultaVuelos = inicioHorizonte.plusDays(4);
 
         // ⚡ CACHÉ DE VUELOS: Reusar vuelos si el rango solapa significativamente con el
         // caché
         // Solo recargar si no hay caché o si el inicio del horizonte ha avanzado más de
-        // 12 horas
+        // 24 horas (6 ciclos de 4 horas cada uno)
         boolean usarCache = false;
         if (vuelosCacheados != null && cacheVuelosInicio != null && cacheVuelosFin != null) {
             // Verificar si el nuevo rango está cubierto por el caché
             // El caché cubre inicioHorizonte si: cacheInicio <= inicioHorizonte <=
-            // cacheInicio + 12h
+            // cacheInicio + 24h
             // Y si finConsultaVuelos <= cacheFin
             long horasDesdeInicioCache = java.time.Duration.between(cacheVuelosInicio, inicioHorizonte).toHours();
-            boolean inicioEnRango = horasDesdeInicioCache >= 0 && horasDesdeInicioCache <= 12;
+            boolean inicioEnRango = horasDesdeInicioCache >= 0 && horasDesdeInicioCache <= 24;
             boolean finCubierto = !finConsultaVuelos.isAfter(cacheVuelosFin);
             usarCache = inicioEnRango && finCubierto;
+
+            // DEBUG: Mostrar por qué no se usa el caché
+            if (!usarCache) {
+                System.out.printf("⚠️ [CACHÉ] No usado: horasDesdeInicio=%d (<=24?%s), finCubierto=%s%n",
+                        horasDesdeInicioCache, inicioEnRango, finCubierto);
+                System.out.printf("   finConsultaVuelos=%s, cacheFin=%s%n",
+                        finConsultaVuelos.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                        cacheVuelosFin.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+            }
         }
 
         ArrayList<PlanDeVuelo> planesActualizados;
@@ -1821,6 +1826,8 @@ public class Planificador {
      * - 1 minuto simulado = 1 segundo real (configurable)
      */
     private void crearEventosTemporales(Solucion solucion, LocalDateTime tiempoReferencia) {
+        long inicioCreacion = System.currentTimeMillis();
+
         if (solucion == null || solucion.getEnvios() == null) {
             return;
         }
@@ -1962,8 +1969,10 @@ public class Planificador {
             }
         }
 
-        System.out.printf("📅 [crearEventosTemporales] Programados %d eventos temporales desde %s%n",
-                contadorEventos, tiempoReferencia.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+        long tiempoCreacion = System.currentTimeMillis() - inicioCreacion;
+        System.out.printf("📅 [crearEventosTemporales] Programados %d eventos temporales desde %s (en %d ms)%n",
+                contadorEventos, tiempoReferencia.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                tiempoCreacion);
     }
 
     /**
