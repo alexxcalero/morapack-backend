@@ -33,7 +33,7 @@ public class Planificador {
     private static final int K_NORMAL = 120; // Factor de consumo - planificar 240 minutos adelante (modo normal y
                                              // semanal)
     private static final int K_COLAPSO = 240; // Factor de consumo - planificar 480 minutos adelante (modo colapso)
-    private static final int TA_SEGUNDOS = 100; // Tiempo máximo de ejecución GRASP - 1.5 minutos
+    private static final int TA_SEGUNDOS = 70; // ⚡ OPTIMIZADO: Tiempo máximo GRASP - ~1 minuto (antes 100s)
 
     // Método para obtener el valor de K según el modo de simulación
     private int obtenerK() {
@@ -56,6 +56,11 @@ public class Planificador {
     // Controlar saltos para planificaciones semanales o del colapso
     private LocalDateTime ultimoHorizontePlanificado;
     private LocalDateTime tiempoInicioSimulacion;
+
+    // ⚡ CACHÉ DE VUELOS: Evita recargar 8000+ vuelos cada 2 minutos
+    private ArrayList<PlanDeVuelo> vuelosCacheados;
+    private LocalDateTime cacheVuelosInicio;
+    private LocalDateTime cacheVuelosFin;
 
     // ⚡ SISTEMA DE EVENTOS TEMPORALES: Separar planificación (GRASP) de ejecución
     // temporal
@@ -402,6 +407,12 @@ public class Planificador {
             scheduler = null;
         }
         enEjecucion = false;
+
+        // ⚡ Limpiar caché de vuelos al detener
+        vuelosCacheados = null;
+        cacheVuelosInicio = null;
+        cacheVuelosFin = null;
+
         // ✅ ENVIAR ESTADO DE DETENCIÓN VÍA WEBSOCKET
         webSocketService.enviarEstadoPlanificador(false, cicloActual.get(), "detenido");
         System.out.println("🛑 Planificador detenido");
@@ -1510,18 +1521,46 @@ public class Planificador {
         // ⚡ OPTIMIZACIÓN CRÍTICA: Cargar solo vuelos relevantes para este ciclo
         // Rango: desde inicioHorizonte hasta inicioHorizonte + 3 días (plazo máximo de
         // entrega)
-        // Esto evita cargar 2+ millones de vuelos en memoria
         LocalDateTime finConsultaVuelos = inicioHorizonte.plusDays(3);
 
-        System.out.printf("📊 [recargarDatosBase] Cargando vuelos desde %s hasta %s (3 días desde inicio)%n",
-                inicioHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
-                finConsultaVuelos.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+        // ⚡ CACHÉ DE VUELOS: Reusar vuelos si el rango solapa significativamente con el
+        // caché
+        // Solo recargar si no hay caché o si el inicio del horizonte ha avanzado más de
+        // 12 horas
+        boolean usarCache = false;
+        if (vuelosCacheados != null && cacheVuelosInicio != null && cacheVuelosFin != null) {
+            // Verificar si el nuevo rango está cubierto por el caché
+            // El caché cubre inicioHorizonte si: cacheInicio <= inicioHorizonte <=
+            // cacheInicio + 12h
+            // Y si finConsultaVuelos <= cacheFin
+            long horasDesdeInicioCache = java.time.Duration.between(cacheVuelosInicio, inicioHorizonte).toHours();
+            boolean inicioEnRango = horasDesdeInicioCache >= 0 && horasDesdeInicioCache <= 12;
+            boolean finCubierto = !finConsultaVuelos.isAfter(cacheVuelosFin);
+            usarCache = inicioEnRango && finCubierto;
+        }
 
-        ArrayList<PlanDeVuelo> planesActualizados = planDeVueloService.obtenerVuelosEnRango(
-                inicioHorizonte, "0", finConsultaVuelos, "0");
+        ArrayList<PlanDeVuelo> planesActualizados;
 
-        System.out.printf("✅ [recargarDatosBase] Vuelos cargados: %d (en lugar de 2+ millones)%n",
-                planesActualizados.size());
+        if (usarCache) {
+            System.out.printf("⚡ [recargarDatosBase] USANDO CACHÉ de vuelos (%d vuelos, ahorrando ~60s de BD)%n",
+                    vuelosCacheados.size());
+            planesActualizados = vuelosCacheados;
+        } else {
+            System.out.printf("📊 [recargarDatosBase] Cargando vuelos desde %s hasta %s (3 días desde inicio)%n",
+                    inicioHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                    finConsultaVuelos.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+
+            planesActualizados = planDeVueloService.obtenerVuelosEnRango(
+                    inicioHorizonte, "0", finConsultaVuelos, "0");
+
+            System.out.printf("✅ [recargarDatosBase] Vuelos cargados: %d (en lugar de 2+ millones)%n",
+                    planesActualizados.size());
+
+            // Guardar en caché para los próximos ciclos
+            vuelosCacheados = planesActualizados;
+            cacheVuelosInicio = inicioHorizonte;
+            cacheVuelosFin = finConsultaVuelos;
+        }
 
         ArrayList<Aeropuerto> aeropuertosActualizados = aeropuertoService.obtenerTodosAeropuertos();
 

@@ -30,12 +30,12 @@ public class PlanificacionWebSocketServiceImp {
             payload.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
             payload.put("estadisticas", generarEstadisticas(solucion));
             payload.put("totalRutas", calcularTotalRutas(solucion));
-            payload.put("envios", convertirEnviosParaFrontend(solucion));  // ← Agregar esto
+            payload.put("envios", convertirEnviosParaFrontend(solucion)); // ← Agregar esto
 
             messagingTemplate.convertAndSend("/topic/planificacion", payload);
             System.out.println("📤 WebSocket: Update enviado para ciclo " + ciclo);
 
-        } catch(Exception e) {
+        } catch (Exception e) {
             System.err.println("❌ Error enviando WebSocket: " + e.getMessage());
         }
     }
@@ -62,26 +62,33 @@ public class PlanificacionWebSocketServiceImp {
         estado.put("timestamp", LocalDateTime.now().toString());
 
         messagingTemplate.convertAndSend("/topic/estado", estado);
-    }
 
+        // 📤 También enviar a /topic/planificacion para que el frontend lo reciba
+        // (el frontend solo está suscrito a /topic/planificacion)
+        messagingTemplate.convertAndSend("/topic/planificacion", estado);
+        System.out.println(
+                "📤 WebSocket: Estado planificador enviado (activo=" + activo + ", ciclo=" + cicloActual + ")");
+    }
 
     private Map<String, Object> generarEstadisticas(Solucion solucion) {
         Map<String, Object> stats = new HashMap<>();
         if (solucion != null) {
             stats.put("totalEnvios", solucion.getEnvios().size());
             stats.put("enviosCompletados", solucion.getEnviosCompletados());
-            stats.put("tasaExito", solucion.getEnvios().size() > 0 ?
-                    (solucion.getEnviosCompletados() * 100.0 / solucion.getEnvios().size()) : 0);
+            stats.put("tasaExito",
+                    solucion.getEnvios().size() > 0
+                            ? (solucion.getEnviosCompletados() * 100.0 / solucion.getEnvios().size())
+                            : 0);
         }
         return stats;
     }
 
     private int calcularTotalRutas(Solucion solucion) {
-        if (solucion == null || solucion.getEnvios() == null) return 0;
+        if (solucion == null || solucion.getEnvios() == null)
+            return 0;
 
         return solucion.getEnvios().stream()
-                .mapToInt(envio -> envio.getParteAsignadas() != null ?
-                        envio.getParteAsignadas().size() : 0)
+                .mapToInt(envio -> envio.getParteAsignadas() != null ? envio.getParteAsignadas().size() : 0)
                 .sum();
     }
 
@@ -120,11 +127,13 @@ public class PlanificacionWebSocketServiceImp {
                     // Tramos de la parte
                     List<Map<String, Object>> tramosFrontend = new ArrayList<>();
 
-                    if(parte.getRuta() != null) {
-                        for(PlanDeVuelo vuelo : parte.getRuta()) {
+                    if (parte.getRuta() != null) {
+                        for (PlanDeVuelo vuelo : parte.getRuta()) {
                             Map<String, Object> tramoFrontend = new HashMap<>();
-                            tramoFrontend.put("origen", aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).get().getCodigo());
-                            tramoFrontend.put("destino", aeropuertoService.obtenerAeropuertoPorId(vuelo.getCiudadDestino()).get().getCodigo());
+                            tramoFrontend.put("origen", aeropuertoService
+                                    .obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).get().getCodigo());
+                            tramoFrontend.put("destino", aeropuertoService
+                                    .obtenerAeropuertoPorId(vuelo.getCiudadDestino()).get().getCodigo());
                             tramoFrontend.put("salida", vuelo.getZonedHoraOrigen().format(
                                     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                             tramoFrontend.put("llegada", vuelo.getZonedHoraDestino().format(
