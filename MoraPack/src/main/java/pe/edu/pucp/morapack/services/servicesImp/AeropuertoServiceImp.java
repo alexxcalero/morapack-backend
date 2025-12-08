@@ -53,4 +53,38 @@ public class AeropuertoServiceImp implements AeropuertoService {
         aeropuertoRepository.findAllById(aeropuertoIds).forEach(resultado::add);
         return resultado;
     }
+
+    /**
+     * ⚡ Operación atómica: Incrementa la capacidad ocupada del aeropuerto.
+     * Evita condiciones de carrera al ejecutarse directamente en la base de datos.
+     */
+    @Override
+    public void incrementarCapacidadOcupada(Integer id, Integer cantidad) {
+        if (id == null || cantidad == null || cantidad <= 0) {
+            return;
+        }
+        try {
+            aeropuertoRepository.incrementarCapacidadOcupada(id, cantidad);
+        } catch (Exception e) {
+            System.err.printf("❌ Error al incrementar capacidad del aeropuerto %d: %s%n", id, e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * ⚡ Operación atómica: Decrementa la capacidad ocupada del aeropuerto.
+     * Evita condiciones de carrera al ejecutarse directamente en la base de datos.
+     */
+    @Override
+    public void decrementarCapacidadOcupada(Integer id, Integer cantidad) {
+        if (id == null || cantidad == null || cantidad <= 0) {
+            return;
+        }
+        try {
+            aeropuertoRepository.decrementarCapacidadOcupada(id, cantidad);
+        } catch (Exception e) {
+            System.err.printf("❌ Error al decrementar capacidad del aeropuerto %d: %s%n", id, e.getMessage());
+            e.printStackTrace();
+        }
+    }
 }

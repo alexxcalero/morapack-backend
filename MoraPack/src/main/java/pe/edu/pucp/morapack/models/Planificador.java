@@ -24,9 +24,8 @@ public class Planificador {
     private final AeropuertoServiceImp aeropuertoService;
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> tareaProgramada;
-    private ScheduledFuture<?> tareaLiberacionProductos;
     private boolean enEjecucion = false;
-    private volatile boolean cicloEnEjecucion = false; // ⚡ Flag para evitar que liberarProductos compita con GRASP
+    private volatile boolean cicloEnEjecucion = false; // ⚡ Flag para evitar que otras tareas compitan con GRASP
     private LocalDateTime tiempoSimuladoActual; // Tiempo simulado actual para verificaciones de liberación
 
     // Configuración de planificación programada
@@ -94,8 +93,9 @@ public class Planificador {
 
         enum TipoEvento {
             LLEGADA_VUELO, // Vuelo llega a destino -> asignar capacidad en aeropuerto destino
-            SALIDA_VUELO // Vuelo sale de origen -> desasignar capacidad en aeropuerto origen (solo si no
+            SALIDA_VUELO, // Vuelo sale de origen -> desasignar capacidad en aeropuerto origen (solo si no
                          // es primer vuelo)
+            LIBERAR_PRODUCTOS // Liberar productos del aeropuerto destino final después de 2 horas
         }
 
         public EventoTemporal(ZonedDateTime tiempoEvento, TipoEvento tipo, PlanDeVuelo vuelo,
@@ -325,38 +325,10 @@ public class Planificador {
                 }
             }, SA_MINUTOS, SA_MINUTOS, TimeUnit.MINUTES);
 
-            // ✅ Programar tarea separada para verificar liberación de productos cada hora
-            // simulada
-            // Esta tarea se ejecuta más frecuentemente para verificar liberaciones
-            // exactamente cuando pasen 2 horas
-            // Mapeo: 1 hora simulada = 30 segundos reales (ajustable según necesidad)
-            tareaLiberacionProductos = scheduler.scheduleAtFixedRate(() -> {
-                if (!enEjecucion)
-                    return;
-
-                // ⚡ OPTIMIZACIÓN: No ejecutar si hay un ciclo GRASP en proceso
-                // Esto evita competir por recursos de BD y CPU
-                if (cicloEnEjecucion) {
-                    return;
-                }
-
-                // Avanzar el tiempo simulado en 1 hora para verificaciones
-                LocalDateTime nuevoTiempoSimulado = tiempoSimuladoActual.plusHours(1);
-
-                // No avanzar más allá del horizonte actual de planificación
-                // Esto asegura que no verificamos tiempos futuros que aún no han sido
-                // planificados
-                if (nuevoTiempoSimulado.isAfter(ultimoHorizontePlanificado)) {
-                    // Si el tiempo simulado alcanzó el horizonte, no avanzar más
-                    // La verificación se hará cuando el horizonte avance en el siguiente ciclo
-                    return;
-                }
-
-                tiempoSimuladoActual = nuevoTiempoSimulado;
-
-                // Verificar y liberar productos que llegaron hace más de 2 horas
-                liberarProductosEntregados(tiempoSimuladoActual);
-            }, 90, 90, TimeUnit.SECONDS); // ⚡ Ejecutar cada 90 segundos (antes 30s) para reducir overhead
+            // ⚡ ELIMINADO: Tarea periódica de liberación de productos
+            // Ahora se usan eventos programados específicos (LIBERAR_PRODUCTOS) que se ejecutan
+            // exactamente 2 horas después de cada llegada al destino final
+            // Esto es más preciso y evita problemas de tiempo simulado avanzando demasiado rápido
         } else {
             System.err.println("❌ Error: scheduler es null, no se puede programar la tarea");
             enEjecucion = false;
@@ -371,10 +343,7 @@ public class Planificador {
         }
 
         // Cancelar la tarea de liberación de productos
-        if (tareaLiberacionProductos != null && !tareaLiberacionProductos.isCancelled()) {
-            tareaLiberacionProductos.cancel(false);
-            tareaLiberacionProductos = null;
-        }
+        // ⚡ Ya no hay tarea periódica de liberación (se usa eventos programados)
 
         // ⚡ Cancelar todos los eventos temporales programados
         if (eventosProgramados != null) {
@@ -524,9 +493,9 @@ public class Planificador {
                 tiempoSimuladoActual = inicioHorizonte;
             }
 
-            // ⚡ OPTIMIZACIÓN: La liberación de productos se ejecuta en una tarea separada
-            // (cada 90 segundos) para no bloquear el ciclo GRASP
-            // No llamar a liberarProductosEntregados aquí - se maneja automáticamente
+            // ⚡ OPTIMIZACIÓN: La liberación de productos se ejecuta mediante eventos programados
+            // (LIBERAR_PRODUCTOS) que se crean cuando un vuelo llega a su destino final
+            // No se necesita llamar a liberarProductosEntregados - se maneja automáticamente
 
             if (pedidosParaPlanificar.isEmpty()) {
                 System.out.println("✅ No hay pedidos pendientes en este horizonte");
@@ -1343,12 +1312,17 @@ public class Planificador {
     }
 
     /**
+     * @deprecated Este método ya no se usa. La liberación de productos ahora se maneja
+     * mediante eventos programados (LIBERAR_PRODUCTOS) que se ejecutan exactamente
+     * 2 horas después de cada llegada al destino final.
+     *
      * Libera la capacidad ocupada en aeropuertos destino final para productos
      * que llegaron hace más de 2 horas (simulando que el cliente recogió el
      * producto).
      * Solo aplica para productos que llegaron al aeropuerto destino final del
      * envío.
      */
+    @Deprecated
     private void liberarProductosEntregados(LocalDateTime tiempoSimulado) {
         try {
             // ⚡ OPTIMIZACIÓN: Reducir rango de consulta a solo envíos candidatos a
@@ -1383,9 +1357,9 @@ public class Planificador {
                     })
                     .collect(java.util.stream.Collectors.toList());
 
-            System.out.printf("🔍 [LiberarProductos] Envíos con partes asignadas: %d (de %d consultados)%n",
-                    envios.size(),
-                    enviosConPartes.size());
+            // System.out.printf("🔍 [LiberarProductos] Envíos con partes asignadas: %d (de %d consultados)%n",
+            //         envios.size(),
+            //         enviosConPartes.size());
 
             Map<Integer, Aeropuerto> aeropuertosActualizados = new HashMap<>();
             List<ParteAsignada> partesParaActualizar = new ArrayList<>();
@@ -1492,10 +1466,10 @@ public class Planificador {
             }
 
             // ⚡ Solo log resumen si hay partes para procesar
-            if (partesEntregadas > 0) {
-                System.out.printf("✅ [LiberarProductos] Liberadas %d partes, %d productos de %d aeropuertos%n",
-                        partesEntregadas, productosLiberados, aeropuertosActualizados.size());
-            }
+            // if (partesEntregadas > 0) {
+            //     System.out.printf("✅ [LiberarProductos] Liberadas %d partes, %d productos de %d aeropuertos%n",
+            //             partesEntregadas, productosLiberados, aeropuertosActualizados.size());
+            // }
 
             // Persistir los cambios
             if (!partesParaActualizar.isEmpty()) {
@@ -1561,10 +1535,10 @@ public class Planificador {
                             new ArrayList<>(aeropuertosActualizados.values()));
                 }
 
-                System.out.printf("✅ Liberación de productos: %d partes entregadas, " +
-                        "%d productos liberados de aeropuertos%n", partesEntregadas, productosLiberados);
+                // System.out.printf("✅ Liberación de productos: %d partes entregadas, " +
+                //         "%d productos liberados de aeropuertos%n", partesEntregadas, productosLiberados);
             } else {
-                System.out.printf("ℹ️  [LiberarProductos] No se encontraron partes para liberar en este ciclo%n");
+                // System.out.printf("ℹ️  [LiberarProductos] No se encontraron partes para liberar en este ciclo%n");
             }
 
         } catch (Exception e) {
@@ -2144,17 +2118,15 @@ public class Planificador {
                     Math.random() < 0.1) { // 10% de probabilidad de limpiar
                 limpiarEventosEjecutados();
             }
-            Optional<Aeropuerto> aeropuertoOpt = aeropuertoService.obtenerAeropuertoPorId(evento.getAeropuertoId());
-            if (!aeropuertoOpt.isPresent()) {
-                System.err.printf("⚠️ Aeropuerto ID %d no encontrado para evento%n", evento.getAeropuertoId());
-                return;
-            }
 
-            Aeropuerto aeropuerto = aeropuertoOpt.get();
+            // ⚡ OPTIMIZACIÓN: Ya no necesitamos cargar el aeropuerto completo porque usamos operaciones SQL atómicas
+            // Solo validamos que el aeropuerto exista antes de ejecutar la operación atómica
+            // (la validación se hace implícitamente en la operación SQL, pero podemos hacerla explícita si es necesario)
 
             if (evento.getTipo() == EventoTemporal.TipoEvento.LLEGADA_VUELO) {
-                // Vuelo llega: asignar capacidad en el aeropuerto destino
-                aeropuerto.asignarCapacidad(evento.getCantidad());
+                // ⚡ Vuelo llega: asignar capacidad en el aeropuerto destino (OPERACIÓN ATÓMICA)
+                // Usa SQL atómico para evitar condiciones de carrera
+                aeropuertoService.incrementarCapacidadOcupada(evento.getAeropuertoId(), evento.getCantidad());
 
                 // ⚡ También actualizar capacidad del vuelo cuando llega
                 PlanDeVuelo vuelo = evento.getVuelo();
@@ -2191,16 +2163,134 @@ public class Planificador {
                     } catch (Exception e) {
                         System.err.printf("❌ Error al cambiar estado del envío: %s%n", e.getMessage());
                     }
+
+                    // ⚡ PROGRAMAR EVENTO DE LIBERACIÓN: Solo si llegó al destino final del envío
+                    // Verificar que el destino del vuelo sea el destino final del envío
+                    boolean llegoADestinoFinal = false;
+                    if (envio != null && envio.getAeropuertoDestino() != null && vuelo != null
+                            && vuelo.getCiudadDestino() != null) {
+                        llegoADestinoFinal = vuelo.getCiudadDestino().equals(envio.getAeropuertoDestino().getId());
+                    }
+
+                    if (llegoADestinoFinal && vuelo != null && vuelo.getZonedHoraDestino() != null) {
+                        try {
+                            // ⚡ Cargar el envío con sus partes para obtener la parte correcta
+                            Optional<Envio> envioConPartesOpt = envioService
+                                    .obtenerEnvioPorIdConPartesInicializadas(envio.getId());
+                            ParteAsignada parteParaLiberacion = null;
+
+                            if (envioConPartesOpt.isPresent()) {
+                                Envio envioConPartes = envioConPartesOpt.get();
+                                // Buscar la parte que tiene este vuelo como último vuelo de su ruta
+                                if (envioConPartes.getParteAsignadas() != null) {
+                                    for (ParteAsignada parteEnvio : envioConPartes.getParteAsignadas()) {
+                                        if (parteEnvio.getRuta() != null && !parteEnvio.getRuta().isEmpty()) {
+                                            PlanDeVuelo ultimoVueloParte = parteEnvio.getRuta()
+                                                    .get(parteEnvio.getRuta().size() - 1);
+                                            if (ultimoVueloParte.getId() != null && vuelo.getId() != null
+                                                    && ultimoVueloParte.getId().equals(vuelo.getId())) {
+                                                parteParaLiberacion = parteEnvio;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Si no se encontró la parte por ruta, intentar usar la parte del evento
+                            if (parteParaLiberacion == null && evento.getParte() != null
+                                    && evento.getParte().getId() != null) {
+                                // Cargar la parte desde BD usando el ID
+                                if (envioConPartesOpt.isPresent()) {
+                                    Envio envioConPartes = envioConPartesOpt.get();
+                                    if (envioConPartes.getParteAsignadas() != null) {
+                                        for (ParteAsignada parteEnvio : envioConPartes.getParteAsignadas()) {
+                                            if (parteEnvio.getId() != null
+                                                    && parteEnvio.getId().equals(evento.getParte().getId())) {
+                                                parteParaLiberacion = parteEnvio;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (parteParaLiberacion == null) {
+                                System.err.printf(
+                                        "⚠️ [LiberarProductos] No se pudo encontrar la parte para el envío %d y vuelo %d%n",
+                                        envio.getId(), vuelo.getId() != null ? vuelo.getId() : -1);
+                                // No crear el evento de liberación si no se encontró la parte
+                            } else {
+
+                            // Calcular cuándo se debe liberar (2 horas después de la llegada)
+                            ZonedDateTime tiempoLlegada = vuelo.getZonedHoraDestino();
+                            ZonedDateTime tiempoLiberacion = tiempoLlegada.plusHours(2);
+
+                            // Calcular delay en segundos reales (usar mismo factor de conversión que otros eventos)
+                            final double FACTOR_CONVERSION;
+                            if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS) {
+                                FACTOR_CONVERSION = 1.0 / 60.0; // minutos simulados por segundo real (tiempo real)
+                            } else {
+                                FACTOR_CONVERSION = 2.0; // minutos simulados por segundo real (simulación acelerada)
+                            }
+
+                            // ⚡ IMPORTANTE: Usar el tiempo de llegada como referencia, no tiempoSimuladoActual
+                            // El evento de llegada se ejecuta cuando el vuelo realmente llega (tiempoLlegada),
+                            // por lo que el delay debe calcularse desde ese momento, no desde el inicio del ciclo
+                            LocalDateTime tiempoReferencia = tiempoLlegada.toLocalDateTime();
+
+                            long minutosSimulados = Duration.between(tiempoReferencia,
+                                    tiempoLiberacion.toLocalDateTime()).toMinutes();
+
+                            // System.out.printf("⏰ [LiberarProductos] Cálculo: Llegada=%s, Liberación=%s, Minutos simulados=%d, Factor=%.2f%n",
+                            //         tiempoLlegada.toLocalDateTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                            //         tiempoLiberacion.toLocalDateTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                            //         minutosSimulados, FACTOR_CONVERSION);
+
+                            if (minutosSimulados >= 0) {
+                                long delaySegundos = (long) (minutosSimulados / FACTOR_CONVERSION);
+
+                                // System.out.printf("⏰ [LiberarProductos] Delay calculado: %d minutos simulados / %.2f = %d segundos reales%n",
+                                //         minutosSimulados, FACTOR_CONVERSION, delaySegundos);
+
+                                // Crear evento de liberación con la parte cargada desde BD
+                                EventoTemporal eventoLiberacion = new EventoTemporal(
+                                        tiempoLiberacion,
+                                        EventoTemporal.TipoEvento.LIBERAR_PRODUCTOS,
+                                        vuelo,
+                                        parteParaLiberacion,
+                                        evento.getCantidad(),
+                                        vuelo.getCiudadDestino(), // Aeropuerto destino final
+                                        false, // no es primer vuelo
+                                        false, // no es último vuelo (ya llegó)
+                                        envio);
+
+                                // Programar el evento
+                                ScheduledFuture<?> futuro = schedulerEventos.schedule(
+                                        () -> procesarEvento(eventoLiberacion),
+                                        delaySegundos,
+                                        TimeUnit.SECONDS);
+
+                                eventosProgramados.add(futuro);
+                                // System.out.printf("📅 [LiberarProductos] Evento programado para envío %d, parte %d, en %d segundos reales%n",
+                                //         envio.getId(), parteParaLiberacion.getId(), delaySegundos);
+                            }
+                            } // Cierre del else
+                        } catch (Exception e) {
+                            System.err.printf("❌ Error al programar evento de liberación: %s%n", e.getMessage());
+                            e.printStackTrace();
+                        }
+                    }
                 }
 
                 // 💾 PERSISTIR cambios en la base de datos
+                // ⚡ NOTA: La capacidad del aeropuerto ya se actualizó atómicamente, no necesita persistencia adicional
                 try {
-                    aeropuertoService.insertarAeropuerto(aeropuerto);
                     if (vueloReal != null) {
                         planDeVueloService.insertarPlanDeVuelo(vueloReal);
                     }
                 } catch (Exception e) {
-                    System.err.printf("❌ Error al persistir cambios del evento: %s%n", e.getMessage());
+                    System.err.printf("❌ Error al persistir cambios del vuelo: %s%n", e.getMessage());
                     e.printStackTrace();
                 }
 
@@ -2209,8 +2299,9 @@ public class Planificador {
                 // null ? vuelo.getId() : "N/A", aeropuerto.getCodigo(), evento.getCantidad(),
                 // aeropuerto.getCapacidadOcupada(), aeropuerto.getCapacidadMaxima());
             } else if (evento.getTipo() == EventoTemporal.TipoEvento.SALIDA_VUELO) {
-                // Vuelo sale: desasignar capacidad en el aeropuerto origen
-                aeropuerto.desasignarCapacidad(evento.getCantidad());
+                // ⚡ Vuelo sale: desasignar capacidad en el aeropuerto origen (OPERACIÓN ATÓMICA)
+                // Usa SQL atómico para evitar condiciones de carrera
+                aeropuertoService.decrementarCapacidadOcupada(evento.getAeropuertoId(), evento.getCantidad());
 
                 // ⚡ CAMBIAR ESTADO: Si es el primer vuelo, el envío inicia su ruta -> EN_RUTA
                 Envio envio = evento.getEnvio();
@@ -2232,18 +2323,95 @@ public class Planificador {
                 }
 
                 // 💾 PERSISTIR cambios en la base de datos
-                try {
-                    aeropuertoService.insertarAeropuerto(aeropuerto);
-                } catch (Exception e) {
-                    System.err.printf("❌ Error al persistir cambios del evento: %s%n", e.getMessage());
-                    e.printStackTrace();
-                }
+                // ⚡ NOTA: La capacidad del aeropuerto ya se actualizó atómicamente, no necesita persistencia adicional
 
                 // System.out.printf(" ✈️ [Evento] Vuelo %d salió de %s - Desasignados %d
                 // productos (Aeropuerto Cap: %d/%d) [💾 Persistido]%n", evento.getVuelo() !=
                 // null && evento.getVuelo().getId() != null ? evento.getVuelo().getId() :
                 // "N/A", aeropuerto.getCodigo(), evento.getCantidad(),
                 // aeropuerto.getCapacidadOcupada(), aeropuerto.getCapacidadMaxima());
+            } else if (evento.getTipo() == EventoTemporal.TipoEvento.LIBERAR_PRODUCTOS) {
+                // ⚡ Liberar productos del aeropuerto destino final después de 2 horas (OPERACIÓN ATÓMICA)
+                // Usa SQL atómico para evitar condiciones de carrera
+                aeropuertoService.decrementarCapacidadOcupada(evento.getAeropuertoId(), evento.getCantidad());
+
+                // Marcar parte como entregada
+                ParteAsignada parte = evento.getParte();
+                Envio envio = evento.getEnvio();
+                if (parte != null && parte.getId() != null && envio != null && envio.getId() != null) {
+                    try {
+                        // Cargar el envío desde BD con todas sus partes inicializadas
+                        Optional<Envio> envioOpt = envioService.obtenerEnvioPorIdConPartesInicializadas(envio.getId());
+                        if (envioOpt.isPresent()) {
+                            Envio envioReal = envioOpt.get();
+                            boolean parteEncontrada = false;
+
+                            if (envioReal.getParteAsignadas() != null) {
+                                for (ParteAsignada parteEnvio : envioReal.getParteAsignadas()) {
+                                    if (parteEnvio.getId() != null && parteEnvio.getId().equals(parte.getId())) {
+                                        parteEnvio.setEntregado(true);
+                                        parteEncontrada = true;
+                                        // System.out.printf("📦 [LiberarProductos] Parte ID %d del envío %d marcada como entregada%n",
+                                        //         parte.getId(), envio.getId());
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!parteEncontrada) {
+                                System.err.printf("⚠️ [LiberarProductos] No se encontró la parte ID %d en el envío %d%n",
+                                        parte.getId(), envio.getId());
+                            }
+
+                            // Verificar si todas las partes del envío están entregadas
+                            if (envioReal.getParteAsignadas() != null && !envioReal.getParteAsignadas().isEmpty()) {
+                                long partesEntregadas = envioReal.getParteAsignadas().stream()
+                                        .filter(p -> p.getEntregado() != null && p.getEntregado())
+                                        .count();
+                                long totalPartes = envioReal.getParteAsignadas().size();
+
+                                // System.out.printf("📊 [LiberarProductos] Envío %d: %d/%d partes entregadas%n",
+                                //         envio.getId(), partesEntregadas, totalPartes);
+
+                                boolean todasEntregadas = partesEntregadas == totalPartes;
+
+                                if (todasEntregadas && envioReal.getEstado() != Envio.EstadoEnvio.ENTREGADO) {
+                                    envioReal.setEstado(Envio.EstadoEnvio.ENTREGADO);
+                                    envioService.insertarEnvio(envioReal);
+                                    // System.out.printf("✅ [Estado] Envío %d cambió a ENTREGADO (todas las %d partes entregadas)%n",
+                                    //         envio.getId(), totalPartes);
+                                } else if (!todasEntregadas) {
+                                    // Guardar el envío para persistir el cambio en la parte (aunque no todas estén entregadas)
+                                    envioService.insertarEnvio(envioReal);
+                                    // System.out.printf("ℹ️ [LiberarProductos] Envío %d guardado (aún faltan %d partes por entregar)%n",
+                                    //         envio.getId(), totalPartes - partesEntregadas);
+                                } else {
+                                    // Ya estaba en ENTREGADO, solo guardar la parte
+                                    envioService.insertarEnvio(envioReal);
+                                }
+                            } else {
+                                System.err.printf("⚠️ [LiberarProductos] Envío %d no tiene partes asignadas%n", envio.getId());
+                            }
+                        } else {
+                            System.err.printf("⚠️ [LiberarProductos] No se encontró el envío %d en la BD%n", envio.getId());
+                        }
+                    } catch (Exception e) {
+                        System.err.printf("❌ Error al procesar liberación de productos: %s%n", e.getMessage());
+                        e.printStackTrace();
+                    }
+                } else {
+                    System.err.printf("⚠️ [LiberarProductos] Datos incompletos: parte=%s, envio=%s%n",
+                            parte != null && parte.getId() != null ? parte.getId().toString() : "null",
+                            envio != null && envio.getId() != null ? envio.getId().toString() : "null");
+                }
+
+                // 💾 PERSISTIR cambios en la base de datos
+                // ⚡ NOTA: La capacidad del aeropuerto ya se actualizó atómicamente, no necesita persistencia adicional
+
+                // System.out.printf(" 📦 [Evento] Productos liberados de %s - Desasignados %d
+                // productos (Aeropuerto Cap: %d/%d) [💾 Persistido]%n", aeropuerto.getCodigo(),
+                // evento.getCantidad(), aeropuerto.getCapacidadOcupada(),
+                // aeropuerto.getCapacidadMaxima());
             }
         } catch (Exception e) {
             System.err.printf("❌ Error al procesar evento: %s%n", e.getMessage());
