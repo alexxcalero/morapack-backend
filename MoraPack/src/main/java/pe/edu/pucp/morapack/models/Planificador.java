@@ -556,7 +556,7 @@ public class Planificador {
                 }
                 //System.out.println("ℹ️ Continuando planificación: se procesarán los pedidos que sí tienen ruta asignada");
 
-                // ⚠️ CÓDIGO COMENTADO: Anteriormente se detenía la planificación cuando había pedidos sin ruta
+                // OJITO
                 // // Detener planificación si hay pedidos sin ruta (aplica para ambos modos)
                 // System.out.println("🛑 Deteniendo planificación: no se encontró ruta para uno o más pedidos");
                 // detenerPlanificacion();
