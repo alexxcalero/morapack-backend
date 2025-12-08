@@ -554,33 +554,35 @@ public class Planificador {
                     System.out.printf("  - Pedido ID: %d, Cliente: %s, Cantidad restante: %d%n",
                             envio.getId(), envio.getCliente(), envio.cantidadRestante());
                 }
+                //System.out.println("ℹ️ Continuando planificación: se procesarán los pedidos que sí tienen ruta asignada");
 
-                // Detener planificación si hay pedidos sin ruta (aplica para ambos modos)
-                System.out.println("🛑 Deteniendo planificación: no se encontró ruta para uno o más pedidos");
-                detenerPlanificacion();
-
-                // ✅ PERSISTIR CAMBIOS EN LA BASE DE DATOS (aunque haya pedidos sin ruta)
-                try {
-                    System.out.println("💾 [ANTES] Iniciando persistirCambios (pedidos sin ruta)...");
-                    long inicioPersistir = System.currentTimeMillis();
-                    persistirCambios(solucion);
-                    long tiempoPersistir = System.currentTimeMillis() - inicioPersistir;
-                    System.out.printf("💾 [DESPUÉS] persistirCambios terminado en %d ms%n", tiempoPersistir);
-                    System.out.println("💾 Cambios persistidos en la base de datos");
-                } catch (Exception e) {
-                    System.err.printf("❌ Error al persistir cambios: %s%n", e.getMessage());
-                    e.printStackTrace();
-                }
-
-                // ✅ ENVIAR ACTUALIZACIÓN VÍA WEBSOCKET
-                webSocketService.enviarActualizacionCiclo(solucion, ciclo);
-
-                // Mostrar resultados
-                mostrarResultadosCiclo(solucion, pedidosParaPlanificar, ciclo);
-
-                // ⚡ Marcar ciclo como terminado
-                cicloEnEjecucion = false;
-                return;
+                // ⚠️ CÓDIGO COMENTADO: Anteriormente se detenía la planificación cuando había pedidos sin ruta
+                // // Detener planificación si hay pedidos sin ruta (aplica para ambos modos)
+                // System.out.println("🛑 Deteniendo planificación: no se encontró ruta para uno o más pedidos");
+                // detenerPlanificacion();
+                //
+                // // ✅ PERSISTIR CAMBIOS EN LA BASE DE DATOS (aunque haya pedidos sin ruta)
+                // try {
+                //     System.out.println("💾 [ANTES] Iniciando persistirCambios (pedidos sin ruta)...");
+                //     long inicioPersistir = System.currentTimeMillis();
+                //     persistirCambios(solucion);
+                //     long tiempoPersistir = System.currentTimeMillis() - inicioPersistir;
+                //     System.out.printf("💾 [DESPUÉS] persistirCambios terminado en %d ms%n", tiempoPersistir);
+                //     System.out.println("💾 Cambios persistidos en la base de datos");
+                // } catch (Exception e) {
+                //     System.err.printf("❌ Error al persistir cambios: %s%n", e.getMessage());
+                //     e.printStackTrace();
+                // }
+                //
+                // // ✅ ENVIAR ACTUALIZACIÓN VÍA WEBSOCKET
+                // webSocketService.enviarActualizacionCiclo(solucion, ciclo);
+                //
+                // // Mostrar resultados
+                // mostrarResultadosCiclo(solucion, pedidosParaPlanificar, ciclo);
+                //
+                // // ⚡ Marcar ciclo como terminado
+                // cicloEnEjecucion = false;
+                // return;
             }
 
             // ⚡ CREAR EVENTOS TEMPORALES: Convertir las rutas planificadas en eventos
