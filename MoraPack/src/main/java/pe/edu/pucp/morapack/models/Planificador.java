@@ -550,10 +550,10 @@ public class Planificador {
             if (!pedidosSinRuta.isEmpty()) {
                 System.out.printf("⚠️ ALERTA: %d pedido(s) no pudieron ser asignados completamente:%n",
                         pedidosSinRuta.size());
-                for (Envio envio : pedidosSinRuta) {
-                    System.out.printf("  - Pedido ID: %d, Cliente: %s, Cantidad restante: %d%n",
-                            envio.getId(), envio.getCliente(), envio.cantidadRestante());
-                }
+                //for (Envio envio : pedidosSinRuta) {
+                //    System.out.printf("  - Pedido ID: %d, Cliente: %s, Cantidad restante: %d%n",
+                //            envio.getId(), envio.getCliente(), envio.cantidadRestante());
+                //}
                 //System.out.println("ℹ️ Continuando planificación: se procesarán los pedidos que sí tienen ruta asignada");
 
                 // OJITO
