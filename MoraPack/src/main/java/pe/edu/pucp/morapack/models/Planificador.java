@@ -1823,8 +1823,8 @@ public class Planificador {
                     planReal.setCapacidadOcupada(nuevaCapacidadOcupada);
                     planesParaActualizar.add(planReal);
 
-                    System.out.printf("📊 Vuelo %d: Capacidad actual BD=%d + Adicional ciclo=%d = Total=%d%n",
-                            planId, capacidadActualBD, capacidadAdicionalCiclo, nuevaCapacidadOcupada);
+                    //System.out.printf("📊 Vuelo %d: Capacidad actual BD=%d + Adicional ciclo=%d = Total=%d%n",
+                    //        planId, capacidadActualBD, capacidadAdicionalCiclo, nuevaCapacidadOcupada);
                 }
             }
         }
