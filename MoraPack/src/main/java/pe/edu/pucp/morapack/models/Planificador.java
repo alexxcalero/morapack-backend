@@ -33,7 +33,7 @@ public class Planificador {
     private static final int K_NORMAL = 120; // Factor de consumo - planificar 240 minutos adelante (modo normal y
                                              // semanal)
     private static final int K_COLAPSO = 240; // Factor de consumo - planificar 480 minutos adelante (modo colapso)
-    private static final int TA_SEGUNDOS = 70; // ⚡ OPTIMIZADO: Tiempo máximo GRASP - ~1 minuto (antes 100s)
+    private static final int TA_SEGUNDOS = 100; // ⚡ OPTIMIZADO: Tiempo máximo GRASP - ~1 minuto (antes 100s)
 
     // Método para obtener el valor de K según el modo de simulación
     private int obtenerK() {
@@ -95,7 +95,7 @@ public class Planificador {
             LLEGADA_VUELO, // Vuelo llega a destino -> asignar capacidad en aeropuerto destino
             SALIDA_VUELO, // Vuelo sale de origen -> desasignar capacidad en aeropuerto origen (solo si no
                          // es primer vuelo)
-            LIBERAR_PRODUCTOS // Liberar productos del aeropuerto destino final después de 2 horas
+            LIBERAR_PRODUCTOS // Liberar productos del aeropuerto destino final después de 1 hora
         }
 
         public EventoTemporal(ZonedDateTime tiempoEvento, TipoEvento tipo, PlanDeVuelo vuelo,
@@ -327,7 +327,7 @@ public class Planificador {
 
             // ⚡ ELIMINADO: Tarea periódica de liberación de productos
             // Ahora se usan eventos programados específicos (LIBERAR_PRODUCTOS) que se ejecutan
-            // exactamente 2 horas después de cada llegada al destino final
+            // exactamente 1 hora después de cada llegada al destino final
             // Esto es más preciso y evita problemas de tiempo simulado avanzando demasiado rápido
         } else {
             System.err.println("❌ Error: scheduler es null, no se puede programar la tarea");
@@ -2222,9 +2222,9 @@ public class Planificador {
                                 // No crear el evento de liberación si no se encontró la parte
                             } else {
 
-                            // Calcular cuándo se debe liberar (2 horas después de la llegada)
+                            // Calcular cuándo se debe liberar (1 hora después de la llegada)
                             ZonedDateTime tiempoLlegada = vuelo.getZonedHoraDestino();
-                            ZonedDateTime tiempoLiberacion = tiempoLlegada.plusHours(2);
+                            ZonedDateTime tiempoLiberacion = tiempoLlegada.plusHours(1);
 
                             // Calcular delay en segundos reales (usar mismo factor de conversión que otros eventos)
                             final double FACTOR_CONVERSION;
@@ -2331,7 +2331,7 @@ public class Planificador {
                 // "N/A", aeropuerto.getCodigo(), evento.getCantidad(),
                 // aeropuerto.getCapacidadOcupada(), aeropuerto.getCapacidadMaxima());
             } else if (evento.getTipo() == EventoTemporal.TipoEvento.LIBERAR_PRODUCTOS) {
-                // ⚡ Liberar productos del aeropuerto destino final después de 2 horas (OPERACIÓN ATÓMICA)
+                // ⚡ Liberar productos del aeropuerto destino final después de 1 hora (OPERACIÓN ATÓMICA)
                 // Usa SQL atómico para evitar condiciones de carrera
                 aeropuertoService.decrementarCapacidadOcupada(evento.getAeropuertoId(), evento.getCantidad());
 

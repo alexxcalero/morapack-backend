@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 public class Grasp {
 
     // ⚡ OPTIMIZADO: Reducir iteraciones para completar en < 90 segundos
-    private static final int MAX_ITERACIONES = 30; // Antes: 100
+    private static final int MAX_ITERACIONES = 50; // Antes: 100
     private static final int MAX_SIN_MEJORA = 2; // Antes: 3
     private static final int DIAS_A_INSTANCIAR = 3;
 
