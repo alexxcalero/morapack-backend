@@ -1,9 +1,12 @@
 package pe.edu.pucp.morapack.controllers;
 
 import lombok.RequiredArgsConstructor;
+
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import pe.edu.pucp.morapack.models.*;
+import pe.edu.pucp.morapack.services.RelojSimulacionDiaService;
 import pe.edu.pucp.morapack.services.servicesImp.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -28,6 +31,7 @@ public class PlanificadorController {
     private final PlanDeVueloServiceImp planDeVueloService;
     private final PlanificacionWebSocketServiceImp webSocketService;
     private final EntityManager entityManager;
+    private final RelojSimulacionDiaService relojSimulacionDiaService;
     // Nota: Se eliminaron los repositorios directos - ahora usamos SQL nativo vía
     // EntityManager
 
@@ -37,6 +41,132 @@ public class PlanificadorController {
     // ⚡ Guardar fechas de simulación para el resumen
     private LocalDateTime fechaInicioSimulacion;
     private LocalDateTime fechaFinSimulacion;
+
+    private final SimpMessagingTemplate messagingTemplate;
+
+    /**
+     * Limpia el estado de la simulación día a día (usado por el botón "Limpiar
+     * Mapa").
+     *
+     * - Resetea estado de envíos a NULL
+     * - Resetea capacidad_ocupada de aeropuertos a 0
+     * - Resetea capacidad_ocupada de planes de vuelo a 0
+     * - Elimina partes asignadas y sus relaciones con vuelos
+     *
+     * IMPORTANTE: No borra envíos ni vuelos; solo limpia la planificación /
+     * ocupación.
+     */
+    @PostMapping("/limpiar-simulacion-dia")
+    @Transactional
+    public Map<String, Object> limpiarSimulacionDia() {
+        Map<String, Object> response = new HashMap<>();
+        long startTime = System.currentTimeMillis();
+        System.out.println("🧹 [LIMPIAR DIA] Iniciando limpieza de simulación día a día...");
+
+        boolean broadcastStarted = false;
+
+        try {
+            // Opcional: impedir limpiar si el planificador principal está activo
+            if (planificadorIniciado) {
+                response.put("estado", "error");
+                response.put("mensaje",
+                        "No se puede limpiar la simulación mientras el planificador está activo. Detén el planificador primero.");
+                return response;
+            }
+
+            // 🔔 Avisar a TODOS los clientes que se inicia el bloqueo/limpieza
+            try {
+                messagingTemplate.convertAndSend(
+                        "/topic/simulacion-control",
+                        Map.of(
+                                "tipo", "clear_map_start",
+                                "timestamp", LocalDateTime.now().toString()));
+                broadcastStarted = true;
+                System.out.println("📡 [LIMPIAR DIA] Notificado clear_map_start a /topic/simulacion-control");
+            } catch (Exception wsEx) {
+                System.err.println("⚠️ [LIMPIAR DIA] Error enviando clear_map_start: " + wsEx.getMessage());
+            }
+
+            int enviosActualizados = 0;
+            int aeropuertosActualizados = 0;
+            int planesActualizados = 0;
+            int relacionesVuelosEliminadas = 0;
+            int partesEliminadas = 0;
+
+            // 1) Resetea estado de envíos
+            System.out.println("🧹 [LIMPIAR DIA] Reseteando estados de envíos a NULL...");
+            Query queryEstados = entityManager.createNativeQuery("UPDATE envio SET estado = NULL");
+            enviosActualizados = queryEstados.executeUpdate();
+            System.out.println("✅ Estados de envíos reseteados: " + enviosActualizados);
+
+            // 2) Resetea capacidades de aeropuertos
+            System.out.println("🧹 [LIMPIAR DIA] Reseteando capacidades de aeropuertos...");
+            Query queryAeropuertos = entityManager.createNativeQuery(
+                    "UPDATE aeropuerto SET capacidad_ocupada = 0");
+            aeropuertosActualizados = queryAeropuertos.executeUpdate();
+            System.out.println("✅ Aeropuertos actualizados: " + aeropuertosActualizados);
+
+            // 3) Resetea capacidades de planes de vuelo
+            System.out.println("🧹 [LIMPIAR DIA] Reseteando capacidades de vuelos...");
+            Query queryPlanes = entityManager.createNativeQuery(
+                    "UPDATE plan_de_vuelo SET capacidad_ocupada = 0");
+            planesActualizados = queryPlanes.executeUpdate();
+            System.out.println("✅ Planes actualizados: " + planesActualizados);
+
+            // 4) Elimina relaciones vuelo–parte
+            System.out.println("🧹 [LIMPIAR DIA] Eliminando relaciones vuelo-parte...");
+            Query queryRelaciones = entityManager.createNativeQuery(
+                    "DELETE FROM parte_asignada_plan_de_vuelo");
+            relacionesVuelosEliminadas = queryRelaciones.executeUpdate();
+            System.out.println("✅ Relaciones eliminadas: " + relacionesVuelosEliminadas);
+
+            // 5) Elimina partes asignadas
+            System.out.println("🧹 [LIMPIAR DIA] Eliminando partes asignadas...");
+            Query queryPartes = entityManager.createNativeQuery(
+                    "DELETE FROM parte_asignada");
+            partesEliminadas = queryPartes.executeUpdate();
+            System.out.println("✅ Partes eliminadas: " + partesEliminadas);
+
+            entityManager.flush();
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            System.out.println("🧹 [LIMPIAR DIA] ✅ Limpieza de simulación día completada en " + elapsed + "ms");
+
+            response.put("estado", "exito");
+            response.put("mensaje", "Simulación día limpiada correctamente");
+            response.put("detalles", Map.of(
+                    "enviosActualizados", enviosActualizados,
+                    "aeropuertosActualizados", aeropuertosActualizados,
+                    "planesActualizados", planesActualizados,
+                    "relacionesVuelosEliminadas", relacionesVuelosEliminadas,
+                    "partesEliminadas", partesEliminadas,
+                    "tiempoEjecucionMs", elapsed));
+            response.put("timestamp", LocalDateTime.now().toString());
+
+        } catch (Exception e) {
+            System.err.println("❌ [LIMPIAR DIA] Error al limpiar simulación día: " + e.getMessage());
+            e.printStackTrace();
+
+            response.put("estado", "error");
+            response.put("mensaje", "Error al limpiar simulación día: " + e.getMessage());
+        } finally {
+            // 🔔 Avisar siempre que terminó el proceso (éxito o error)
+            if (broadcastStarted) {
+                try {
+                    messagingTemplate.convertAndSend(
+                            "/topic/simulacion-control",
+                            Map.of(
+                                    "tipo", "clear_map_end",
+                                    "timestamp", LocalDateTime.now().toString()));
+                    System.out.println("📡 [LIMPIAR DIA] Notificado clear_map_end a /topic/simulacion-control");
+                } catch (Exception wsEx) {
+                    System.err.println("⚠️ [LIMPIAR DIA] Error enviando clear_map_end: " + wsEx.getMessage());
+                }
+            }
+        }
+
+        return response;
+    }
 
     // Endpoint para iniciar el planificador programado (modo normal)
     @PostMapping("/iniciar")
@@ -445,22 +575,103 @@ public class PlanificadorController {
         return response;
     }
 
-    // Endpoint para iniciar operaciones diarias (tiempo real)
-    @PostMapping("/iniciar-operaciones-diarias")
-    public Map<String, Object> iniciarOperacionesDiarias(@RequestBody Map<String, Object> request) {
-        System.out.println("🎯 [ENDPOINT] iniciar-operaciones-diarias - PETICIÓN RECIBIDA a las " + LocalDateTime.now());
+    // Endpoint para AUTOSTART de la simulación día a día (sin crear envío)
+    @PostMapping("/autostart-simulacion-dia")
+    public Map<String, Object> autostartSimulacionDia() {
+        System.out.println("🎯 [ENDPOINT] autostart-simulacion-dia - PETICIÓN RECIBIDA a las " + LocalDateTime.now());
         Map<String, Object> response = new HashMap<>();
 
         try {
-            // Validar parámetros
+            // 1️⃣ Asegurar que el reloj de simulación día a día está corriendo
+            boolean relojYaActivo = relojSimulacionDiaService.isRunning(); // ajusta si tu método se llama distinto
+
+            if (!relojYaActivo) {
+                System.out.println("⏱️ Reloj de simulación día a día NO estaba activo. Iniciando...");
+                // según tu implementación:
+                relojSimulacionDiaService.init(); // si tienes init()
+                relojSimulacionDiaService.start(); // si tienes start()
+            } else {
+                System.out.println("⏱️ Reloj de simulación día a día YA estaba activo.");
+            }
+
+            // Sincronizar el flag con el estado real del planificador
+            if (planificador != null && planificador.estaEnEjecucion()) {
+                planificadorIniciado = true;
+                response.put("estado", "error");
+                response.put("mensaje", "El planificador ya está en ejecución");
+                return response;
+            } else {
+                planificadorIniciado = false;
+            }
+
+            // ⚡ OPTIMIZACIÓN CRÍTICA: Solo cargar datos básicos (aeropuertos, continentes,
+            // países)
+            // NO cargar todos los envíos ni vuelos (se cargarán por ciclo desde BD)
+            ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+            ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
+            ArrayList<Pais> paises = paisService.obtenerTodosPaises();
+
+            System.out.println("🚀 INICIANDO PLANIFICADOR PROGRAMADO (modo optimizado)");
+            System.out.println("📊 DEBUG: aeropuertos=" + aeropuertos.size() +
+                    " (envíos y vuelos se cargarán por ciclo desde BD)");
+
+            // Configurar GRASP con datos básicos solamente
+            Grasp grasp = new Grasp();
+            grasp.setAeropuertos(aeropuertos);
+            grasp.setContinentes(continentes);
+            grasp.setPaises(paises);
+            // ⚡ NO cargar envíos ni vuelos aquí - se cargarán por ciclo
+            grasp.setEnvios(new ArrayList<>()); // Lista vacía inicial
+            grasp.setPlanesDeVuelo(new ArrayList<>()); // Lista vacía inicial
+            grasp.setHubsPropio();
+
+            // ⚡ Los hubs se configurarán cuando se carguen los envíos por ciclo
+            // No es necesario configurarlos aquí ya que no hay envíos cargados
+
+            // grasp.setEnviosPorDiaPropio();
+
+            // Crear e iniciar el planificador
+            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
+                    aeropuertoService);
+            planificador.iniciarPlanificacionProgramada();
+
+            planificadorIniciado = true;
+
+            response.put("estado", "éxito");
+            response.put("mensaje", "Planificador programado iniciado correctamente");
+            response.put("configuracion", Map.of(
+                    "sa_minutos", 5,
+                    "k_factor", 24,
+                    "ta_segundos", 150,
+                    "sc_minutos", 120));
+            response.put("timestamp", LocalDateTime.now().toString());
+
+        } catch (Exception e) {
+            response.put("estado", "error");
+            response.put("mensaje", "Error al iniciar planificador: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return response;
+    }
+
+    // Endpoint para iniciar operaciones diarias (tiempo real)
+    @PostMapping("/iniciar-operaciones-diarias")
+    public Map<String, Object> iniciarOperacionesDiarias(@RequestBody Map<String, Object> request) {
+        System.out
+                .println("🎯 [ENDPOINT] iniciar-operaciones-diarias - PETICIÓN RECIBIDA a las " + LocalDateTime.now());
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Validar parámetros (ya NO pedimos fechaAparicion)
             Object codigoAeropuertoDestinoObj = request.get("codigoAeropuertoDestino");
             Object numProductosObj = request.get("numProductos");
             Object clienteObj = request.get("cliente");
-            Object fechaAparicionStr = request.get("fechaAparicion");
 
-            if (codigoAeropuertoDestinoObj == null || numProductosObj == null || clienteObj == null || fechaAparicionStr == null) {
+            if (codigoAeropuertoDestinoObj == null || numProductosObj == null || clienteObj == null) {
                 response.put("estado", "error");
-                response.put("mensaje", "Se requieren los parámetros: 'codigoAeropuertoDestino', 'numProductos', 'cliente' y 'fechaAparicion'");
+                response.put("mensaje",
+                        "Se requieren los parámetros: 'codigoAeropuertoDestino', 'numProductos' y 'cliente'");
                 return response;
             }
 
@@ -468,11 +679,13 @@ public class PlanificadorController {
             Integer numProductos = Integer.parseInt(numProductosObj.toString());
             String cliente = clienteObj.toString();
 
-            // La fecha de aparición viene en UTC desde el frontend
-            LocalDateTime fechaAparicionUTC = LocalDateTime.parse(fechaAparicionStr.toString());
+            // ⏱️ La fecha de aparición viene del reloj de simulación día a día (UTC)
+            Instant simInstant = relojSimulacionDiaService.getCurrentSimInstant();
+            LocalDateTime fechaAparicionUTC = LocalDateTime.ofInstant(simInstant, ZoneOffset.UTC);
 
             // Obtener aeropuerto destino por código
-            Optional<Aeropuerto> aeropuertoDestinoOpt = aeropuertoService.obtenerAeropuertoPorCodigo(codigoAeropuertoDestino);
+            Optional<Aeropuerto> aeropuertoDestinoOpt = aeropuertoService
+                    .obtenerAeropuertoPorCodigo(codigoAeropuertoDestino);
             if (aeropuertoDestinoOpt.isEmpty()) {
                 response.put("estado", "error");
                 response.put("mensaje", "Aeropuerto destino no encontrado con código: " + codigoAeropuertoDestino);
@@ -488,7 +701,6 @@ public class PlanificadorController {
             }
 
             // Convertir la fecha de aparición de UTC al huso horario del destino
-            // La fecha viene en UTC, debemos convertirla al huso horario del destino antes de guardarla
             Integer offsetDestino = Integer.parseInt(husoHorarioDestino);
             ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
 
@@ -497,7 +709,7 @@ public class PlanificadorController {
             ZonedDateTime fechaAparicionZonedDestino = fechaAparicionZonedUTC.withZoneSameInstant(zoneDestino);
             LocalDateTime fechaAparicionDestino = fechaAparicionZonedDestino.toLocalDateTime();
 
-            System.out.printf("🕒 Conversión de fecha: UTC=%s -> Destino (UTC%+d)=%s%n",
+            System.out.printf("🕒 RelojSimDia: UTC=%s -> Destino (UTC%+d)=%s%n",
                     fechaAparicionUTC.toString(), offsetDestino, fechaAparicionDestino.toString());
 
             // Crear el envío con la fecha convertida al huso horario del destino
@@ -513,9 +725,11 @@ public class PlanificadorController {
             // Guardar el envío en BD
             Envio envioGuardado = envioService.insertarEnvio(nuevoEnvio);
 
-            // ⚡ Inicializar zonedFechaIngreso manualmente (ya que @PostLoad solo se ejecuta al cargar desde BD)
-            if (envioGuardado.getZonedFechaIngreso() == null && envioGuardado.getFechaIngreso() != null && envioGuardado.getHusoHorarioDestino() != null) {
-                // Reutilizar las variables ya definidas arriba
+            // ⚡ Inicializar zonedFechaIngreso manualmente (ya que @PostLoad solo se ejecuta
+            // al cargar desde BD)
+            if (envioGuardado.getZonedFechaIngreso() == null
+                    && envioGuardado.getFechaIngreso() != null
+                    && envioGuardado.getHusoHorarioDestino() != null) {
                 envioGuardado.setZonedFechaIngreso(envioGuardado.getFechaIngreso().atZone(zoneDestino));
             }
 
@@ -541,10 +755,10 @@ public class PlanificadorController {
                 ArrayList<Pais> paises = paisService.obtenerTodosPaises();
                 System.out.println("✅ Países cargados: " + paises.size());
 
-                // ⚡ OPTIMIZACIÓN CRÍTICA: NO cargar todos los vuelos al inicio en modo OPERACIONES_DIARIAS
-                // En su lugar, se cargarán por ciclo desde BD (solo los del horizonte actual + 3 días)
-                // Esto evita cargar millones de vuelos en memoria (ej: 3000 vuelos/día × 365 días = 1M+ vuelos)
-                System.out.println("📂 [OPTIMIZACIÓN] Vuelos se cargarán por ciclo desde BD (solo horizonte actual + 3 días)");
+                // ⚡ OPTIMIZACIÓN CRÍTICA: NO cargar todos los vuelos al inicio en modo
+                // OPERACIONES_DIARIAS
+                System.out.println(
+                        "📂 [OPTIMIZACIÓN] Vuelos se cargarán por ciclo desde BD (solo horizonte actual + 3 días)");
 
                 // Configurar GRASP
                 System.out.println("⚙️ Configurando GRASP...");
@@ -558,12 +772,14 @@ public class PlanificadorController {
                 System.out.println("✅ GRASP configurado (vuelos y envíos se cargarán por ciclo)");
 
                 // Crear e iniciar el planificador en modo OPERACIONES_DIARIAS
-                // Usar la fecha en UTC para el inicio del planificador
+                // Usar la fecha en UTC del reloj de simulación para el inicio del planificador
                 System.out.println("⚙️ Creando planificador en modo OPERACIONES_DIARIAS...");
                 planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
                         aeropuertoService);
-                planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.OPERACIONES_DIARIAS,
-                        fechaAparicionUTC, null); // Sin fecha fin, usar fecha en UTC
+                planificador.iniciarPlanificacionProgramada(
+                        Planificador.ModoSimulacion.OPERACIONES_DIARIAS,
+                        fechaAparicionUTC,
+                        null); // Sin fecha fin, usar fecha en UTC
 
                 planificadorIniciado = true;
 
@@ -594,7 +810,7 @@ public class PlanificadorController {
                         "numProductos", envioGuardado.getNumProductos(),
                         "fechaAparicion", fechaAparicionUTC.toString(),
                         "fechaAparicionDestino", fechaAparicionDestino.toString()));
-                response.put("planificadorIniciado", false);
+                response.put("planificadorIniciado", true);
             }
 
             response.put("timestamp", LocalDateTime.now().toString());

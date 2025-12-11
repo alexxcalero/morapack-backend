@@ -26,7 +26,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setAllowedOrigins(
                         "http://localhost:3000",
                         "https://1inf54-981-5e.inf.pucp.edu.pe",
-                        "http://1inf54-981-5e.inf.pucp.edu.pe");
+                        "http://1inf54-981-5e.inf.pucp.edu.pe")
+                        .withSockJS();
 
         // FALLBACK: SockJS (deshabilitado, WebSocket nativo funciona correctamente)
         // Descomentar solo si el proxy falla y se necesita respaldo temporal

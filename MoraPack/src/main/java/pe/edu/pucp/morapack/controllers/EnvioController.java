@@ -33,6 +33,20 @@ public class EnvioController {
 
     @PostMapping("insertar")
     public Envio insertarEnvio(Envio envio) {
+        // Resolver aeropuerto destino si viene solo el id
+        if (envio.getAeropuertoDestino() != null &&
+                envio.getAeropuertoDestino().getId() != null) {
+
+            Integer idDest = envio.getAeropuertoDestino().getId();
+
+            Aeropuerto destinoReal = aeropuertoService
+                    .obtenerAeropuertoPorId(idDest) // ver siguiente punto
+                    .orElseThrow(() -> new IllegalArgumentException("Aeropuerto destino no encontrado: " + idDest));
+
+            envio.setAeropuertoDestino(destinoReal);
+        }
+
+        // Guardar y devolver el envío
         return envioService.insertarEnvio(envio);
     }
 

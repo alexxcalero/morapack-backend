@@ -16,14 +16,15 @@ import java.util.List;
 @Entity
 @Table(name = "envio")
 public class Envio {
+
     /**
      * Estados del envío durante su ciclo de vida
      */
     public enum EstadoEnvio {
-        PLANIFICADO,    // Tiene ruta asignada pero el vuelo todavía no inicia
-        EN_RUTA,        // Ya se encuentra en vuelo (primer vuelo inició)
-        FINALIZADO,     // Llegó a su aeropuerto destino final
-        ENTREGADO       // Han pasado 2 horas desde que llegó y el cliente ya lo recogió
+        PLANIFICADO, // Tiene ruta asignada pero el vuelo todavía no inicia
+        EN_RUTA,     // Ya se encuentra en vuelo (primer vuelo inició)
+        FINALIZADO,  // Llegó a su aeropuerto destino final
+        ENTREGADO    // Han pasado 2 horas desde que llegó y el cliente ya lo recogió
     }
 
     @Id
@@ -33,19 +34,19 @@ public class Envio {
 
     private Long idEnvioPorAeropuerto;
 
-    // ⚡ Estado del envío para rastrear su progreso
+    // Estado del envío para rastrear su progreso
     @Enumerated(EnumType.STRING)
     @Column(name = "estado", nullable = true)
     private EstadoEnvio estado;
 
-    // ⚡ CAMBIO CRÍTICO: LAZY loading para evitar cargar 40K envíos con todas sus
-    // relaciones
-    // Las queries que necesiten parteAsignadas deben usar JOIN FETCH explícitamente
+    // LAZY para no cargar todas las partes siempre
     @OneToMany(mappedBy = "envio", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
     @JsonManagedReference
     private List<ParteAsignada> parteAsignadas = new ArrayList<>();
 
     private LocalDateTime fechaIngreso;
+
+    // Offset horario del destino (ej: "-5", "-3", "1", etc.)
     private String husoHorarioDestino;
 
     @Transient
@@ -71,18 +72,22 @@ public class Envio {
     @Transient
     private ZonedDateTime zonedFechaLlegadaMax;
 
-    public Envio(Long idEnvioPorAeropuerto, LocalDateTime fechaIngreso, String husoHorarioDestino, Aeropuerto destino,
-            Integer numProductos, String cliente) {
+    public Envio(Long idEnvioPorAeropuerto,
+                 LocalDateTime fechaIngreso,
+                 String husoHorarioDestino,
+                 Aeropuerto destino,
+                 Integer numProductos,
+                 String cliente) {
+
         this.idEnvioPorAeropuerto = idEnvioPorAeropuerto;
         this.parteAsignadas = new ArrayList<>();
         this.fechaIngreso = fechaIngreso;
         this.husoHorarioDestino = husoHorarioDestino;
         this.aeropuertosOrigen = new ArrayList<>();
         this.aeropuertoDestino = destino;
-        this.husoHorarioDestino = husoHorarioDestino;
         this.numProductos = numProductos;
         this.cliente = cliente;
-        // ⚡ Inicializar estado como null (aún no tiene estado asignado)
+        // Estado inicial en null (no asignado aún)
         this.estado = null;
     }
 
@@ -91,14 +96,19 @@ public class Envio {
             if (this.parteAsignadas == null) {
                 return 0;
             }
-            return this.parteAsignadas.stream().mapToInt(ParteAsignada::getCantidad).sum();
+            return this.parteAsignadas.stream()
+                    .mapToInt(ParteAsignada::getCantidad)
+                    .sum();
         } catch (org.hibernate.LazyInitializationException e) {
-            // Si hay error de lazy loading, retornar 0 (asumiendo que no hay partes asignadas cargadas)
+            // Si hay error de lazy loading, asumimos que no hay partes cargadas
             return 0;
         }
     }
 
     public Integer cantidadRestante() {
+        if (this.numProductos == null) {
+            return 0;
+        }
         return Math.max(0, this.numProductos - this.cantidadAsignada());
     }
 
@@ -106,13 +116,13 @@ public class Envio {
         try {
             return this.cantidadRestante() == 0;
         } catch (Exception e) {
-            // Si hay error al calcular, asumir que no está completo
             return false;
         }
     }
 
     public Boolean esMismoContinente(Aeropuerto orig) {
-        return orig.getPais().getContinente().getId().equals(this.aeropuertoDestino.getPais().getContinente().getId());
+        return orig.getPais().getContinente().getId()
+                .equals(this.aeropuertoDestino.getPais().getContinente().getId());
     }
 
     public Duration deadlineDesde(Aeropuerto origen) {
@@ -121,10 +131,24 @@ public class Envio {
 
     @PostLoad
     private void cargarZonedDateTime() {
-        Integer offsetDestino = Integer.parseInt(husoHorarioDestino);
+        try {
+            if (this.fechaIngreso == null || this.husoHorarioDestino == null) {
+                return;
+            }
 
-        ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
+            int offsetDestino = Integer.parseInt(husoHorarioDestino);
+            ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
 
-        this.zonedFechaIngreso = fechaIngreso.atZone(zoneDestino);
+            this.zonedFechaIngreso = fechaIngreso.atZone(zoneDestino);
+
+            if (this.fechaLlegadaMax != null) {
+                this.zonedFechaLlegadaMax = fechaLlegadaMax.atZone(zoneDestino);
+            }
+
+        } catch (NumberFormatException ex) {
+            // Si el husoHorarioDestino no es un entero válido, evita reventar la carga
+            this.zonedFechaIngreso = null;
+            this.zonedFechaLlegadaMax = null;
+        }
     }
 }

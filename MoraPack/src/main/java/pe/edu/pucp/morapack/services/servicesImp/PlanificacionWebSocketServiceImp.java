@@ -5,7 +5,12 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import pe.edu.pucp.morapack.models.*;
 import pe.edu.pucp.morapack.services.AeropuertoService;
+import pe.edu.pucp.morapack.services.EnvioSimulacionDiaService;
+import pe.edu.pucp.morapack.dtos.VueloPlanificadorDto;
+import pe.edu.pucp.morapack.dtos.AeropuertoEstadoDto;
+import pe.edu.pucp.morapack.dtos.EnvioSimDiaResumenDto;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -20,17 +25,53 @@ public class PlanificacionWebSocketServiceImp {
 
     private final AeropuertoService aeropuertoService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final EnvioSimulacionDiaService envioSimulacionDiaService;
+    
 
-    // Envia actualizacion cuando se completa un ciclo de planificación
+    public void enviarEstadoSimulacionDia(long simMs, String fechaYyyyMmDd, int ciclo) {
+        EnvioSimDiaResumenDto resumen = envioSimulacionDiaService.obtenerResumen(fechaYyyyMmDd, simMs);
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("tipo", "sim_resumen_dia");
+        payload.put("ciclo", ciclo);
+        payload.put("simMs", simMs);
+        payload.put("total", resumen.getTotal());
+        payload.put("enVuelo", resumen.getEnVuelo());
+        payload.put("enEspera", resumen.getEnEspera());
+
+        messagingTemplate.convertAndSend("/topic/sim-resumen-dia", payload);
+    }
+
+    /**
+     * Envía al frontend el estado de vuelos + aeropuertos para la simulación día a
+     * día.
+     * El reloj de simulación es quien calcula y pasa el simMs.
+     */
+    public void enviarEstadoVuelosYAeropuertosDia(
+            List<VueloPlanificadorDto> vuelos,
+            List<AeropuertoEstadoDto> aeropuertos,
+            long simMs) {
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("tipo", "sim_update_dia");
+        payload.put("simMs", simMs);
+        payload.put("vuelos", vuelos);
+        payload.put("aeropuertos", aeropuertos);
+
+        messagingTemplate.convertAndSend("/topic/simulacion-dia", payload);
+    }
+
+    // Envia actualización cuando se completa un ciclo de planificación
     public void enviarActualizacionCiclo(Solucion solucion, int ciclo) {
         try {
             Map<String, Object> payload = new HashMap<>();
             payload.put("tipo", "update_ciclo");
             payload.put("ciclo", ciclo);
-            payload.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+            payload.put("timestamp",
+                    LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
             payload.put("estadisticas", generarEstadisticas(solucion));
             payload.put("totalRutas", calcularTotalRutas(solucion));
-            payload.put("envios", convertirEnviosParaFrontend(solucion)); // ← Agregar esto
+            payload.put("envios", convertirEnviosParaFrontend(solucion));
 
             messagingTemplate.convertAndSend("/topic/planificacion", payload);
             System.out.println("📤 WebSocket: Update enviado para ciclo " + ciclo);
@@ -46,7 +87,8 @@ public class PlanificacionWebSocketServiceImp {
         errorPayload.put("tipo", "error");
         errorPayload.put("ciclo", ciclo);
         errorPayload.put("mensaje", mensajeError);
-        errorPayload.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        errorPayload.put("timestamp",
+                LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
 
         messagingTemplate.convertAndSend("/topic/errores", errorPayload);
         System.out.println("📤 WebSocket: Error enviado para ciclo " + ciclo);
@@ -62,10 +104,9 @@ public class PlanificacionWebSocketServiceImp {
         estado.put("timestamp", LocalDateTime.now().toString());
 
         messagingTemplate.convertAndSend("/topic/estado", estado);
-
-        // 📤 También enviar a /topic/planificacion para que el frontend lo reciba
-        // (el frontend solo está suscrito a /topic/planificacion)
+        // También a /topic/planificacion para que el frontend lo reciba
         messagingTemplate.convertAndSend("/topic/planificacion", estado);
+
         System.out.println(
                 "📤 WebSocket: Estado planificador enviado (activo=" + activo + ", ciclo=" + cicloActual + ")");
     }
@@ -75,7 +116,8 @@ public class PlanificacionWebSocketServiceImp {
         if (solucion != null) {
             stats.put("totalEnvios", solucion.getEnvios().size());
             stats.put("enviosCompletados", solucion.getEnviosCompletados());
-            stats.put("tasaExito",
+            stats.put(
+                    "tasaExito",
                     solucion.getEnvios().size() > 0
                             ? (solucion.getEnviosCompletados() * 100.0 / solucion.getEnvios().size())
                             : 0);
@@ -84,11 +126,14 @@ public class PlanificacionWebSocketServiceImp {
     }
 
     private int calcularTotalRutas(Solucion solucion) {
-        if (solucion == null || solucion.getEnvios() == null)
+        if (solucion == null || solucion.getEnvios() == null) {
             return 0;
+        }
 
         return solucion.getEnvios().stream()
-                .mapToInt(envio -> envio.getParteAsignadas() != null ? envio.getParteAsignadas().size() : 0)
+                .mapToInt(envio -> envio.getParteAsignadas() != null
+                        ? envio.getParteAsignadas().size()
+                        : 0)
                 .sum();
     }
 
