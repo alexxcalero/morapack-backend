@@ -66,14 +66,6 @@ public class PlanificadorController {
         boolean broadcastStarted = false;
 
         try {
-            // Opcional: impedir limpiar si el planificador principal está activo
-            if (planificadorIniciado) {
-                response.put("estado", "error");
-                response.put("mensaje",
-                        "No se puede limpiar la simulación mientras el planificador está activo. Detén el planificador primero.");
-                return response;
-            }
-
             // 🔔 Avisar a TODOS los clientes que se inicia el bloqueo/limpieza
             try {
                 messagingTemplate.convertAndSend(
