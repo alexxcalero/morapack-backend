@@ -12,6 +12,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import pe.edu.pucp.morapack.dtos.VueloPlanificadorDto;
@@ -63,6 +64,12 @@ public class Planificador {
     // Controlar saltos para planificaciones semanales o del colapso
     private LocalDateTime ultimoHorizontePlanificado;
     private LocalDateTime tiempoInicioSimulacion;
+
+    // Control para modo COLAPSO: rastrear cuando se completa la semana y pedidos sin planificar
+    private boolean semanaCompletaColapso = false;
+    private boolean pedidoSinPlanificarEncontrado = false; // Para COLAPSO: indica si se encontró un pedido sin planificar
+    private int ciclosDespuesSemanaCompleta = 0;
+    private static final int CICLOS_DESPUES_SEMANA_COMPLETA = 5; // Para COLAPSO 2025
 
     // ⚡ CACHÉ DE VUELOS: Evita recargar 8000+ vuelos cada 2 minutos
     private ArrayList<PlanDeVuelo> vuelosCacheados;
@@ -439,6 +446,17 @@ public class Planificador {
 
     private static LocalDateTime ultimoTiempoEjecucion;
 
+    /**
+     * Obtiene el año de la fecha de inicio de la simulación
+     * @return El año de fechaInicioSimulacion, o 0 si es null
+     */
+    private int obtenerAnioFechaInicio() {
+        if (fechaInicioSimulacion == null) {
+            return 0;
+        }
+        return fechaInicioSimulacion.getYear();
+    }
+
     private void ejecutarCicloPlanificacion(LocalDateTime tiempoEjecucion) {
         if (!enEjecucion)
             return;
@@ -464,6 +482,35 @@ public class Planificador {
                     System.out.println("🏁 Simulación semanal completada - se alcanzó la fecha fin");
                     detenerPlanificacion();
                     return;
+                }
+            }
+
+            // 1.1. Verificar semana completa en modo COLAPSO (solo para 2025)
+            if (modoSimulacion == ModoSimulacion.COLAPSO && obtenerAnioFechaInicio() == 2025) {
+                if (!semanaCompletaColapso && tiempoInicioSimulacion != null) {
+                    // Verificar si han pasado 7 días desde el inicio
+                    LocalDateTime fechaSemanaCompleta = tiempoInicioSimulacion.plusDays(7);
+                    if (this.ultimoHorizontePlanificado.isAfter(fechaSemanaCompleta) ||
+                            this.ultimoHorizontePlanificado.isEqual(fechaSemanaCompleta)) {
+                        semanaCompletaColapso = true;
+                        // Si ya se encontró un pedido sin planificar, empezar a contar ciclos
+                        if (pedidoSinPlanificarEncontrado) {
+                            ciclosDespuesSemanaCompleta = 0;
+                            //System.out.println("📅 [COLAPSO 2025] Semana completa alcanzada - comenzando conteo de 5 ciclos (pedido sin planificar encontrado)");
+                        }
+                    }
+                }
+
+                // Si la semana ya está completa Y hay un pedido sin planificar, incrementar contador
+                if (semanaCompletaColapso && pedidoSinPlanificarEncontrado) {
+                    ciclosDespuesSemanaCompleta++;
+                    //System.out.printf("📅 [COLAPSO 2025] Ciclo %d después de semana completa con pedido sin planificar (límite: %d)%n", ciclosDespuesSemanaCompleta, CICLOS_DESPUES_SEMANA_COMPLETA);
+
+                    if (ciclosDespuesSemanaCompleta >= CICLOS_DESPUES_SEMANA_COMPLETA) {
+                        //System.out.println("🛑 [COLAPSO 2025] Deteniendo planificación: 5 ciclos después de semana completa con pedido sin planificar");
+                        detenerPlanificacion();
+                        return;
+                    }
                 }
             }
 
@@ -547,6 +594,38 @@ public class Planificador {
             if (!pedidosSinRuta.isEmpty()) {
                 System.out.printf("⚠️ ALERTA: %d pedido(s) no pudieron ser asignados completamente:%n",
                         pedidosSinRuta.size());
+
+                // Lógica de detención según año y modo
+                int anioInicio = obtenerAnioFechaInicio();
+
+                if (anioInicio == 2026) {
+                    if (ciclo >= 30) {
+                        System.out.println("🛑 Deteniendo planificación: hay envíos sin planificar");
+                        detenerPlanificacion();
+                        return;
+                    } else {
+                        //System.out.println("ℹ️ [2026] Continuando planificación: hay envíos sin planificar pero ciclo < 30");
+                        System.out.println("continuar");
+                    }
+                }
+
+                if (anioInicio == 2025) {
+                    if (modoSimulacion == ModoSimulacion.SEMANAL) {
+                        System.out.println("continuar");
+                        //System.out.println("ℹ️ [SEMANAL 2025] Continuando planificación a pesar de envíos sin planificar");
+                    } else if (modoSimulacion == ModoSimulacion.COLAPSO) {
+                        // COLAPSO 2025: Marcar que se encontró un pedido sin planificar
+                        // Se detendrá 5 ciclos después de completar la semana
+                        pedidoSinPlanificarEncontrado = true;
+                        //System.out.println("⚠️ [COLAPSO 2025] Pedido sin planificar encontrado - se detendrá 5 ciclos después de completar semana");
+
+                        // Si ya se completó la semana, empezar a contar ciclos ahora
+                        if (semanaCompletaColapso) {
+                            ciclosDespuesSemanaCompleta = 0;
+                            //System.out.println("📅 [COLAPSO 2025] Semana ya completada - comenzando conteo de 5 ciclos");
+                        }
+                    }
+                }
             }
 
             // ⚡ CREAR EVENTOS TEMPORALES: Convertir las rutas planificadas en eventos
@@ -966,13 +1045,16 @@ public class Planificador {
 
     private Solucion ejecutarGRASPConTimeout(List<Envio> pedidos, LocalDateTime tiempoEjecucion) {
         ExecutorService executor = Executors.newSingleThreadExecutor();
+        // Usar AtomicReference para compartir la mejor solución entre threads
+        AtomicReference<Solucion> mejorSolucionHastaAhora = new AtomicReference<>(null);
+
         Future<Solucion> future = executor.submit(() -> {
             // Preparar GRASP para este ciclo específico
             grasp.setEnvios(new ArrayList<>(pedidos));
             grasp.setEnviosPorDiaPropio();
 
-            // Ejecutar GRASP modificado para respetar el tiempo máximo
-            return ejecutarGRASPLimitado(tiempoEjecucion);
+            // Ejecutar GRASP modificado para respetar el tiempo máximo y compartir mejor solución
+            return ejecutarGRASPLimitado(tiempoEjecucion, mejorSolucionHastaAhora);
         });
 
         try {
@@ -980,23 +1062,29 @@ public class Planificador {
         } catch (TimeoutException e) {
             System.out.println("⏰ TIMEOUT: GRASP excedió el tiempo máximo de " + TA_SEGUNDOS + " segundos");
             future.cancel(true);
-            return crearSolucionVacia();
+
+            // Obtener la mejor solución encontrada hasta el momento
+            Solucion mejorSolucion = mejorSolucionHastaAhora.get();
+            if (mejorSolucion != null) {
+                System.out.println("✅ Devolviendo mejor solución encontrada hasta el momento del timeout");
+                return mejorSolucion;
+            } else {
+                System.out.println("⚠️ No se encontró ninguna solución antes del timeout");
+                return crearSolucionVacia();
+            }
         } catch (Exception e) {
             System.err.println("❌ Error en ejecución de GRASP: " + e.getMessage());
-            return crearSolucionVacia();
+            // Intentar devolver la mejor solución encontrada incluso si hay error
+            Solucion mejorSolucion = mejorSolucionHastaAhora.get();
+            return mejorSolucion != null ? mejorSolucion : crearSolucionVacia();
         } finally {
             executor.shutdownNow();
         }
     }
 
-    private Solucion ejecutarGRASPLimitado(LocalDateTime tiempoEjecucion) {
+    private Solucion ejecutarGRASPLimitado(LocalDateTime tiempoEjecucion, AtomicReference<Solucion> mejorSolucionRef) {
         Solucion mejorSolucion = null;
         long inicioEjecucion = System.currentTimeMillis();
-
-        // Verificar timeout periódicamente
-        if ((System.currentTimeMillis() - inicioEjecucion) > (TA_SEGUNDOS * 1000 * 0.8)) {
-            System.out.println("⏰ GRASP: Cerca del timeout, terminando iteraciones");
-        }
 
         // ⚡ OPTIMIZACIÓN: Reutilizar vuelos ya cargados y filtrados en inicialización
         ArrayList<PlanDeVuelo> planesDeVuelo = grasp.getPlanesDeVuelo();
@@ -1010,10 +1098,11 @@ public class Planificador {
         // Pasar los envíos para filtrar por ventana temporal
         grasp.inicializarCachesParaVuelos(planesDeVuelo, enviosParaProgramar);
 
-        // Ejecutar GRASP para este día
-        Solucion solucionDia = grasp.ejecutarGrasp(enviosParaProgramar, planesDeVuelo);
+        // Ejecutar GRASP con verificación de timeout periódica
+        Solucion solucionDia = grasp.ejecutarGraspConTimeout(enviosParaProgramar, planesDeVuelo,
+                TA_SEGUNDOS * 1000, inicioEjecucion, mejorSolucionRef);
 
-        if (mejorSolucion == null || grasp.esMejor(solucionDia, mejorSolucion)) {
+        if (mejorSolucion == null || (solucionDia != null && grasp.esMejor(solucionDia, mejorSolucion))) {
             mejorSolucion = solucionDia;
         }
 
@@ -1179,6 +1268,44 @@ public class Planificador {
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM dd HH:mm", Locale.forLanguageTag("es-ES"));
 
+        // Crear mapa de vuelos actualizados desde BD para evitar múltiples consultas
+        Map<Integer, PlanDeVuelo> vuelosActualizadosMap = new HashMap<>();
+        Set<Integer> vueloIds = new HashSet<>();
+
+        // Recopilar todos los IDs de vuelos que se mostrarán
+        for (Envio envio : solucion.getEnvios()) {
+            try {
+                List<ParteAsignada> partes = envio.getParteAsignadas();
+                if (partes != null) {
+                    for (ParteAsignada parte : partes) {
+                        if (parte.getRuta() != null) {
+                            for (PlanDeVuelo vuelo : parte.getRuta()) {
+                                if (vuelo.getId() != null) {
+                                    vueloIds.add(vuelo.getId());
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // Ignorar errores al obtener partes
+            }
+        }
+
+        // Cargar todos los vuelos actualizados de una vez
+        if (!vueloIds.isEmpty()) {
+            try {
+                List<PlanDeVuelo> vuelosActualizados = planDeVueloService.obtenerPlanesDeVueloPorIds(new ArrayList<>(vueloIds));
+                for (PlanDeVuelo vuelo : vuelosActualizados) {
+                    if (vuelo.getId() != null) {
+                        vuelosActualizadosMap.put(vuelo.getId(), vuelo);
+                    }
+                }
+            } catch (Exception e) {
+                System.err.printf("⚠️ Error al cargar vuelos actualizados: %s%n", e.getMessage());
+            }
+        }
+
         int enviosMostrados = 0;
         for (Envio envio : solucion.getEnvios()) {
             if (enviosMostrados >= MAX_ENVIOS_DETALLE) {
@@ -1227,6 +1354,19 @@ public class Planificador {
 
                         for (int i = 0; i < parte.getRuta().size(); i++) {
                             PlanDeVuelo vuelo = parte.getRuta().get(i);
+
+                            // Obtener capacidad ocupada actualizada desde el mapa (ya cargado desde BD)
+                            Integer capacidadOcupada = vuelo.getCapacidadOcupada();
+                            Integer capacidadMaxima = vuelo.getCapacidadMaxima();
+
+                            if (vuelo.getId() != null) {
+                                PlanDeVuelo vueloActualizado = vuelosActualizadosMap.get(vuelo.getId());
+                                if (vueloActualizado != null) {
+                                    capacidadOcupada = vueloActualizado.getCapacidadOcupada();
+                                    capacidadMaxima = vueloActualizado.getCapacidadMaxima();
+                                }
+                            }
+
                             System.out.printf("      ✈️  %s → %s | %s - %s | Cap: %d/%d%n",
                                     obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo(),
                                     obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo(),
@@ -1234,8 +1374,8 @@ public class Planificador {
                                             vuelo.getHusoHorarioOrigen(), formatter),
                                     formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(),
                                             vuelo.getHusoHorarioDestino(), formatter),
-                                    vuelo.getCapacidadOcupada(),
-                                    vuelo.getCapacidadMaxima());
+                                    capacidadOcupada != null ? capacidadOcupada : 0,
+                                    capacidadMaxima != null ? capacidadMaxima : 0);
                         }
 
                         System.out.printf("      🏁 Llegada final: %s%n",

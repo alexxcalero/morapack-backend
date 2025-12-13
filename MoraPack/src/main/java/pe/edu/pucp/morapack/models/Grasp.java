@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 public class Grasp {
 
     // ⚡ OPTIMIZADO: Reducir iteraciones para completar en < 90 segundos
-    private static final int MAX_ITERACIONES = 50; // Antes: 100
+    private static final int MAX_ITERACIONES = 30; // Antes: 100
     private static final int MAX_SIN_MEJORA = 2; // Antes: 3
     private static final int DIAS_A_INSTANCIAR = 3;
 
@@ -399,6 +399,137 @@ public class Grasp {
 
         Objects.requireNonNull(mejor).recomputar();
         return mejor;
+    }
+
+    /**
+     * Versión de ejecutarGrasp que verifica timeout periódicamente y actualiza la mejor solución
+     * en un AtomicReference para que pueda ser recuperada si hay timeout
+     */
+    public Solucion ejecutarGraspConTimeout(List<Envio> envios, ArrayList<PlanDeVuelo> planesDeVuelo,
+            long timeoutMs, long inicioEjecucion, java.util.concurrent.atomic.AtomicReference<Solucion> mejorSolucionRef) {
+        Solucion mejor = null;
+        int iteracionesSinMejora = 0;
+
+        Map<PlanDeVuelo, Integer> capacidadBaseVuelos = planesDeVuelo.stream()
+                .collect(Collectors.toMap(v -> v, v -> v.getCapacidadOcupada() != null ? v.getCapacidadOcupada() : 0));
+        Map<Aeropuerto, Integer> capacidadBaseAeropuertos = this.aeropuertos != null
+                ? this.aeropuertos.stream()
+                        .collect(Collectors.toMap(a -> a,
+                                a -> a.getCapacidadOcupada() != null ? a.getCapacidadOcupada() : 0))
+                : Collections.emptyMap();
+
+        for (int i = 0; i < MAX_ITERACIONES && iteracionesSinMejora < MAX_SIN_MEJORA; i++) {
+            // Verificar timeout periódicamente
+            long tiempoTranscurrido = System.currentTimeMillis() - inicioEjecucion;
+            if (tiempoTranscurrido >= timeoutMs) {
+                System.out.printf("⏰ GRASP: Timeout alcanzado (%d ms), deteniendo iteraciones en iteración %d%n",
+                        tiempoTranscurrido, i);
+                // Devolver la mejor solución encontrada hasta el momento
+                if (mejor != null) {
+                    mejor.recomputar();
+                    mejorSolucionRef.set(mejor);
+                    return mejor;
+                }
+                // Si no hay mejor solución, devolver null (se manejará en el método llamador)
+                return null;
+            }
+
+            // ⚡ Reset reservas al inicio de cada iteración
+            reservasVuelos.clear();
+            reservasAeropuertos.clear();
+
+            // Reset capacidades (solo para verificación, no se asignan realmente)
+            planesDeVuelo.forEach(v -> v.setCapacidadOcupada(capacidadBaseVuelos.getOrDefault(v, 0)));
+            if (this.aeropuertos != null) {
+                this.aeropuertos.forEach(a -> a.setCapacidadOcupada(capacidadBaseAeropuertos.getOrDefault(a, 0)));
+            }
+            envios.forEach(e -> e.getParteAsignadas().clear());
+
+            faseConstruccion(envios, planesDeVuelo);
+            busquedaLocal(envios, planesDeVuelo);
+
+            Solucion cur = new Solucion(new ArrayList<>(envios), planesDeVuelo);
+
+            if (mejor == null || esMejor(cur, mejor)) {
+                // Crear copia profunda de los envíos para evitar que se modifiquen en iteraciones posteriores
+                ArrayList<Envio> enviosCopia = new ArrayList<>();
+                for (Envio envio : envios) {
+                    Envio envioCopia = crearCopiaEnvioParaSolucion(envio);
+                    enviosCopia.add(envioCopia);
+                }
+                mejor = new Solucion(enviosCopia, planesDeVuelo);
+                iteracionesSinMejora = 0;
+                // Actualizar la mejor solución en el AtomicReference para que esté disponible si hay timeout
+                mejorSolucionRef.set(mejor);
+            } else {
+                iteracionesSinMejora++;
+            }
+        }
+
+        if (mejor != null) {
+            mejor.recomputar();
+            mejorSolucionRef.set(mejor);
+        }
+        return mejor;
+    }
+
+    /**
+     * Crea una copia profunda de un envío incluyendo sus partes asignadas y rutas
+     * para guardar en la mejor solución
+     */
+    private Envio crearCopiaEnvioParaSolucion(Envio original) {
+        Envio copia = new Envio();
+        copia.setId(original.getId());
+        copia.setCliente(original.getCliente());
+        copia.setAeropuertosOrigen(original.getAeropuertosOrigen() != null ?
+                new ArrayList<>(original.getAeropuertosOrigen()) : new ArrayList<>());
+        copia.setAeropuertoDestino(original.getAeropuertoDestino());
+        copia.setFechaIngreso(original.getFechaIngreso());
+        copia.setHusoHorarioDestino(original.getHusoHorarioDestino());
+        copia.setZonedFechaIngreso(original.getZonedFechaIngreso());
+        copia.setIdEnvioPorAeropuerto(original.getIdEnvioPorAeropuerto());
+        copia.setNumProductos(original.getNumProductos());
+        copia.setAeropuertoOrigen(original.getAeropuertoOrigen());
+
+        // Copiar partes asignadas con sus rutas
+        copia.setParteAsignadas(new ArrayList<>());
+        if (original.getParteAsignadas() != null) {
+            for (ParteAsignada parteOriginal : original.getParteAsignadas()) {
+                ParteAsignada parteCopia = new ParteAsignada();
+                parteCopia.setCantidad(parteOriginal.getCantidad());
+                parteCopia.setLlegadaFinal(parteOriginal.getLlegadaFinal());
+                parteCopia.setAeropuertoOrigen(parteOriginal.getAeropuertoOrigen());
+                parteCopia.setEntregado(parteOriginal.getEntregado());
+
+                // Copiar la ruta (lista de vuelos)
+                if (parteOriginal.getRuta() != null) {
+                    List<PlanDeVuelo> rutaCopia = new ArrayList<>();
+                    for (PlanDeVuelo vuelo : parteOriginal.getRuta()) {
+                        PlanDeVuelo vueloCopia = new PlanDeVuelo();
+                        vueloCopia.setId(vuelo.getId());
+                        vueloCopia.setCiudadOrigen(vuelo.getCiudadOrigen());
+                        vueloCopia.setCiudadDestino(vuelo.getCiudadDestino());
+                        vueloCopia.setHoraOrigen(vuelo.getHoraOrigen());
+                        vueloCopia.setHoraDestino(vuelo.getHoraDestino());
+                        vueloCopia.setHusoHorarioOrigen(vuelo.getHusoHorarioOrigen());
+                        vueloCopia.setHusoHorarioDestino(vuelo.getHusoHorarioDestino());
+                        vueloCopia.setCapacidadMaxima(vuelo.getCapacidadMaxima());
+                        vueloCopia.setCapacidadOcupada(vuelo.getCapacidadOcupada());
+                        vueloCopia.setZonedHoraOrigen(vuelo.getZonedHoraOrigen());
+                        vueloCopia.setZonedHoraDestino(vuelo.getZonedHoraDestino());
+                        vueloCopia.setMismoContinente(vuelo.getMismoContinente());
+                        vueloCopia.setEstado(vuelo.getEstado());
+                        rutaCopia.add(vueloCopia);
+                    }
+                    parteCopia.setRuta(rutaCopia);
+                }
+
+                parteCopia.setEnvio(copia);
+                copia.getParteAsignadas().add(parteCopia);
+            }
+        }
+
+        return copia;
     }
 
     public Boolean esMejor(Solucion a, Solucion b) {
