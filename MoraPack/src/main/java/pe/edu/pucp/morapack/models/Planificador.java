@@ -595,18 +595,28 @@ public class Planificador {
                 System.out.printf("⚠️ ALERTA: %d pedido(s) no pudieron ser asignados completamente:%n",
                         pedidosSinRuta.size());
 
+                // OPERACIONES_DIARIAS: Detener inmediatamente si hay pedidos sin planificar
+                if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS) {
+                    System.out.println("🛑 Deteniendo planificación: hay envíos sin planificar");
+                    detenerPlanificacion();
+                    return;
+                }
+
                 // Lógica de detención según año y modo
                 int anioInicio = obtenerAnioFechaInicio();
 
                 if (anioInicio == 2026) {
-                    if (ciclo >= 30) {
-                        System.out.println("🛑 Deteniendo planificación: hay envíos sin planificar");
-                        detenerPlanificacion();
-                        return;
-                    } else {
-                        //System.out.println("ℹ️ [2026] Continuando planificación: hay envíos sin planificar pero ciclo < 30");
-                        System.out.println("continuar");
-                    }
+                    System.out.println("🛑 Deteniendo planificación: hay envíos sin planificar");
+                    detenerPlanificacion();
+                    return;
+//                    if (ciclo >= 30) {
+//                        System.out.println("🛑 Deteniendo planificación: hay envíos sin planificar");
+//                        detenerPlanificacion();
+//                        return;
+//                    } else {
+//                        //System.out.println("ℹ️ [2026] Continuando planificación: hay envíos sin planificar pero ciclo < 30");
+//                        System.out.println("continuar");
+//                    }
                 }
 
                 if (anioInicio == 2025) {
