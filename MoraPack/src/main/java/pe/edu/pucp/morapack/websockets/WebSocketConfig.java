@@ -27,17 +27,14 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                         "http://localhost:3000",
                         "https://1inf54-981-5e.inf.pucp.edu.pe",
                         "http://1inf54-981-5e.inf.pucp.edu.pe")
-                        .withSockJS();
+                .withSockJS();
 
-        // FALLBACK: SockJS (deshabilitado, WebSocket nativo funciona correctamente)
-        // Descomentar solo si el proxy falla y se necesita respaldo temporal
-        // registry.addEndpoint("/ws-planificacion-sockjs")
-        // .addInterceptors(new LoggingHandshakeInterceptor())
-        // .setAllowedOrigins(
-        // "http://localhost:3000",
-        // "https://1inf54-981-5e.inf.pucp.edu.pe",
-        // "http://1inf54-981-5e.inf.pucp.edu.pe"
-        // )
-        // .withSockJS();
+        registry.addEndpoint("/ws-planificacion-sockjs")
+                .addInterceptors(new LoggingHandshakeInterceptor())
+                .setAllowedOrigins(
+                        "http://localhost:3000",
+                        "https://1inf54-981-5e.inf.pucp.edu.pe",
+                        "http://1inf54-981-5e.inf.pucp.edu.pe")
+                .withSockJS();
     }
 }
