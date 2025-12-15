@@ -14,10 +14,18 @@ import jakarta.persistence.Query;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 @CrossOrigin(origins = "*")
 @RestController
@@ -1656,5 +1664,49 @@ public class PlanificadorController {
         }
 
         return planes;
+    }
+
+    /**
+     * Endpoint para descargar el reporte de la última planificación
+     * @return ResponseEntity con el archivo de reporte
+     */
+    @GetMapping("/descargar-reporte")
+    public ResponseEntity<Resource> descargarReporte() {
+        try {
+            // Ruta del archivo de reporte (a nivel de morapack-backend)
+            // Usa directorio de trabajo para funcionar en desarrollo y producción (JAR)
+            String userDir = System.getProperty("user.dir");
+            Path archivoReporte = Paths.get(userDir, "reporte", "reporte-ultima-planificacion.txt");
+
+            // Verificar si el archivo existe
+            if (!Files.exists(archivoReporte)) {
+                return ResponseEntity.notFound().build();
+            }
+
+            // Crear recurso desde el archivo
+            Resource resource = new UrlResource(archivoReporte.toUri());
+
+            // Verificar que el recurso existe y es legible
+            if (!resource.exists() || !resource.isReadable()) {
+                return ResponseEntity.notFound().build();
+            }
+
+            // Configurar headers para la descarga
+            HttpHeaders headers = new HttpHeaders();
+            headers.add(HttpHeaders.CONTENT_DISPOSITION,
+                    "attachment; filename=\"reporte-ultima-planificacion.txt\"");
+            headers.add(HttpHeaders.CONTENT_TYPE, MediaType.TEXT_PLAIN_VALUE);
+
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .contentLength(Files.size(archivoReporte))
+                    .contentType(MediaType.parseMediaType("text/plain; charset=UTF-8"))
+                    .body(resource);
+
+        } catch (Exception e) {
+            System.err.printf("❌ Error al descargar reporte: %s%n", e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
     }
 }

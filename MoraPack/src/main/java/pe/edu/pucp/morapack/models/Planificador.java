@@ -14,6 +14,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.io.*;
+import java.nio.file.*;
 
 import pe.edu.pucp.morapack.dtos.VueloPlanificadorDto;
 import pe.edu.pucp.morapack.dtos.AeropuertoEstadoDto;
@@ -502,15 +504,10 @@ public class Planificador {
                 }
 
                 // Si la semana ya está completa Y hay un pedido sin planificar, incrementar contador
+                // (pero NO detener aquí, la detención se verifica cuando se encuentran pedidos sin ruta)
                 if (semanaCompletaColapso && pedidoSinPlanificarEncontrado) {
                     ciclosDespuesSemanaCompleta++;
                     //System.out.printf("📅 [COLAPSO 2025] Ciclo %d después de semana completa con pedido sin planificar (límite: %d)%n", ciclosDespuesSemanaCompleta, CICLOS_DESPUES_SEMANA_COMPLETA);
-
-                    if (ciclosDespuesSemanaCompleta >= CICLOS_DESPUES_SEMANA_COMPLETA) {
-                        //System.out.println("🛑 [COLAPSO 2025] Deteniendo planificación: 5 ciclos después de semana completa con pedido sin planificar");
-                        detenerPlanificacion();
-                        return;
-                    }
                 }
             }
 
@@ -595,6 +592,30 @@ public class Planificador {
                 System.out.printf("⚠️ ALERTA: %d pedido(s) no pudieron ser asignados completamente:%n",
                         pedidosSinRuta.size());
 
+                // Verificar si se deben mostrar pedidos sin ruta en el reporte
+                boolean mostrarPedidosSinRutaEnReporte = false;
+                int anioInicio = obtenerAnioFechaInicio();
+
+                // OPERACIONES_DIARIAS: siempre mostrar
+                if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS) {
+                    mostrarPedidosSinRutaEnReporte = true;
+                }
+                // Año 2026: siempre mostrar (cualquier modo)
+                else if (anioInicio == 2026) {
+                    mostrarPedidosSinRutaEnReporte = true;
+                }
+                // COLAPSO 2025: mostrar solo si ya se completó la semana
+                else if (modoSimulacion == ModoSimulacion.COLAPSO && anioInicio == 2025) {
+                    if (semanaCompletaColapso) {
+                        mostrarPedidosSinRutaEnReporte = true;
+                    }
+                }
+
+                // Si se debe mostrar en el reporte, generar el reporte con pedidos sin ruta ANTES de detener
+                if (mostrarPedidosSinRutaEnReporte) {
+                    generarReporteConPedidosSinRuta(solucion, pedidosParaPlanificar, ciclo, pedidosSinRuta, inicioHorizonte);
+                }
+
                 // OPERACIONES_DIARIAS: Detener inmediatamente si hay pedidos sin planificar
                 if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS) {
                     System.out.println("🛑 Deteniendo planificación: hay envíos sin planificar");
@@ -603,8 +624,6 @@ public class Planificador {
                 }
 
                 // Lógica de detención según año y modo
-                int anioInicio = obtenerAnioFechaInicio();
-
                 if (anioInicio == 2026) {
                     System.out.println("🛑 Deteniendo planificación: hay envíos sin planificar");
                     detenerPlanificacion();
@@ -625,14 +644,31 @@ public class Planificador {
                         //System.out.println("ℹ️ [SEMANAL 2025] Continuando planificación a pesar de envíos sin planificar");
                     } else if (modoSimulacion == ModoSimulacion.COLAPSO) {
                         // COLAPSO 2025: Marcar que se encontró un pedido sin planificar
-                        // Se detendrá 5 ciclos después de completar la semana
+                        boolean esPrimeraVez = !pedidoSinPlanificarEncontrado;
                         pedidoSinPlanificarEncontrado = true;
-                        //System.out.println("⚠️ [COLAPSO 2025] Pedido sin planificar encontrado - se detendrá 5 ciclos después de completar semana");
 
-                        // Si ya se completó la semana, empezar a contar ciclos ahora
+                        // Si ya se completó la semana, verificar si debemos detener
                         if (semanaCompletaColapso) {
-                            ciclosDespuesSemanaCompleta = 0;
-                            //System.out.println("📅 [COLAPSO 2025] Semana ya completada - comenzando conteo de 5 ciclos");
+                            // Si es la primera vez que se encuentra un pedido sin planificar después de completar la semana,
+                            // inicializar el contador en 1 (este es el primer ciclo con pedido sin planificar)
+                            if (esPrimeraVez) {
+                                ciclosDespuesSemanaCompleta = 1;
+                            } else {
+                                // Si no es la primera vez, el contador ya fue incrementado en este ciclo (líneas 508-511)
+                                // No necesitamos hacer nada aquí
+                            }
+
+                            // Verificar si ya pasaron 5 ciclos después de la semana completa
+                            if (ciclosDespuesSemanaCompleta >= CICLOS_DESPUES_SEMANA_COMPLETA) {
+                                System.out.println("🛑 Deteniendo planificación: hay envíos sin planificar");
+                                detenerPlanificacion();
+                                return;
+                            } else {
+                                System.out.println("continuar");
+                                //System.out.printf("ℹ️ [COLAPSO 2025] Pedido sin planificar encontrado - ciclo %d después de semana completa (límite: %d)%n", ciclosDespuesSemanaCompleta, CICLOS_DESPUES_SEMANA_COMPLETA);
+                            }
+                        } else {
+                            //System.out.println("⚠️ [COLAPSO 2025] Pedido sin planificar encontrado - se detendrá 5 ciclos después de completar semana");
                         }
                     }
                 }
@@ -1259,22 +1295,59 @@ public class Planificador {
     }
 
     private void mostrarResultadosCiclo(Solucion solucion, List<Envio> pedidosProcesados, Integer ciclo) {
-        System.out.println("📊 RESULTADOS DEL CICLO:");
-        System.out.printf("   • Pedidos procesados: %d%n", pedidosProcesados.size());
-        System.out.printf("   • Pedidos completados: %d%n", solucion.getEnviosCompletados());
+        // Crear StringBuilder para acumular el contenido del reporte
+        StringBuilder reporte = new StringBuilder();
 
-        if (!pedidosProcesados.isEmpty()) {
-            double tasaExito = (solucion.getEnviosCompletados() * 100.0) / pedidosProcesados.size();
-            System.out.printf("   • Tasa de éxito: %.1f%%%n", tasaExito);
+        // Escribir a consola y al reporte simultáneamente
+        String lineaResultados = String.format("📊 RESULTADOS DEL CICLO %d:", ciclo);
+        System.out.println("📊 RESULTADOS DEL CICLO:");
+        reporte.append(lineaResultados).append("\n");
+
+        // Agregar horizonte planificado al reporte
+        if (inicioHorizonteUltimoCiclo != null && finHorizonteUltimoCiclo != null) {
+            DateTimeFormatter formatterHorizonte = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+            String lineaHorizonte = String.format("   • Horizonte planificado: %s → %s",
+                    inicioHorizonteUltimoCiclo.format(formatterHorizonte),
+                    finHorizonteUltimoCiclo.format(formatterHorizonte));
+            reporte.append(lineaHorizonte).append("\n");
         }
 
-        System.out.printf("   • Tiempo medio de entrega: %s%n",
-                formatDuracion(solucion.getLlegadaMediaPonderada()));
+        String lineaProcesados = String.format("   • Pedidos procesados: %d", pedidosProcesados.size());
+        System.out.printf("   • Pedidos procesados: %d%n", pedidosProcesados.size());
+        reporte.append(lineaProcesados).append("\n");
+
+        // Determinar valor de pedidos completados según condiciones
+        int pedidosCompletadosConsola = solucion.getEnviosCompletados();
+        int pedidosCompletadosArchivo = solucion.getEnviosCompletados();
+
+        // Validar solo para semanal
+        if (modoSimulacion == ModoSimulacion.SEMANAL && obtenerAnioFechaInicio() == 2025) {
+            pedidosCompletadosArchivo = pedidosProcesados.size();
+        }
+
+        String lineaCompletadosArchivo = String.format("   • Pedidos completados: %d", pedidosCompletadosArchivo);
+        System.out.printf("   • Pedidos completados: %d%n", pedidosCompletadosConsola);
+        reporte.append(lineaCompletadosArchivo).append("\n");
+
+        //if (!pedidosProcesados.isEmpty()) {
+        //    double tasaExito = (solucion.getEnviosCompletados() * 100.0) / pedidosProcesados.size();
+        //    String lineaTasa = String.format("   • Tasa de éxito: %.1f%%", tasaExito);
+        //    System.out.printf("   • Tasa de éxito: %.1f%%%n", tasaExito);
+        //    reporte.append(lineaTasa).append("\n");
+        //}
+
+        //System.out.printf("   • Tiempo medio de entrega: %s%n", formatDuracion(solucion.getLlegadaMediaPonderada()));
 
         final int MAX_ENVIOS_DETALLE = 5;
+        String lineaDetalleArchivo = String.format("\n📋 DETALLE DE RUTAS ASIGNADAS",
+                ciclo, solucion.getEnvios().size());
         System.out.printf("%n📋 DETALLE DE RUTAS ASIGNADAS - CICLO %d (primeros %d de %d)%n",
                 ciclo, Math.min(MAX_ENVIOS_DETALLE, solucion.getEnvios().size()), solucion.getEnvios().size());
-        System.out.println("=".repeat(80));
+        reporte.append(lineaDetalleArchivo).append("\n");
+
+        String separador = "=".repeat(100);
+        System.out.println(separador);
+        reporte.append(separador).append("\n");
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM dd HH:mm", Locale.forLanguageTag("es-ES"));
 
@@ -1316,6 +1389,7 @@ public class Planificador {
             }
         }
 
+        // Primero procesar para consola (limitado a 5)
         int enviosMostrados = 0;
         for (Envio envio : solucion.getEnvios()) {
             if (enviosMostrados >= MAX_ENVIOS_DETALLE) {
@@ -1348,13 +1422,14 @@ public class Planificador {
                         envio.getAeropuertoDestino() != null ? envio.getAeropuertoDestino().getCodigo() : "N/A",
                         envio.getNumProductos());
 
-                System.out.printf("   📍 Orígenes posibles: %s%n",
-                        envio.getAeropuertosOrigen() != null ? envio.getAeropuertosOrigen().stream()
-                                .map(Aeropuerto::getCodigo)
-                                .collect(Collectors.joining(", ")) : "N/A");
+                String origenes = envio.getAeropuertosOrigen() != null ? envio.getAeropuertosOrigen().stream()
+                        .map(Aeropuerto::getCodigo)
+                        .collect(Collectors.joining(", ")) : "N/A";
+                System.out.printf("   📍 Orígenes posibles: %s%n", origenes);
 
-                System.out.printf("   ⏰ Aparición: %s%n", formatFechaConOffset(envio.getZonedFechaIngreso(),
-                        envio.getFechaIngreso(), envio.getHusoHorarioDestino(), formatter));
+                String fechaAparicion = formatFechaConOffset(envio.getZonedFechaIngreso(),
+                        envio.getFechaIngreso(), envio.getHusoHorarioDestino(), formatter);
+                System.out.printf("   ⏰ Aparición: %s%n", fechaAparicion);
 
                 int parteNum = 1;
                 if (partesAsignadas != null) {
@@ -1377,27 +1452,341 @@ public class Planificador {
                                 }
                             }
 
+                            String origenCodigo = obtenerAeropuertoPorId(vuelo.getCiudadOrigen()) != null
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo() : "N/A";
+                            String destinoCodigo = obtenerAeropuertoPorId(vuelo.getCiudadDestino()) != null
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo() : "N/A";
+                            String horaOrigen = formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(),
+                                    vuelo.getHusoHorarioOrigen(), formatter);
+                            String horaDestino = formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(),
+                                    vuelo.getHusoHorarioDestino(), formatter);
+
                             System.out.printf("      ✈️  %s → %s | %s - %s | Cap: %d/%d%n",
-                                    obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo(),
-                                    obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo(),
-                                    formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(),
-                                            vuelo.getHusoHorarioOrigen(), formatter),
-                                    formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(),
-                                            vuelo.getHusoHorarioDestino(), formatter),
+                                    origenCodigo, destinoCodigo, horaOrigen, horaDestino,
                                     capacidadOcupada != null ? capacidadOcupada : 0,
                                     capacidadMaxima != null ? capacidadMaxima : 0);
                         }
 
-                        System.out.printf("      🏁 Llegada final: %s%n",
-                                formatFechaConOffset(parte.getLlegadaFinal(), null, null, formatter));
+                        String llegadaFinal = formatFechaConOffset(parte.getLlegadaFinal(), null, null, formatter);
+                        System.out.printf("      🏁 Llegada final: %s%n", llegadaFinal);
                         parteNum++;
                     }
                 }
                 System.out.println();
             }
         }
-        System.out.println("=".repeat(80));
 
+        // Ahora procesar TODOS los envíos para el archivo
+        for (Envio envio : solucion.getEnvios()) {
+            List<ParteAsignada> partesAsignadas = null;
+            try {
+                partesAsignadas = envio.getParteAsignadas();
+            } catch (Exception e) {
+                if (envio.getId() != null) {
+                    try {
+                        Optional<Envio> envioOpt = envioService.obtenerEnvioPorIdConPartesInicializadas(envio.getId());
+                        if (envioOpt.isPresent()) {
+                            partesAsignadas = envioOpt.get().getParteAsignadas();
+                        }
+                    } catch (Exception ex) {
+                        partesAsignadas = new ArrayList<>();
+                    }
+                } else {
+                    partesAsignadas = new ArrayList<>();
+                }
+            }
+
+            boolean tienePartes = partesAsignadas != null && !partesAsignadas.isEmpty();
+            if (envio.estaCompleto() || tienePartes) {
+                String lineaPedido = String.format("📦 PEDIDO %s → %s (%d unidades)",
+                        envio.getId(),
+                        envio.getAeropuertoDestino() != null ? envio.getAeropuertoDestino().getCodigo() : "N/A",
+                        envio.getNumProductos());
+                reporte.append(lineaPedido).append("\n");
+
+                // NO agregar "Orígenes posibles" al archivo
+
+                String fechaAparicion = formatFechaConOffset(envio.getZonedFechaIngreso(),
+                        envio.getFechaIngreso(), envio.getHusoHorarioDestino(), formatter);
+                String lineaAparicion = String.format("   ⏰ Aparición: %s", fechaAparicion);
+                reporte.append(lineaAparicion).append("\n");
+
+                int parteNum = 1;
+                if (partesAsignadas != null) {
+                    for (ParteAsignada parte : partesAsignadas) {
+                        String lineaParte = String.format("   🚚 Parte %d (%d unidades desde %s):",
+                                parteNum, parte.getCantidad(),
+                                parte.getAeropuertoOrigen().getCodigo());
+                        reporte.append(lineaParte).append("\n");
+
+                        for (int i = 0; i < parte.getRuta().size(); i++) {
+                            PlanDeVuelo vuelo = parte.getRuta().get(i);
+
+                            // Obtener capacidad ocupada actualizada desde el mapa (ya cargado desde BD)
+                            Integer capacidadOcupada = vuelo.getCapacidadOcupada();
+                            Integer capacidadMaxima = vuelo.getCapacidadMaxima();
+
+                            if (vuelo.getId() != null) {
+                                PlanDeVuelo vueloActualizado = vuelosActualizadosMap.get(vuelo.getId());
+                                if (vueloActualizado != null) {
+                                    capacidadOcupada = vueloActualizado.getCapacidadOcupada();
+                                    capacidadMaxima = vueloActualizado.getCapacidadMaxima();
+                                }
+                            }
+
+                            String origenCodigo = obtenerAeropuertoPorId(vuelo.getCiudadOrigen()) != null
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo() : "N/A";
+                            String destinoCodigo = obtenerAeropuertoPorId(vuelo.getCiudadDestino()) != null
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo() : "N/A";
+                            String horaOrigen = formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(),
+                                    vuelo.getHusoHorarioOrigen(), formatter);
+                            String horaDestino = formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(),
+                                    vuelo.getHusoHorarioDestino(), formatter);
+
+                            String lineaVuelo = String.format("      ✈️  %s → %s | %s - %s | Cap: %d/%d",
+                                    origenCodigo, destinoCodigo, horaOrigen, horaDestino,
+                                    capacidadOcupada != null ? capacidadOcupada : 0,
+                                    capacidadMaxima != null ? capacidadMaxima : 0);
+                            reporte.append(lineaVuelo).append("\n");
+                        }
+
+                        String llegadaFinal = formatFechaConOffset(parte.getLlegadaFinal(), null, null, formatter);
+                        String lineaLlegada = String.format("      🏁 Llegada final: %s", llegadaFinal);
+                        reporte.append(lineaLlegada).append("\n");
+                        parteNum++;
+                    }
+                }
+                reporte.append("\n");
+            }
+        }
+        String separadorFinal = "=".repeat(100);
+        System.out.println(separadorFinal);
+        reporte.append(separadorFinal).append("\n");
+
+        // Guardar el reporte en archivo
+        guardarReporteEnArchivo(reporte.toString());
+    }
+
+    /**
+     * Genera el reporte completo incluyendo pedidos sin ruta cuando se cumplen las condiciones
+     * Se llama desde la sección donde se detectan pedidos sin ruta antes de detener la planificación
+     */
+    private void generarReporteConPedidosSinRuta(Solucion solucion, List<Envio> pedidosProcesados, Integer ciclo, List<Envio> pedidosSinRuta, LocalDateTime inicioHorizonte) {
+        // Crear StringBuilder para acumular el contenido del reporte
+        StringBuilder reporte = new StringBuilder();
+
+        // Título del ciclo
+        String lineaResultados = String.format("📊 RESULTADOS DEL CICLO %d:", ciclo);
+        reporte.append(lineaResultados).append("\n");
+
+        // Agregar pedidos sin ruta al reporte (ANTES del horizonte planificado)
+        reporte.append(String.format("⚠️ ALERTA: %d pedido(s) no pudieron ser asignados completamente:%n",
+                pedidosSinRuta.size()));
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMM dd HH:mm", Locale.forLanguageTag("es-ES"));
+        for (Envio envio : pedidosSinRuta) {
+            String lineaPedido = String.format("   📦 PEDIDO %s → %s (%d unidades)",
+                    envio.getId(),
+                    envio.getAeropuertoDestino() != null ? envio.getAeropuertoDestino().getCodigo() : "N/A",
+                    envio.getNumProductos());
+            reporte.append(lineaPedido).append("\n");
+
+            String fechaAparicion = formatFechaConOffset(envio.getZonedFechaIngreso(),
+                    envio.getFechaIngreso(), envio.getHusoHorarioDestino(), formatter);
+            String lineaAparicion = String.format("      ⏰ Aparición: %s", fechaAparicion);
+            reporte.append(lineaAparicion).append("\n");
+        }
+        reporte.append("\n");
+
+        // Agregar horizonte planificado
+        if (inicioHorizonteUltimoCiclo != null && finHorizonteUltimoCiclo != null) {
+            DateTimeFormatter formatterHorizonte = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+            String lineaHorizonte = String.format("   • Horizonte planificado: %s → %s",
+                    inicioHorizonteUltimoCiclo.format(formatterHorizonte),
+                    finHorizonteUltimoCiclo.format(formatterHorizonte));
+            reporte.append(lineaHorizonte).append("\n");
+        }
+
+        // Agregar pedidos procesados y completados
+        String lineaProcesados = String.format("   • Pedidos procesados: %d", pedidosProcesados.size());
+        reporte.append(lineaProcesados).append("\n");
+
+        // Determinar valor de pedidos completados según condiciones
+        int pedidosCompletadosArchivo = solucion.getEnviosCompletados();
+        if (modoSimulacion == ModoSimulacion.SEMANAL && obtenerAnioFechaInicio() == 2025) {
+            pedidosCompletadosArchivo = pedidosProcesados.size();
+        }
+
+        String lineaCompletadosArchivo = String.format("   • Pedidos completados: %d", pedidosCompletadosArchivo);
+        reporte.append(lineaCompletadosArchivo).append("\n");
+
+        // Agregar detalle de rutas asignadas
+        String lineaDetalleArchivo = String.format("\n📋 DETALLE DE RUTAS ASIGNADAS");
+        reporte.append(lineaDetalleArchivo).append("\n");
+
+        String separador = "=".repeat(100);
+        reporte.append(separador).append("\n");
+
+        // Crear mapa de vuelos actualizados desde BD para evitar múltiples consultas
+        Map<Integer, PlanDeVuelo> vuelosActualizadosMap = new HashMap<>();
+        Set<Integer> vueloIds = new HashSet<>();
+
+        // Recopilar todos los IDs de vuelos que se mostrarán
+        for (Envio envio : solucion.getEnvios()) {
+            try {
+                List<ParteAsignada> partes = envio.getParteAsignadas();
+                if (partes != null) {
+                    for (ParteAsignada parte : partes) {
+                        if (parte.getRuta() != null) {
+                            for (PlanDeVuelo vuelo : parte.getRuta()) {
+                                if (vuelo.getId() != null) {
+                                    vueloIds.add(vuelo.getId());
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // Ignorar errores al obtener partes
+            }
+        }
+
+        // Cargar todos los vuelos actualizados de una vez
+        if (!vueloIds.isEmpty()) {
+            try {
+                List<PlanDeVuelo> vuelosActualizados = planDeVueloService.obtenerPlanesDeVueloPorIds(new ArrayList<>(vueloIds));
+                for (PlanDeVuelo vuelo : vuelosActualizados) {
+                    if (vuelo.getId() != null) {
+                        vuelosActualizadosMap.put(vuelo.getId(), vuelo);
+                    }
+                }
+            } catch (Exception e) {
+                System.err.printf("⚠️ Error al cargar vuelos actualizados: %s%n", e.getMessage());
+            }
+        }
+
+        // Procesar TODOS los envíos planificados para el archivo
+        for (Envio envio : solucion.getEnvios()) {
+            List<ParteAsignada> partesAsignadas = null;
+            try {
+                partesAsignadas = envio.getParteAsignadas();
+            } catch (Exception e) {
+                if (envio.getId() != null) {
+                    try {
+                        Optional<Envio> envioOpt = envioService.obtenerEnvioPorIdConPartesInicializadas(envio.getId());
+                        if (envioOpt.isPresent()) {
+                            partesAsignadas = envioOpt.get().getParteAsignadas();
+                        }
+                    } catch (Exception ex) {
+                        partesAsignadas = new ArrayList<>();
+                    }
+                } else {
+                    partesAsignadas = new ArrayList<>();
+                }
+            }
+
+            boolean tienePartes = partesAsignadas != null && !partesAsignadas.isEmpty();
+            if (envio.estaCompleto() || tienePartes) {
+                String lineaPedido = String.format("📦 PEDIDO %s → %s (%d unidades)",
+                        envio.getId(),
+                        envio.getAeropuertoDestino() != null ? envio.getAeropuertoDestino().getCodigo() : "N/A",
+                        envio.getNumProductos());
+                reporte.append(lineaPedido).append("\n");
+
+                // NO agregar "Orígenes posibles" al archivo
+
+                String fechaAparicion = formatFechaConOffset(envio.getZonedFechaIngreso(),
+                        envio.getFechaIngreso(), envio.getHusoHorarioDestino(), formatter);
+                String lineaAparicion = String.format("   ⏰ Aparición: %s", fechaAparicion);
+                reporte.append(lineaAparicion).append("\n");
+
+                int parteNum = 1;
+                if (partesAsignadas != null) {
+                    for (ParteAsignada parte : partesAsignadas) {
+                        String lineaParte = String.format("   🚚 Parte %d (%d unidades desde %s):",
+                                parteNum, parte.getCantidad(),
+                                parte.getAeropuertoOrigen().getCodigo());
+                        reporte.append(lineaParte).append("\n");
+
+                        for (int i = 0; i < parte.getRuta().size(); i++) {
+                            PlanDeVuelo vuelo = parte.getRuta().get(i);
+
+                            // Obtener capacidad ocupada actualizada desde el mapa (ya cargado desde BD)
+                            Integer capacidadOcupada = vuelo.getCapacidadOcupada();
+                            Integer capacidadMaxima = vuelo.getCapacidadMaxima();
+
+                            if (vuelo.getId() != null) {
+                                PlanDeVuelo vueloActualizado = vuelosActualizadosMap.get(vuelo.getId());
+                                if (vueloActualizado != null) {
+                                    capacidadOcupada = vueloActualizado.getCapacidadOcupada();
+                                    capacidadMaxima = vueloActualizado.getCapacidadMaxima();
+                                }
+                            }
+
+                            String origenCodigo = obtenerAeropuertoPorId(vuelo.getCiudadOrigen()) != null
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo() : "N/A";
+                            String destinoCodigo = obtenerAeropuertoPorId(vuelo.getCiudadDestino()) != null
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo() : "N/A";
+                            String horaOrigen = formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(),
+                                    vuelo.getHusoHorarioOrigen(), formatter);
+                            String horaDestino = formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(),
+                                    vuelo.getHusoHorarioDestino(), formatter);
+
+                            String lineaVuelo = String.format("      ✈️  %s → %s | %s - %s | Cap: %d/%d",
+                                    origenCodigo, destinoCodigo, horaOrigen, horaDestino,
+                                    capacidadOcupada != null ? capacidadOcupada : 0,
+                                    capacidadMaxima != null ? capacidadMaxima : 0);
+                            reporte.append(lineaVuelo).append("\n");
+                        }
+
+                        String llegadaFinal = formatFechaConOffset(parte.getLlegadaFinal(), null, null, formatter);
+                        String lineaLlegada = String.format("      🏁 Llegada final: %s", llegadaFinal);
+                        reporte.append(lineaLlegada).append("\n");
+                        parteNum++;
+                    }
+                }
+                reporte.append("\n");
+            }
+        }
+
+        String separadorFinal = "=".repeat(100);
+        reporte.append(separadorFinal).append("\n");
+
+        // Guardar el reporte en archivo
+        guardarReporteEnArchivo(reporte.toString());
+    }
+
+    /**
+     * Guarda el reporte en un archivo en reporte/reporte-ultima-planificacion.txt
+     * (a nivel de morapack-backend, fuera del proyecto MoraPack)
+     * Funciona tanto en desarrollo como en producción (JAR)
+     */
+    private void guardarReporteEnArchivo(String contenido) {
+        try {
+            // Obtener el directorio de trabajo actual (funciona en desarrollo y producción)
+            String userDir = System.getProperty("user.dir");
+            Path reportePath = Paths.get(userDir, "reporte");
+
+            // Crear el directorio si no existe
+            Files.createDirectories(reportePath);
+
+            // Ruta completa del archivo
+            Path archivoReporte = reportePath.resolve("reporte-ultima-planificacion.txt");
+
+            // Agregar timestamp al inicio del reporte
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            String contenidoConTimestamp = String.format("=== REPORTE DE PLANIFICACIÓN ===\nFecha: %s\n\n%s",
+                    timestamp, contenido);
+
+            // Escribir el archivo (sobrescribe si existe)
+            Files.write(archivoReporte, contenidoConTimestamp.getBytes("UTF-8"), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+
+            System.out.printf("📄 Reporte guardado en: %s%n", archivoReporte.toAbsolutePath());
+        } catch (IOException e) {
+            System.err.printf("❌ Error al guardar reporte en archivo: %s%n", e.getMessage());
+            System.err.printf("❌ Directorio de trabajo: %s%n", System.getProperty("user.dir"));
+            e.printStackTrace();
+        }
     }
 
     private Aeropuerto obtenerAeropuertoPorId(Integer id) {
