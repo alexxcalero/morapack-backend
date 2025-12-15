@@ -26,8 +26,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setAllowedOrigins(
                         "http://localhost:3000",
                         "https://1inf54-981-5e.inf.pucp.edu.pe",
-                        "http://1inf54-981-5e.inf.pucp.edu.pe")
-                .withSockJS();
+                        "http://1inf54-981-5e.inf.pucp.edu.pe");
 
         registry.addEndpoint("/ws-planificacion-sockjs")
                 .addInterceptors(new LoggingHandshakeInterceptor())
