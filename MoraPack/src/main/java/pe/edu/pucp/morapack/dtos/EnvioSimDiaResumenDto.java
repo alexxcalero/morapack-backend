@@ -7,4 +7,5 @@ public class EnvioSimDiaResumenDto {
     private long total;
     private long enVuelo;
     private long enEspera;
+    private long sinEstado;
 }

@@ -6,6 +6,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import pe.edu.pucp.morapack.dtos.PlanDeVueloResponse;
 import pe.edu.pucp.morapack.models.PlanDeVuelo;
+import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -50,4 +51,10 @@ public interface PlanDeVueloRepository extends JpaRepository<PlanDeVuelo, Intege
 
         // Muestra de 100 vuelos más recientes (por hora de salida)
         List<PlanDeVuelo> findTop100ByOrderByHoraOrigenDesc();
+
+        List<PlanDeVuelo> findTop100ByHoraOrigenGreaterThanEqualOrderByHoraOrigenAsc(LocalDateTime fechaInicio);
+
+        @Query("SELECT p FROM PlanDeVuelo p WHERE p.horaOrigen >= :fechaInicio ORDER BY p.horaOrigen ASC")
+        List<PlanDeVuelo> findProximosDesde(@Param("fechaInicio") LocalDateTime fechaInicio, Pageable pageable);
+
 }

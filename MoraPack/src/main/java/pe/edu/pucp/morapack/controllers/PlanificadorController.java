@@ -361,6 +361,105 @@ public class PlanificadorController {
         return response;
     }
 
+    // Endpoint para iniciar simulación semanal (sin generar vuelos)
+    @PostMapping("/reiniciar-simulacion-dia")
+    public Map<String, Object> reiniciarSimulacionDia(@RequestBody Map<String, String> request) {
+        System.out.println("🎯 [ENDPOINT] reiniciar-simulacion-dia - PETICIÓN RECIBIDA a las " + LocalDateTime.now());
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Sincronizar el flag con el estado real del planificador
+            if (planificador != null && planificador.estaEnEjecucion()) {
+                planificadorIniciado = true;
+                response.put("estado", "error");
+                response.put("mensaje", "El planificador ya está en ejecución");
+                return response;
+            } else {
+                planificadorIniciado = false;
+            }
+
+            Object fechaInicioObj = request.get("fechaInicio"); // "2025-12-11T10:00:00"
+
+            if (fechaInicioObj == null) {
+                response.put("estado", "error");
+                response.put("mensaje", "Se requiere 'fechaInicio' en formato ISO: yyyy-MM-ddTHH:mm:ss");
+                return response;
+            }
+
+            String fechaInicioStr = fechaInicioObj.toString().trim();
+
+            LocalDateTime ldt = LocalDateTime.parse(fechaInicioStr);
+            Instant simInstant = ldt.toInstant(ZoneOffset.UTC);
+
+            relojSimulacionDiaService.resetTo(simInstant);
+
+            LocalDateTime fechaAparicionUTC = LocalDateTime.ofInstant(simInstant, ZoneOffset.UTC);
+
+            // Primera vez: iniciar el planificador
+            System.out.println("🚀 Iniciando planificador en modo OPERACIONES_DIARIAS...");
+
+            // Cargar datos necesarios
+            System.out.println("📂 Cargando aeropuertos...");
+            ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
+            System.out.println("✅ Aeropuertos cargados: " + aeropuertos.size());
+
+            System.out.println("📂 Cargando continentes...");
+            ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
+            System.out.println("✅ Continentes cargados: " + continentes.size());
+
+            System.out.println("📂 Cargando países...");
+            ArrayList<Pais> paises = paisService.obtenerTodosPaises();
+            System.out.println("✅ Países cargados: " + paises.size());
+
+            // ⚡ OPTIMIZACIÓN CRÍTICA: NO cargar todos los vuelos al inicio en modo
+            // OPERACIONES_DIARIAS
+            System.out.println(
+                    "📂 [OPTIMIZACIÓN] Vuelos se cargarán por ciclo desde BD (solo horizonte actual + 3 días)");
+
+            // Configurar GRASP
+            System.out.println("⚙️ Configurando GRASP...");
+            Grasp grasp = new Grasp();
+            grasp.setAeropuertos(aeropuertos);
+            grasp.setContinentes(continentes);
+            grasp.setPaises(paises);
+            grasp.setEnvios(new ArrayList<>()); // Lista vacía inicial - se cargarán por ciclo
+            grasp.setPlanesDeVuelo(new ArrayList<>()); // Lista vacía inicial - se cargarán por ciclo
+            grasp.setHubsPropio();
+            System.out.println("✅ GRASP configurado (vuelos y envíos se cargarán por ciclo)");
+
+            // Crear e iniciar el planificador en modo OPERACIONES_DIARIAS
+            // Usar la fecha en UTC del reloj de simulación para el inicio del planificador
+            System.out.println("⚙️ Creando planificador en modo OPERACIONES_DIARIAS...");
+            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
+                    aeropuertoService);
+            planificador.iniciarPlanificacionProgramada(
+                    Planificador.ModoSimulacion.OPERACIONES_DIARIAS,
+                    fechaAparicionUTC,
+                    null); // Sin fecha fin, usar fecha en UTC
+
+            planificadorIniciado = true;
+
+            response.put("estado", "éxito");
+            response.put("mensaje", "Operaciones diarias iniciadas correctamente");
+            response.put("planificadorIniciado", true);
+            response.put("configuracion", Map.of(
+                    "modo", "OPERACIONES_DIARIAS",
+                    "fechaInicio", fechaAparicionUTC.toString(),
+                    "k_factor", 1,
+                    "sa_minutos", 2,
+                    "ta_segundos", 70));
+
+            response.put("timestamp", LocalDateTime.now().toString());
+
+        } catch (Exception e) {
+            response.put("estado", "error");
+            response.put("mensaje", "Error al iniciar operaciones diarias: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return response;
+    }
+
     // Endpoint para iniciar simulación semanal v2 (con generación de vuelos)
     @PostMapping("/iniciar-simulacion-semanal-v2")
     public Map<String, Object> iniciarSimulacionSemanalV2(@RequestBody Map<String, String> request) {
@@ -578,77 +677,38 @@ public class PlanificadorController {
     // Endpoint para AUTOSTART de la simulación día a día (sin crear envío)
     @PostMapping("/autostart-simulacion-dia")
     public Map<String, Object> autostartSimulacionDia() {
-        System.out.println("🎯 [ENDPOINT] autostart-simulacion-dia - PETICIÓN RECIBIDA a las " + LocalDateTime.now());
+        System.out.println("🎯 [ENDPOINT] autostart-simulacion-dia - " + LocalDateTime.now());
         Map<String, Object> response = new HashMap<>();
 
         try {
-            // 1️⃣ Asegurar que el reloj de simulación día a día está corriendo
-            boolean relojYaActivo = relojSimulacionDiaService.isRunning(); // ajusta si tu método se llama distinto
-
-            if (!relojYaActivo) {
-                System.out.println("⏱️ Reloj de simulación día a día NO estaba activo. Iniciando...");
-                // según tu implementación:
-                relojSimulacionDiaService.init(); // si tienes init()
-                relojSimulacionDiaService.start(); // si tienes start()
-            } else {
-                System.out.println("⏱️ Reloj de simulación día a día YA estaba activo.");
+            // (Opcional) reloj solo para obtener "fecha actual simulada".
+            if (!relojSimulacionDiaService.isRunning()) {
+                relojSimulacionDiaService.init();
+                relojSimulacionDiaService.start();
             }
 
-            // Sincronizar el flag con el estado real del planificador
-            if (planificador != null && planificador.estaEnEjecucion()) {
-                planificadorIniciado = true;
-                response.put("estado", "error");
-                response.put("mensaje", "El planificador ya está en ejecución");
-                return response;
-            } else {
-                planificadorIniciado = false;
-            }
+            Instant simInstant = relojSimulacionDiaService.getCurrentSimInstant();
+            LocalDateTime fechaInicioUTC = LocalDateTime.ofInstant(simInstant, ZoneOffset.UTC);
 
-            // ⚡ OPTIMIZACIÓN CRÍTICA: Solo cargar datos básicos (aeropuertos, continentes,
-            // países)
-            // NO cargar todos los envíos ni vuelos (se cargarán por ciclo desde BD)
-            ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
-            ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
-            ArrayList<Pais> paises = paisService.obtenerTodosPaises();
+            List<PlanDeVuelo> vuelos = planDeVueloService.obtenerVuelosIniciales(fechaInicioUTC, 100);
 
-            System.out.println("🚀 INICIANDO PLANIFICADOR PROGRAMADO (modo optimizado)");
-            System.out.println("📊 DEBUG: aeropuertos=" + aeropuertos.size() +
-                    " (envíos y vuelos se cargarán por ciclo desde BD)");
+            List<Map<String, Object>> vuelosFrontend = vuelos.stream()
+                    .map(v -> convertirVueloParaFrontend(v, Collections.emptyMap()))
+                    .collect(Collectors.toList());
 
-            // Configurar GRASP con datos básicos solamente
-            Grasp grasp = new Grasp();
-            grasp.setAeropuertos(aeropuertos);
-            grasp.setContinentes(continentes);
-            grasp.setPaises(paises);
-            // ⚡ NO cargar envíos ni vuelos aquí - se cargarán por ciclo
-            grasp.setEnvios(new ArrayList<>()); // Lista vacía inicial
-            grasp.setPlanesDeVuelo(new ArrayList<>()); // Lista vacía inicial
-            grasp.setHubsPropio();
-
-            // ⚡ Los hubs se configurarán cuando se carguen los envíos por ciclo
-            // No es necesario configurarlos aquí ya que no hay envíos cargados
-
-            // grasp.setEnviosPorDiaPropio();
-
-            // Crear e iniciar el planificador
-            planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
-                    aeropuertoService);
-            planificador.iniciarPlanificacionProgramada();
-
-            planificadorIniciado = true;
-
-            response.put("estado", "éxito");
-            response.put("mensaje", "Planificador programado iniciado correctamente");
-            response.put("configuracion", Map.of(
-                    "sa_minutos", 5,
-                    "k_factor", 24,
-                    "ta_segundos", 150,
-                    "sc_minutos", 120));
+            response.put("estado", "exito");
+            response.put("mensaje", "Vuelos iniciales cargados");
             response.put("timestamp", LocalDateTime.now().toString());
+            response.put("fechaInicioUTC", fechaInicioUTC.toString());
+            response.put("cantidadVuelos", vuelosFrontend.size());
+            response.put("vuelos", vuelosFrontend);
+
+            // ✅ explícito: NO se inicia planificador aquí
+            response.put("planificadorIniciado", false);
 
         } catch (Exception e) {
             response.put("estado", "error");
-            response.put("mensaje", "Error al iniciar planificador: " + e.getMessage());
+            response.put("mensaje", "Error al cargar vuelos iniciales: " + e.getMessage());
             e.printStackTrace();
         }
 
@@ -1668,6 +1728,7 @@ public class PlanificadorController {
 
     /**
      * Endpoint para descargar el reporte de la última planificación
+     * 
      * @return ResponseEntity con el archivo de reporte
      */
     @GetMapping("/descargar-reporte")

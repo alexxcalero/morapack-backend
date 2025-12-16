@@ -2,6 +2,7 @@ package pe.edu.pucp.morapack.services.servicesImp;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.PageRequest;
 import pe.edu.pucp.morapack.dtos.PlanDeVueloResponse;
 import pe.edu.pucp.morapack.models.PlanDeVuelo;
 import pe.edu.pucp.morapack.repository.AeropuertoRepository;
@@ -18,6 +19,10 @@ import java.util.Optional;
 public class PlanDeVueloServiceImp implements PlanDeVueloService {
     private final PlanDeVueloRepository planDeVueloRepository;
     private final AeropuertoRepository aeropuertoRepository;
+
+    public List<PlanDeVuelo> obtenerVuelosIniciales(LocalDateTime fechaInicioUTC, int limit) {
+        return planDeVueloRepository.findProximosDesde(fechaInicioUTC, PageRequest.of(0, limit));
+    }
 
     @Override
     public PlanDeVuelo insertarPlanDeVuelo(PlanDeVuelo planDeVuelo) {
@@ -86,7 +91,8 @@ public class PlanDeVueloServiceImp implements PlanDeVueloService {
         ZonedDateTime fechaInicioUTC = zonedFechaInicio.withZoneSameInstant(ZoneOffset.UTC);
         ZonedDateTime fechaFinUTC = zonedFechaFin.withZoneSameInstant(ZoneOffset.UTC);
 
-        // Ampliar el rango para considerar todas las zonas horarias posibles (-12 a +14 horas)
+        // Ampliar el rango para considerar todas las zonas horarias posibles (-12 a +14
+        // horas)
         // Esto asegura que no perdamos vuelos debido a diferencias de zona horaria
         LocalDateTime fechaInicioConsulta = fechaInicioUTC.toLocalDateTime().minusHours(14);
         LocalDateTime fechaFinConsulta = fechaFinUTC.toLocalDateTime().plusHours(14);
@@ -95,14 +101,16 @@ public class PlanDeVueloServiceImp implements PlanDeVueloService {
         ArrayList<PlanDeVuelo> vuelosCandidatos = planDeVueloRepository.findByHoraOrigenBetween(
                 fechaInicioConsulta, fechaFinConsulta);
 
-        // Filtrar en memoria considerando las zonas horarias reales (sobre un conjunto mucho menor)
+        // Filtrar en memoria considerando las zonas horarias reales (sobre un conjunto
+        // mucho menor)
         ArrayList<PlanDeVuelo> vuelosEnRango = new ArrayList<>();
         for (PlanDeVuelo vuelo : vuelosCandidatos) {
             ZonedDateTime zonedHoraOrigen = obtenerZonedHoraOrigen(vuelo);
 
-            // Un vuelo está en el rango si su hora de origen (despegue) está dentro del rango
+            // Un vuelo está en el rango si su hora de origen (despegue) está dentro del
+            // rango
             boolean origenEnRango = !zonedHoraOrigen.isBefore(zonedFechaInicio) &&
-                                    !zonedHoraOrigen.isAfter(zonedFechaFin);
+                    !zonedHoraOrigen.isAfter(zonedFechaFin);
 
             if (origenEnRango) {
                 vuelosEnRango.add(vuelo);
@@ -122,7 +130,8 @@ public class PlanDeVueloServiceImp implements PlanDeVueloService {
         // Convertir a UTC para hacer la consulta más precisa
         ZonedDateTime fechaInicioUTC = zonedFechaInicio.withZoneSameInstant(ZoneOffset.UTC);
 
-        // Ampliar el rango para considerar todas las zonas horarias posibles (-12 a +14 horas)
+        // Ampliar el rango para considerar todas las zonas horarias posibles (-12 a +14
+        // horas)
         // Esto asegura que no perdamos vuelos debido a diferencias de zona horaria
         LocalDateTime fechaInicioConsulta = fechaInicioUTC.toLocalDateTime().minusHours(14);
 
@@ -130,12 +139,14 @@ public class PlanDeVueloServiceImp implements PlanDeVueloService {
         ArrayList<PlanDeVuelo> vuelosCandidatos = planDeVueloRepository.findByHoraOrigenGreaterThanEqual(
                 fechaInicioConsulta);
 
-        // Filtrar en memoria considerando las zonas horarias reales (sobre un conjunto mucho menor)
+        // Filtrar en memoria considerando las zonas horarias reales (sobre un conjunto
+        // mucho menor)
         ArrayList<PlanDeVuelo> vuelosDesdeFecha = new ArrayList<>();
         for (PlanDeVuelo vuelo : vuelosCandidatos) {
             ZonedDateTime zonedHoraOrigen = obtenerZonedHoraOrigen(vuelo);
 
-            // Un vuelo está incluido si su hora de origen (despegue) es igual o posterior a la fecha de inicio
+            // Un vuelo está incluido si su hora de origen (despegue) es igual o posterior a
+            // la fecha de inicio
             boolean origenDesdeFecha = !zonedHoraOrigen.isBefore(zonedFechaInicio);
 
             if (origenDesdeFecha) {
@@ -161,7 +172,8 @@ public class PlanDeVueloServiceImp implements PlanDeVueloService {
     }
 
     /**
-     * Método auxiliar para obtener el ZonedDateTime de la hora de destino del vuelo.
+     * Método auxiliar para obtener el ZonedDateTime de la hora de destino del
+     * vuelo.
      * Si no está cargado, lo carga manualmente.
      */
     private ZonedDateTime obtenerZonedHoraDestino(PlanDeVuelo vuelo) {

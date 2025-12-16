@@ -26,12 +26,11 @@ public class EnvioSimulacionDiaService {
     private final EnvioRepository envioRepository;
 
     private static final ZoneId ZONA_SIMULACION = ZoneId.of("America/Lima");
-    private static final DateTimeFormatter YYYYMMDD =
-            DateTimeFormatter.BASIC_ISO_DATE; // "yyyyMMdd"
+    private static final DateTimeFormatter YYYYMMDD = DateTimeFormatter.BASIC_ISO_DATE; // "yyyyMMdd"
 
     /**
      * Devuelve la lista de envíos de una fecha (yyyyMMdd) clasificados como
-     * EN_VUELO / EN_ESPERA según el instante de simulación simMs.
+     * EN_VUELO / EN_ESPERA / SIN_ESTADO según el instante de simulación simMs.
      */
     public List<EnvioSimDiaDto> obtenerEnviosClasificados(String fechaYyyyMmDd, long simMs) {
         LocalDate fecha = LocalDate.parse(fechaYyyyMmDd, YYYYMMDD);
@@ -50,7 +49,7 @@ public class EnvioSimulacionDiaService {
     }
 
     /**
-     * Devuelve solo el resumen (total, en vuelo, en espera) para una fecha (yyyyMMdd)
+     * Devuelve solo el resumen (total, en vuelo, en espera, sin estado) para una fecha (yyyyMMdd)
      * y un instante de simulación simMs.
      */
     public EnvioSimDiaResumenDto obtenerResumen(String fechaYyyyMmDd, long simMs) {
@@ -66,10 +65,10 @@ public class EnvioSimulacionDiaService {
         List<EnvioSimDiaDto> lista = obtenerEnviosClasificados(fecha, simNow);
 
         long total = lista.size();
-        long enVuelo = lista.stream()
-                .filter(d -> d.getEstadoSimulacion() == EstadoSimulacionDia.EN_VUELO)
+        long enEspera = lista.stream()
+                .filter(d -> d.getEstadoSimulacion() == EstadoSimulacionDia.SIN_ESTADO)
                 .count();
-        long enEspera = total - enVuelo;
+        long enVuelo = total - enEspera;
 
         EnvioSimDiaResumenDto resumen = new EnvioSimDiaResumenDto();
         resumen.setTotal(total);
@@ -91,11 +90,19 @@ public class EnvioSimulacionDiaService {
         dto.setId(envio.getId());
         dto.setFechaIngreso(envio.getFechaIngreso());
 
+        // 1) Si el estado del Envío en BD es NULL -> SIN_ESTADO
+        if (envio.getEstado() == null) {
+            dto.setEstadoSimulacion(EstadoSimulacionDia.SIN_ESTADO);
+            return dto;
+        }
+
+        // 2) Si por alguna razón fechaIngreso está null, lo consideras en espera
         if (envio.getFechaIngreso() == null) {
             dto.setEstadoSimulacion(EstadoSimulacionDia.EN_ESPERA);
             return dto;
         }
 
+        // 3) Lógica simple basada en "ya ingresó a la simulación" vs "aún no ingresa"
         LocalDateTime fi = envio.getFechaIngreso();
         Instant ingresoInstant = fi.atZone(ZONA_SIMULACION).toInstant();
 
