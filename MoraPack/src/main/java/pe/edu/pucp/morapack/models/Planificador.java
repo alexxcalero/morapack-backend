@@ -882,7 +882,7 @@ public class Planificador {
         // considerando husos horarios
         if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS) {
             System.out.printf(
-                    "📦 [obtenerPedidosEnVentana] Modo OPERACIONES_DIARIAS: Cargando envíos con estado NULL hasta %s (UTC)%n",
+                    "📦 [obtenerPedidosEnVentana] Modo OPERACIONES_DIARIAS: Cargando envíos con estado NULL hasta %s (UTC-5)%n",
                     inicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
             try {
@@ -891,8 +891,9 @@ public class Planificador {
                 System.out.printf("✅ [obtenerPedidosEnVentana] Envíos pendientes (estado NULL) cargados: %d%n",
                         enviosPendientes.size());
 
-                // Convertir el inicio del horizonte a UTC para comparar
-                ZonedDateTime inicioUTC = inicio.atZone(ZoneOffset.UTC);
+                // Interpretar el inicio del horizonte en huso UTC-5 (Perú) y derivar su equivalente UTC
+                ZonedDateTime inicioMinus5 = inicio.atZone(ZoneOffset.ofHours(-5));
+                ZonedDateTime inicioUTC = inicioMinus5.withZoneSameInstant(ZoneOffset.UTC);
 
                 // Filtrar envíos cuya fechaIngreso, NORMALIZADA a UTC-5, <= inicio (en UTC)
                 for (Envio envio : enviosPendientes) {
