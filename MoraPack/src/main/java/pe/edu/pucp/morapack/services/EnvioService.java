@@ -69,6 +69,8 @@ public interface EnvioService {
          */
         long contarEnviosPorEstado(Envio.EstadoEnvio estado);
 
+        Map<String, Long> obtenerConteoEnviosPorEstado();
+
         /**
          * ⚡ OPTIMIZADO: Obtiene múltiples envíos por IDs con partes asignadas cargadas.
          * Usa JOIN FETCH para cargar relaciones en una sola query.
@@ -76,7 +78,8 @@ public interface EnvioService {
         List<Envio> obtenerEnviosPorIdsConPartes(List<Integer> envioIds);
 
         /**
-         * ⚡ OPERACIONES DIARIAS: Obtiene envíos con estado NULL (sin filtrar por fecha).
+         * ⚡ OPERACIONES DIARIAS: Obtiene envíos con estado NULL (sin filtrar por
+         * fecha).
          * El filtrado por fecha se hace en memoria considerando husos horarios.
          */
         ArrayList<Envio> obtenerEnviosPendientes();

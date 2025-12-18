@@ -185,6 +185,28 @@ public class EnvioController {
         return response;
     }
 
+    @GetMapping("conteo-por-estado")
+    public Map<String, Object> conteoPorEstado() {
+        Map<String, Object> resp = new HashMap<>();
+
+        try {
+            Map<String, Long> conteos = envioService.obtenerConteoEnviosPorEstado();
+            long total = conteos.values().stream().mapToLong(Long::longValue).sum();
+
+            resp.put("estado", "éxito");
+            resp.put("totalEnvios", total);
+            resp.put("conteos", conteos);
+            resp.put("timestamp", LocalDateTime.now().toString());
+            return resp;
+
+        } catch (Exception e) {
+            resp.put("estado", "error");
+            resp.put("mensaje", "Error al contar envíos por estado: " + e.getMessage());
+            resp.put("timestamp", LocalDateTime.now().toString());
+            return resp;
+        }
+    }
+
     @GetMapping("obtenerTodosFecha/{fecha}")
     public ArrayList<Envio> obtenerEnviosPorFecha(@PathVariable String fecha) {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");

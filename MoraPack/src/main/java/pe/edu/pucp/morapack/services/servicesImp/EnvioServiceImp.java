@@ -453,6 +453,27 @@ public class EnvioServiceImp implements EnvioService {
     }
 
     @Override
+    public Map<String, Long> obtenerConteoEnviosPorEstado() {
+        List<Object[]> rows = envioRepository.contarPorEstadoIncluyendoNull();
+
+        Map<String, Long> conteos = new HashMap<>();
+        for (Object[] r : rows) {
+            String estado = String.valueOf(r[0]); // "PLANIFICADO" o "NULL"
+            Long cantidad = ((Number) r[1]).longValue();
+            conteos.put(estado, cantidad);
+        }
+
+        // Asegurar keys aunque no existan en BD (para que el front no falle)
+        conteos.putIfAbsent("PLANIFICADO", 0L);
+        conteos.putIfAbsent("EN_RUTA", 0L);
+        conteos.putIfAbsent("FINALIZADO", 0L);
+        conteos.putIfAbsent("ENTREGADO", 0L);
+        conteos.putIfAbsent("NULL", 0L);
+
+        return conteos;
+    }
+
+    @Override
     public ArrayList<Envio> obtenerEnviosDesdeFechaConPartes(LocalDateTime fechaInicio, String husoHorarioInicio) {
         // Convertir la fecha de entrada a ZonedDateTime
         Integer offsetInicio = Integer.parseInt(husoHorarioInicio);
@@ -681,7 +702,8 @@ public class EnvioServiceImp implements EnvioService {
     }
 
     /**
-     * ⚡ OPERACIONES DIARIAS: Obtiene envíos con estado NULL (sin filtrar por fecha).
+     * ⚡ OPERACIONES DIARIAS: Obtiene envíos con estado NULL (sin filtrar por
+     * fecha).
      * El filtrado por fecha se hace en memoria considerando husos horarios.
      */
     @Override

@@ -434,7 +434,7 @@ public class PlanificadorController {
                     aeropuertoService);
             planificador.iniciarPlanificacionProgramada(
                     Planificador.ModoSimulacion.OPERACIONES_DIARIAS,
-                    fechaAparicionUTC,
+                    fechaAparicionUTC.minusHours(5),
                     null); // Sin fecha fin, usar fecha en UTC
 
             planificadorIniciado = true;
@@ -838,7 +838,7 @@ public class PlanificadorController {
                         aeropuertoService);
                 planificador.iniciarPlanificacionProgramada(
                         Planificador.ModoSimulacion.OPERACIONES_DIARIAS,
-                        fechaAparicionUTC,
+                        fechaAparicionUTC.minusHours(5),
                         null); // Sin fecha fin, usar fecha en UTC
 
                 planificadorIniciado = true;

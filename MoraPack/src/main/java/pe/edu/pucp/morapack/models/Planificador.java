@@ -67,9 +67,11 @@ public class Planificador {
     private LocalDateTime ultimoHorizontePlanificado;
     private LocalDateTime tiempoInicioSimulacion;
 
-    // Control para modo COLAPSO: rastrear cuando se completa la semana y pedidos sin planificar
+    // Control para modo COLAPSO: rastrear cuando se completa la semana y pedidos
+    // sin planificar
     private boolean semanaCompletaColapso = false;
-    private boolean pedidoSinPlanificarEncontrado = false; // Para COLAPSO: indica si se encontró un pedido sin planificar
+    private boolean pedidoSinPlanificarEncontrado = false; // Para COLAPSO: indica si se encontró un pedido sin
+                                                           // planificar
     private int ciclosDespuesSemanaCompleta = 0;
     private static final int CICLOS_DESPUES_SEMANA_COMPLETA = 5; // Para COLAPSO 2025
 
@@ -112,8 +114,8 @@ public class Planificador {
         }
 
         public EventoTemporal(ZonedDateTime tiempoEvento, TipoEvento tipo, PlanDeVuelo vuelo,
-                              ParteAsignada parte, Integer cantidad, Integer aeropuertoId,
-                              boolean esPrimerVuelo, boolean esUltimoVuelo, Envio envio) {
+                ParteAsignada parte, Integer cantidad, Integer aeropuertoId,
+                boolean esPrimerVuelo, boolean esUltimoVuelo, Envio envio) {
             this.tiempoEvento = tiempoEvento;
             this.tipo = tipo;
             this.vuelo = vuelo;
@@ -175,8 +177,8 @@ public class Planificador {
     private LocalDateTime fechaFinSimulacion;
 
     public Planificador(Grasp grasp, PlanificacionWebSocketServiceImp webSocketService,
-                        EnvioServiceImp envioService, PlanDeVueloServiceImp planDeVueloService,
-                        AeropuertoServiceImp aeropuertoService) {
+            EnvioServiceImp envioService, PlanDeVueloServiceImp planDeVueloService,
+            AeropuertoServiceImp aeropuertoService) {
         this.grasp = grasp;
         this.webSocketService = webSocketService;
         this.envioService = envioService;
@@ -450,6 +452,7 @@ public class Planificador {
 
     /**
      * Obtiene el año de la fecha de inicio de la simulación
+     * 
      * @return El año de fechaInicioSimulacion, o 0 si es null
      */
     private int obtenerAnioFechaInicio() {
@@ -498,16 +501,21 @@ public class Planificador {
                         // Si ya se encontró un pedido sin planificar, empezar a contar ciclos
                         if (pedidoSinPlanificarEncontrado) {
                             ciclosDespuesSemanaCompleta = 0;
-                            //System.out.println("📅 [COLAPSO 2025] Semana completa alcanzada - comenzando conteo de 5 ciclos (pedido sin planificar encontrado)");
+                            // System.out.println("📅 [COLAPSO 2025] Semana completa alcanzada - comenzando
+                            // conteo de 5 ciclos (pedido sin planificar encontrado)");
                         }
                     }
                 }
 
-                // Si la semana ya está completa Y hay un pedido sin planificar, incrementar contador
-                // (pero NO detener aquí, la detención se verifica cuando se encuentran pedidos sin ruta)
+                // Si la semana ya está completa Y hay un pedido sin planificar, incrementar
+                // contador
+                // (pero NO detener aquí, la detención se verifica cuando se encuentran pedidos
+                // sin ruta)
                 if (semanaCompletaColapso && pedidoSinPlanificarEncontrado) {
                     ciclosDespuesSemanaCompleta++;
-                    //System.out.printf("📅 [COLAPSO 2025] Ciclo %d después de semana completa con pedido sin planificar (límite: %d)%n", ciclosDespuesSemanaCompleta, CICLOS_DESPUES_SEMANA_COMPLETA);
+                    // System.out.printf("📅 [COLAPSO 2025] Ciclo %d después de semana completa con
+                    // pedido sin planificar (límite: %d)%n", ciclosDespuesSemanaCompleta,
+                    // CICLOS_DESPUES_SEMANA_COMPLETA);
                 }
             }
 
@@ -563,7 +571,7 @@ public class Planificador {
                         detenerPlanificacion();
                     }
                 }
-
+                recargarDatosBase(inicioHorizonte, finHorizonte);
                 return;
             }
 
@@ -611,9 +619,11 @@ public class Planificador {
                     }
                 }
 
-                // Si se debe mostrar en el reporte, generar el reporte con pedidos sin ruta ANTES de detener
+                // Si se debe mostrar en el reporte, generar el reporte con pedidos sin ruta
+                // ANTES de detener
                 if (mostrarPedidosSinRutaEnReporte) {
-                    generarReporteConPedidosSinRuta(solucion, pedidosParaPlanificar, ciclo, pedidosSinRuta, inicioHorizonte);
+                    generarReporteConPedidosSinRuta(solucion, pedidosParaPlanificar, ciclo, pedidosSinRuta,
+                            inicioHorizonte);
                 }
 
                 // OPERACIONES_DIARIAS: Detener inmediatamente si hay pedidos sin planificar
@@ -628,20 +638,22 @@ public class Planificador {
                     System.out.println("🛑 Deteniendo planificación: hay envíos sin planificar");
                     detenerPlanificacion();
                     return;
-//                    if (ciclo >= 30) {
-//                        System.out.println("🛑 Deteniendo planificación: hay envíos sin planificar");
-//                        detenerPlanificacion();
-//                        return;
-//                    } else {
-//                        //System.out.println("ℹ️ [2026] Continuando planificación: hay envíos sin planificar pero ciclo < 30");
-//                        System.out.println("continuar");
-//                    }
+                    // if (ciclo >= 30) {
+                    // System.out.println("🛑 Deteniendo planificación: hay envíos sin planificar");
+                    // detenerPlanificacion();
+                    // return;
+                    // } else {
+                    // //System.out.println("ℹ️ [2026] Continuando planificación: hay envíos sin
+                    // planificar pero ciclo < 30");
+                    // System.out.println("continuar");
+                    // }
                 }
 
                 if (anioInicio == 2025) {
                     if (modoSimulacion == ModoSimulacion.SEMANAL) {
                         System.out.println("continuar");
-                        //System.out.println("ℹ️ [SEMANAL 2025] Continuando planificación a pesar de envíos sin planificar");
+                        // System.out.println("ℹ️ [SEMANAL 2025] Continuando planificación a pesar de
+                        // envíos sin planificar");
                     } else if (modoSimulacion == ModoSimulacion.COLAPSO) {
                         // COLAPSO 2025: Marcar que se encontró un pedido sin planificar
                         boolean esPrimeraVez = !pedidoSinPlanificarEncontrado;
@@ -649,12 +661,15 @@ public class Planificador {
 
                         // Si ya se completó la semana, verificar si debemos detener
                         if (semanaCompletaColapso) {
-                            // Si es la primera vez que se encuentra un pedido sin planificar después de completar la semana,
-                            // inicializar el contador en 1 (este es el primer ciclo con pedido sin planificar)
+                            // Si es la primera vez que se encuentra un pedido sin planificar después de
+                            // completar la semana,
+                            // inicializar el contador en 1 (este es el primer ciclo con pedido sin
+                            // planificar)
                             if (esPrimeraVez) {
                                 ciclosDespuesSemanaCompleta = 1;
                             } else {
-                                // Si no es la primera vez, el contador ya fue incrementado en este ciclo (líneas 508-511)
+                                // Si no es la primera vez, el contador ya fue incrementado en este ciclo
+                                // (líneas 508-511)
                                 // No necesitamos hacer nada aquí
                             }
 
@@ -665,10 +680,13 @@ public class Planificador {
                                 return;
                             } else {
                                 System.out.println("continuar");
-                                //System.out.printf("ℹ️ [COLAPSO 2025] Pedido sin planificar encontrado - ciclo %d después de semana completa (límite: %d)%n", ciclosDespuesSemanaCompleta, CICLOS_DESPUES_SEMANA_COMPLETA);
+                                // System.out.printf("ℹ️ [COLAPSO 2025] Pedido sin planificar encontrado - ciclo
+                                // %d después de semana completa (límite: %d)%n", ciclosDespuesSemanaCompleta,
+                                // CICLOS_DESPUES_SEMANA_COMPLETA);
                             }
                         } else {
-                            //System.out.println("⚠️ [COLAPSO 2025] Pedido sin planificar encontrado - se detendrá 5 ciclos después de completar semana");
+                            // System.out.println("⚠️ [COLAPSO 2025] Pedido sin planificar encontrado - se
+                            // detendrá 5 ciclos después de completar semana");
                         }
                     }
                 }
@@ -1099,7 +1117,8 @@ public class Planificador {
             grasp.setEnvios(new ArrayList<>(pedidos));
             grasp.setEnviosPorDiaPropio();
 
-            // Ejecutar GRASP modificado para respetar el tiempo máximo y compartir mejor solución
+            // Ejecutar GRASP modificado para respetar el tiempo máximo y compartir mejor
+            // solución
             return ejecutarGRASPLimitado(tiempoEjecucion, mejorSolucionHastaAhora);
         });
 
@@ -1329,14 +1348,16 @@ public class Planificador {
         System.out.printf("   • Pedidos completados: %d%n", pedidosCompletadosConsola);
         reporte.append(lineaCompletadosArchivo).append("\n");
 
-        //if (!pedidosProcesados.isEmpty()) {
-        //    double tasaExito = (solucion.getEnviosCompletados() * 100.0) / pedidosProcesados.size();
-        //    String lineaTasa = String.format("   • Tasa de éxito: %.1f%%", tasaExito);
-        //    System.out.printf("   • Tasa de éxito: %.1f%%%n", tasaExito);
-        //    reporte.append(lineaTasa).append("\n");
-        //}
+        // if (!pedidosProcesados.isEmpty()) {
+        // double tasaExito = (solucion.getEnviosCompletados() * 100.0) /
+        // pedidosProcesados.size();
+        // String lineaTasa = String.format(" • Tasa de éxito: %.1f%%", tasaExito);
+        // System.out.printf(" • Tasa de éxito: %.1f%%%n", tasaExito);
+        // reporte.append(lineaTasa).append("\n");
+        // }
 
-        //System.out.printf("   • Tiempo medio de entrega: %s%n", formatDuracion(solucion.getLlegadaMediaPonderada()));
+        // System.out.printf(" • Tiempo medio de entrega: %s%n",
+        // formatDuracion(solucion.getLlegadaMediaPonderada()));
 
         final int MAX_ENVIOS_DETALLE = 5;
         String lineaDetalleArchivo = String.format("\n📋 DETALLE DE RUTAS ASIGNADAS",
@@ -1378,7 +1399,8 @@ public class Planificador {
         // Cargar todos los vuelos actualizados de una vez
         if (!vueloIds.isEmpty()) {
             try {
-                List<PlanDeVuelo> vuelosActualizados = planDeVueloService.obtenerPlanesDeVueloPorIds(new ArrayList<>(vueloIds));
+                List<PlanDeVuelo> vuelosActualizados = planDeVueloService
+                        .obtenerPlanesDeVueloPorIds(new ArrayList<>(vueloIds));
                 for (PlanDeVuelo vuelo : vuelosActualizados) {
                     if (vuelo.getId() != null) {
                         vuelosActualizadosMap.put(vuelo.getId(), vuelo);
@@ -1453,12 +1475,15 @@ public class Planificador {
                             }
 
                             String origenCodigo = obtenerAeropuertoPorId(vuelo.getCiudadOrigen()) != null
-                                    ? obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo() : "N/A";
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo()
+                                    : "N/A";
                             String destinoCodigo = obtenerAeropuertoPorId(vuelo.getCiudadDestino()) != null
-                                    ? obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo() : "N/A";
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo()
+                                    : "N/A";
                             String horaOrigen = formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(),
                                     vuelo.getHusoHorarioOrigen(), formatter);
-                            String horaDestino = formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(),
+                            String horaDestino = formatFechaConOffset(vuelo.getZonedHoraDestino(),
+                                    vuelo.getHoraDestino(),
                                     vuelo.getHusoHorarioDestino(), formatter);
 
                             System.out.printf("      ✈️  %s → %s | %s - %s | Cap: %d/%d%n",
@@ -1535,12 +1560,15 @@ public class Planificador {
                             }
 
                             String origenCodigo = obtenerAeropuertoPorId(vuelo.getCiudadOrigen()) != null
-                                    ? obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo() : "N/A";
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo()
+                                    : "N/A";
                             String destinoCodigo = obtenerAeropuertoPorId(vuelo.getCiudadDestino()) != null
-                                    ? obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo() : "N/A";
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo()
+                                    : "N/A";
                             String horaOrigen = formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(),
                                     vuelo.getHusoHorarioOrigen(), formatter);
-                            String horaDestino = formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(),
+                            String horaDestino = formatFechaConOffset(vuelo.getZonedHoraDestino(),
+                                    vuelo.getHoraDestino(),
                                     vuelo.getHusoHorarioDestino(), formatter);
 
                             String lineaVuelo = String.format("      ✈️  %s → %s | %s - %s | Cap: %d/%d",
@@ -1568,10 +1596,13 @@ public class Planificador {
     }
 
     /**
-     * Genera el reporte completo incluyendo pedidos sin ruta cuando se cumplen las condiciones
-     * Se llama desde la sección donde se detectan pedidos sin ruta antes de detener la planificación
+     * Genera el reporte completo incluyendo pedidos sin ruta cuando se cumplen las
+     * condiciones
+     * Se llama desde la sección donde se detectan pedidos sin ruta antes de detener
+     * la planificación
      */
-    private void generarReporteConPedidosSinRuta(Solucion solucion, List<Envio> pedidosProcesados, Integer ciclo, List<Envio> pedidosSinRuta, LocalDateTime inicioHorizonte) {
+    private void generarReporteConPedidosSinRuta(Solucion solucion, List<Envio> pedidosProcesados, Integer ciclo,
+            List<Envio> pedidosSinRuta, LocalDateTime inicioHorizonte) {
         // Crear StringBuilder para acumular el contenido del reporte
         StringBuilder reporte = new StringBuilder();
 
@@ -1654,7 +1685,8 @@ public class Planificador {
         // Cargar todos los vuelos actualizados de una vez
         if (!vueloIds.isEmpty()) {
             try {
-                List<PlanDeVuelo> vuelosActualizados = planDeVueloService.obtenerPlanesDeVueloPorIds(new ArrayList<>(vueloIds));
+                List<PlanDeVuelo> vuelosActualizados = planDeVueloService
+                        .obtenerPlanesDeVueloPorIds(new ArrayList<>(vueloIds));
                 for (PlanDeVuelo vuelo : vuelosActualizados) {
                     if (vuelo.getId() != null) {
                         vuelosActualizadosMap.put(vuelo.getId(), vuelo);
@@ -1724,12 +1756,15 @@ public class Planificador {
                             }
 
                             String origenCodigo = obtenerAeropuertoPorId(vuelo.getCiudadOrigen()) != null
-                                    ? obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo() : "N/A";
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadOrigen()).getCodigo()
+                                    : "N/A";
                             String destinoCodigo = obtenerAeropuertoPorId(vuelo.getCiudadDestino()) != null
-                                    ? obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo() : "N/A";
+                                    ? obtenerAeropuertoPorId(vuelo.getCiudadDestino()).getCodigo()
+                                    : "N/A";
                             String horaOrigen = formatFechaConOffset(vuelo.getZonedHoraOrigen(), vuelo.getHoraOrigen(),
                                     vuelo.getHusoHorarioOrigen(), formatter);
-                            String horaDestino = formatFechaConOffset(vuelo.getZonedHoraDestino(), vuelo.getHoraDestino(),
+                            String horaDestino = formatFechaConOffset(vuelo.getZonedHoraDestino(),
+                                    vuelo.getHoraDestino(),
                                     vuelo.getHusoHorarioDestino(), formatter);
 
                             String lineaVuelo = String.format("      ✈️  %s → %s | %s - %s | Cap: %d/%d",
@@ -1779,7 +1814,8 @@ public class Planificador {
                     timestamp, contenido);
 
             // Escribir el archivo (sobrescribe si existe)
-            Files.write(archivoReporte, contenidoConTimestamp.getBytes("UTF-8"), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.write(archivoReporte, contenidoConTimestamp.getBytes("UTF-8"), StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
 
             System.out.printf("📄 Reporte guardado en: %s%n", archivoReporte.toAbsolutePath());
         } catch (IOException e) {
@@ -1816,7 +1852,7 @@ public class Planificador {
     }
 
     private String formatFechaConOffset(ZonedDateTime zoned, LocalDateTime local, String husoHorario,
-                                        DateTimeFormatter baseFormatter) {
+            DateTimeFormatter baseFormatter) {
         if (zoned != null) {
             ZoneOffset offset = zoned.getOffset();
             String offsetStr = offset.getId().equals("Z") ? "+00:00" : offset.getId();
