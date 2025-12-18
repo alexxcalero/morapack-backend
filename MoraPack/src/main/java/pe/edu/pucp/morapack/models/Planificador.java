@@ -452,7 +452,7 @@ public class Planificador {
 
     /**
      * Obtiene el año de la fecha de inicio de la simulación
-     * 
+     *
      * @return El año de fechaInicioSimulacion, o 0 si es null
      */
     private int obtenerAnioFechaInicio() {
@@ -894,37 +894,27 @@ public class Planificador {
                 // Convertir el inicio del horizonte a UTC para comparar
                 ZonedDateTime inicioUTC = inicio.atZone(ZoneOffset.UTC);
 
-                // Filtrar envíos cuya fechaIngreso (en su huso horario) <= inicio (en UTC)
-                // Convertir cada fechaIngreso a UTC usando su huso horario
+                // Filtrar envíos cuya fechaIngreso, NORMALIZADA a UTC-5, <= inicio (en UTC)
                 for (Envio envio : enviosPendientes) {
-                    // ⚡ Inicializar zonedFechaIngreso si es null (defensa adicional)
-                    if (envio.getZonedFechaIngreso() == null && envio.getFechaIngreso() != null
-                            && envio.getHusoHorarioDestino() != null) {
-                        try {
-                            Integer offsetDestino = Integer.parseInt(envio.getHusoHorarioDestino());
-                            ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
-                            envio.setZonedFechaIngreso(envio.getFechaIngreso().atZone(zoneDestino));
-                        } catch (Exception e) {
-                            System.err.printf("⚠️ Error al inicializar zonedFechaIngreso para envío %d: %s%n",
-                                    envio.getId(), e.getMessage());
-                            continue; // Saltar este envío si no se puede inicializar
-                        }
-                    }
-
-                    // Si aún es null después del intento de inicialización, saltar este envío
-                    if (envio.getZonedFechaIngreso() == null) {
-                        System.err.printf("⚠️ Envío %d no tiene zonedFechaIngreso inicializado, saltando...%n",
+                    ZonedDateTime ingresoMinus5 = normalizarIngresoAUTCMinus5(envio);
+                    if (ingresoMinus5 == null) {
+                        System.err.printf("⚠️ Envío %d no tiene fechaIngreso/zonedFechaIngreso válida, saltando...%n",
                                 envio.getId());
                         continue;
                     }
 
-                    // Convertir la fecha de ingreso del envío a UTC para comparar correctamente
-                    ZonedDateTime tiempoPedidoUTC = envio.getZonedFechaIngreso()
-                            .withZoneSameInstant(ZoneOffset.UTC);
+                    // Convertir la fecha de ingreso (ya normalizada a -5) a UTC para comparar correctamente
+                    ZonedDateTime tiempoPedidoUTC = ingresoMinus5.withZoneSameInstant(ZoneOffset.UTC);
 
                     // Incluir solo envíos cuya fechaIngreso (en UTC) <= inicio (en UTC)
                     if (!tiempoPedidoUTC.isAfter(inicioUTC)) {
-                        pedidosNuevos.add(crearCopiaEnvio(envio));
+                        // Crear copia y forzar que su fecha de ingreso quede en huso -5
+                        //pedidosNuevos.add(crearCopiaEnvio(envio));
+                        Envio copia = crearCopiaEnvio(envio);
+                        copia.setHusoHorarioDestino("-5");
+                        copia.setFechaIngreso(ingresoMinus5.toLocalDateTime());
+                        copia.setZonedFechaIngreso(ingresoMinus5);
+                        pedidosNuevos.add(copia);
                     }
                 }
 
@@ -1841,6 +1831,46 @@ public class Planificador {
         int kActual = obtenerK();
         estado.put("proximoHorizonte", ultimoHorizontePlanificado.plusMinutes(SA_MINUTOS * kActual));
         return estado;
+    }
+
+    /**
+     * Normaliza la fecha de ingreso de un envío a huso horario UTC-5 preservando el instante.
+     * - Si el envío ya está en UTC-5, devuelve el mismo instante (mismo offset).
+     * - Si el envío no tiene zonedFechaIngreso, intenta construirla a partir de fechaIngreso + husoHorarioDestino.
+     * - Si no se puede determinar, devuelve null.
+     */
+    private ZonedDateTime normalizarIngresoAUTCMinus5(Envio envio) {
+        if (envio == null) {
+            return null;
+        }
+
+        final ZoneOffset targetOffset = ZoneOffset.ofHours(-5);
+
+        ZonedDateTime ingresoZoned = envio.getZonedFechaIngreso();
+
+        // Defensa: si no está inicializado (p.ej. no pasó @PostLoad), intentarlo construir
+        if (ingresoZoned == null && envio.getFechaIngreso() != null) {
+            int offsetHoras = 0;
+            try {
+                if (envio.getHusoHorarioDestino() != null) {
+                    offsetHoras = Integer.parseInt(envio.getHusoHorarioDestino());
+                }
+            } catch (Exception ignored) {
+                offsetHoras = 0;
+            }
+            try {
+                ingresoZoned = envio.getFechaIngreso().atZone(ZoneOffset.ofHours(offsetHoras));
+            } catch (Exception e) {
+                ingresoZoned = null;
+            }
+        }
+
+        if (ingresoZoned == null) {
+            return null;
+        }
+
+        // Convertir al huso -5 preservando el instante
+        return ingresoZoned.withZoneSameInstant(targetOffset);
     }
 
     private String formatDuracion(Duration duration) {
