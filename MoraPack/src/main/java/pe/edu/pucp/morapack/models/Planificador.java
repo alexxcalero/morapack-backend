@@ -462,7 +462,7 @@ public class Planificador {
 
     /**
      * Obtiene el año de la fecha de inicio de la simulación
-     * 
+     *
      * @return El año de fechaInicioSimulacion, o 0 si es null
      */
     private int obtenerAnioFechaInicio() {
@@ -1899,6 +1899,46 @@ public class Planificador {
         int kActual = obtenerK();
         estado.put("proximoHorizonte", ultimoHorizontePlanificado.plusMinutes(SA_MINUTOS * kActual));
         return estado;
+    }
+
+    /**
+     * Normaliza la fecha de ingreso de un envío a huso horario UTC-5 preservando el instante.
+     * - Si el envío ya está en UTC-5, devuelve el mismo instante (mismo offset).
+     * - Si el envío no tiene zonedFechaIngreso, intenta construirla a partir de fechaIngreso + husoHorarioDestino.
+     * - Si no se puede determinar, devuelve null.
+     */
+    private ZonedDateTime normalizarIngresoAUTCMinus5(Envio envio) {
+        if (envio == null) {
+            return null;
+        }
+
+        final ZoneOffset targetOffset = ZoneOffset.ofHours(-5);
+
+        ZonedDateTime ingresoZoned = envio.getZonedFechaIngreso();
+
+        // Defensa: si no está inicializado (p.ej. no pasó @PostLoad), intentarlo construir
+        if (ingresoZoned == null && envio.getFechaIngreso() != null) {
+            int offsetHoras = 0;
+            try {
+                if (envio.getHusoHorarioDestino() != null) {
+                    offsetHoras = Integer.parseInt(envio.getHusoHorarioDestino());
+                }
+            } catch (Exception ignored) {
+                offsetHoras = 0;
+            }
+            try {
+                ingresoZoned = envio.getFechaIngreso().atZone(ZoneOffset.ofHours(offsetHoras));
+            } catch (Exception e) {
+                ingresoZoned = null;
+            }
+        }
+
+        if (ingresoZoned == null) {
+            return null;
+        }
+
+        // Convertir al huso -5 preservando el instante
+        return ingresoZoned.withZoneSameInstant(targetOffset);
     }
 
     private String formatDuracion(Duration duration) {
