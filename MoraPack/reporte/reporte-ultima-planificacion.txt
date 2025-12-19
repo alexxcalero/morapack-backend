@@ -1,23 +1,17 @@
 === REPORTE DE PLANIFICACIÓN ===
-Fecha: 2025-12-17 22:56:24
+Fecha: 2025-12-19 15:25:33
 
-📊 RESULTADOS DEL CICLO 1:
-   • Horizonte planificado: 2025-12-26 08:01 → 2025-12-26 08:03
-   • Pedidos procesados: 2
-   • Pedidos completados: 2
+📊 RESULTADOS DEL CICLO 2:
+   • Horizonte planificado: 2025-12-20 20:24 → 2025-12-20 20:26
+   • Pedidos procesados: 1
+   • Pedidos completados: 1
 
 📋 DETALLE DE RUTAS ASIGNADAS
 ====================================================================================================
-📦 PEDIDO 82 → SKBO (1 unidades)
-   ⏰ Aparición: dic 26 03:00 (UTC-05:00)
-   🚚 Parte 1 (1 unidades desde SPIM):
-      ✈️  SPIM → SKBO | dic 26 04:35 (UTC-05:00) - dic 26 08:51 (UTC-05:00) | Cap: 13/340
-      🏁 Llegada final: dic 26 08:51 (UTC-05:00)
-
-📦 PEDIDO 83 → SKBO (12 unidades)
-   ⏰ Aparición: dic 26 03:00 (UTC-05:00)
-   🚚 Parte 1 (12 unidades desde SPIM):
-      ✈️  SPIM → SKBO | dic 26 04:35 (UTC-05:00) - dic 26 08:51 (UTC-05:00) | Cap: 13/340
-      🏁 Llegada final: dic 26 08:51 (UTC-05:00)
+📦 PEDIDO 157 → EKCH (1 unidades)
+   ⏰ Aparición: dic 21 03:22 (UTC+02:00)
+   🚚 Parte 1 (1 unidades desde UBBB):
+      ✈️  UBBB → EKCH | dic 21 04:50 (UTC+02:00) - dic 21 10:55 (UTC+02:00) | Cap: 1/320
+      🏁 Llegada final: dic 21 10:55 (UTC+02:00)
 
 ====================================================================================================

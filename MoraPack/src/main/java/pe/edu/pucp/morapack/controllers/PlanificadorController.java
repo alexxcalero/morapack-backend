@@ -212,7 +212,7 @@ public class PlanificadorController {
 
             // Crear e iniciar el planificador
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
-                    aeropuertoService);
+                    aeropuertoService, relojSimulacionDiaService);
             planificador.iniciarPlanificacionProgramada();
 
             planificadorIniciado = true;
@@ -335,7 +335,7 @@ public class PlanificadorController {
             // Crear e iniciar el planificador en modo SEMANAL
             System.out.println("⚙️ Creando planificador...");
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
-                    aeropuertoService);
+                    aeropuertoService, relojSimulacionDiaService);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.SEMANAL, fechaInicio, fechaFin);
 
             planificadorIniciado = true;
@@ -431,7 +431,7 @@ public class PlanificadorController {
             // Usar la fecha en UTC del reloj de simulación para el inicio del planificador
             System.out.println("⚙️ Creando planificador en modo OPERACIONES_DIARIAS...");
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
-                    aeropuertoService);
+                    aeropuertoService, relojSimulacionDiaService);
             planificador.iniciarPlanificacionProgramada(
                     Planificador.ModoSimulacion.OPERACIONES_DIARIAS,
                     fechaAparicionUTC.minusHours(5),
@@ -555,7 +555,7 @@ public class PlanificadorController {
 
             // Crear e iniciar el planificador en modo SEMANAL
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
-                    aeropuertoService);
+                    aeropuertoService, relojSimulacionDiaService);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.SEMANAL, fechaInicio, fechaFin);
 
             planificadorIniciado = true;
@@ -649,7 +649,7 @@ public class PlanificadorController {
 
             // Crear e iniciar el planificador en modo COLAPSO
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
-                    aeropuertoService);
+                    aeropuertoService, relojSimulacionDiaService);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.COLAPSO, fechaInicio, null);
 
             planificadorIniciado = true;
@@ -690,7 +690,7 @@ public class PlanificadorController {
             Instant simInstant = relojSimulacionDiaService.getCurrentSimInstant();
             LocalDateTime fechaInicioUTC = LocalDateTime.ofInstant(simInstant, ZoneOffset.UTC);
 
-            List<PlanDeVuelo> vuelos = planDeVueloService.obtenerVuelosIniciales(fechaInicioUTC, 100);
+            List<PlanDeVuelo> vuelos = planDeVueloService.obtenerVuelosIniciales(fechaInicioUTC, 350);
 
             List<Map<String, Object>> vuelosFrontend = vuelos.stream()
                     .map(v -> convertirVueloParaFrontend(v, Collections.emptyMap()))
@@ -835,7 +835,7 @@ public class PlanificadorController {
                 // Usar la fecha en UTC del reloj de simulación para el inicio del planificador
                 System.out.println("⚙️ Creando planificador en modo OPERACIONES_DIARIAS...");
                 planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
-                        aeropuertoService);
+                        aeropuertoService, relojSimulacionDiaService);
                 planificador.iniciarPlanificacionProgramada(
                         Planificador.ModoSimulacion.OPERACIONES_DIARIAS,
                         fechaAparicionUTC.minusHours(5),
@@ -1297,6 +1297,61 @@ public class PlanificadorController {
         return conteos;
     }
 
+    private static ZoneOffset parseOffset(String huso) {
+        try {
+            // tu huso parece venir como "-5", "0", "3"...
+            int h = Integer.parseInt(huso.trim());
+            return ZoneOffset.ofHours(h);
+        } catch (Exception e) {
+            return ZoneOffset.UTC;
+        }
+    }
+
+    private boolean estaCirculando(PlanDeVuelo v, Instant simNow) {
+        if (v.getHoraOrigen() == null || v.getHoraDestino() == null)
+            return false;
+
+        ZoneOffset offO = parseOffset(v.getHusoHorarioOrigen());
+        ZoneOffset offD = parseOffset(v.getHusoHorarioDestino());
+
+        Instant dep = v.getHoraOrigen().atOffset(offO).toInstant();
+        Instant arr = v.getHoraDestino().atOffset(offD).toInstant();
+
+        // circulando: dep <= simNow < arr
+        return !simNow.isBefore(dep) && simNow.isBefore(arr);
+    }
+
+    @GetMapping("/vuelos-circulando")
+    public Map<String, Object> vuelosCirculando(
+            @RequestParam(defaultValue = "12") int ventanaHoras) {
+        Map<String, Object> resp = new HashMap<>();
+
+        // 1) Tiempo simulado actual (UTC)
+        Instant simNow = relojSimulacionDiaService.getCurrentSimInstant();
+        LocalDateTime simNowUTC = LocalDateTime.ofInstant(simNow, ZoneOffset.UTC);
+
+        // 2) Traer candidatos por ventana (prefiltro rápido)
+        // Nota: obtenerVuelosEnRango recibe (inicio, husoInicio, fin, husoFin)
+        LocalDateTime ini = simNowUTC.minusHours(ventanaHoras);
+        LocalDateTime fin = simNowUTC.plusHours(ventanaHoras);
+
+        List<PlanDeVuelo> candidatos = planDeVueloService.obtenerVuelosEnRango(ini, "0", fin, "0");
+
+        // 3) Filtrar “circulando” con Instant real
+        List<Map<String, Object>> circulando = candidatos.stream()
+                .filter(v -> estaCirculando(v, simNow))
+                .map(v -> convertirVueloParaFrontend(v, Collections.emptyMap()))
+                .collect(Collectors.toList());
+
+        resp.put("estado", "exito");
+        resp.put("simInstant", simNow.toString());
+        resp.put("simNowUTC", simNowUTC.toString());
+        resp.put("ventanaHoras", ventanaHoras);
+        resp.put("cantidad", circulando.size());
+        resp.put("vuelos", circulando);
+        return resp;
+    }
+
     @GetMapping("/vuelos-ultimo-ciclo")
     public Map<String, Object> obtenerVuelosUltimoCiclo() {
         Map<String, Object> response = new HashMap<>();
@@ -1353,6 +1408,7 @@ public class PlanificadorController {
         response.put("cantidadAeropuertos", aeropuertosFrontend.size());
 
         response.put("timestamp", formatFechaConOffset(null, LocalDateTime.now(), "0", formatter));
+
         return response;
     }
 

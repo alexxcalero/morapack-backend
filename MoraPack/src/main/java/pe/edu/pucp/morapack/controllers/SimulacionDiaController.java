@@ -24,6 +24,7 @@ import java.util.Map;
 public class SimulacionDiaController {
 
     private final RelojSimulacionDiaService relojSimulacionDiaService;
+    private final Planificador planificador;
 
     // 🔹 RESET MANUAL DEL RELOJ (botón "Iniciar" del front)
     @PostMapping("/reloj/reset")
@@ -31,7 +32,7 @@ public class SimulacionDiaController {
         Map<String, Object> resp = new HashMap<>();
 
         try {
-            Object fechaInicioObj = request.get("fechaInicio"); // "2025-12-11T10:00:00"
+            Object fechaInicioObj = request.get("fechaInicio");
 
             if (fechaInicioObj == null) {
                 resp.put("estado", "error");
@@ -45,6 +46,8 @@ public class SimulacionDiaController {
             Instant simInstant = ldt.toInstant(ZoneOffset.UTC);
 
             relojSimulacionDiaService.resetTo(simInstant);
+            // 👇 sincroniza planificador (inicio de horizonte)
+            planificador.resetYReiniciarOperacionesDiarias(simInstant);
 
             Instant current = relojSimulacionDiaService.getCurrentSimInstant();
 

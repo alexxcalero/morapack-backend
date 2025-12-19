@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 import pe.edu.pucp.morapack.services.AeropuertoService;
 import pe.edu.pucp.morapack.services.servicesImp.*;
+import pe.edu.pucp.morapack.services.RelojSimulacionDiaService;
 
 import java.time.*;
 import java.time.format.DateTimeFormatter;
@@ -29,6 +30,8 @@ public class Planificador {
     private final EnvioServiceImp envioService;
     private final PlanDeVueloServiceImp planDeVueloService;
     private final AeropuertoServiceImp aeropuertoService;
+    private final RelojSimulacionDiaService relojSimulacionDiaService;
+
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> tareaProgramada;
     private boolean enEjecucion = false;
@@ -178,12 +181,14 @@ public class Planificador {
 
     public Planificador(Grasp grasp, PlanificacionWebSocketServiceImp webSocketService,
             EnvioServiceImp envioService, PlanDeVueloServiceImp planDeVueloService,
-            AeropuertoServiceImp aeropuertoService) {
+            AeropuertoServiceImp aeropuertoService,
+            RelojSimulacionDiaService relojSimulacionDiaService) {
         this.grasp = grasp;
         this.webSocketService = webSocketService;
         this.envioService = envioService;
         this.planDeVueloService = planDeVueloService;
         this.aeropuertoService = aeropuertoService;
+        this.relojSimulacionDiaService = relojSimulacionDiaService;
     }
 
     public void iniciarPlanificacionProgramada() {
@@ -438,6 +443,11 @@ public class Planificador {
 
     private LocalDateTime obtenerTiempoActualSimulacion() {
         // En un sistema real, esto seria el tiempo actual
+        // En OPERACIONES_DIARIAS el tiempo lo manda el reloj simulado (source of truth)
+        if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS && relojSimulacionDiaService != null) {
+            Instant nowSim = relojSimulacionDiaService.getCurrentSimInstant();
+            return LocalDateTime.ofInstant(nowSim, ZoneOffset.UTC);
+        }
         // Para la simulacion, avanzamos el tiempo en cada ejecucion
         return obtenerUltimaEjecucionTiempo().plusMinutes(SA_MINUTOS);
     }
@@ -845,14 +855,55 @@ public class Planificador {
     }
 
     private long getSimMillis() {
-        if (tiempoSimuladoActual != null) {
-            // Asumimos que el tiempo simulado está en UTC-5 (Perú) y lo convertimos a epoch
-            // ms
-            ZonedDateTime zdt = tiempoSimuladoActual.atZone(ZoneOffset.ofHours(-5));
-            return zdt.toInstant().toEpochMilli();
+        if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS && relojSimulacionDiaService != null) {
+            return relojSimulacionDiaService.getCurrentSimInstant().toEpochMilli();
         }
-        // Fallback: tiempo real del servidor
+        if (tiempoSimuladoActual != null) {
+            return tiempoSimuladoActual.atZone(ZoneOffset.UTC).toInstant().toEpochMilli();
+        }
         return System.currentTimeMillis();
+    }
+
+    public synchronized void resetYReiniciarOperacionesDiarias(Instant simInstant) {
+        // 1) detener para que ningún ciclo te pise el horizonte
+        detenerPlanificacion();
+
+        // 2) convertir a hora Perú (UTC-05)
+        ZoneOffset simOffset = ZoneOffset.ofHours(-5);
+        LocalDateTime nuevoInicio = LocalDateTime.ofInstant(simInstant, simOffset);
+
+        // 3) resetear los relojes internos del planificador
+        this.modoSimulacion = ModoSimulacion.OPERACIONES_DIARIAS;
+        this.fechaInicioSimulacion = nuevoInicio;
+        this.fechaFinSimulacion = null;
+
+        this.tiempoInicioSimulacion = nuevoInicio;
+        this.ultimoHorizontePlanificado = nuevoInicio;
+        this.tiempoSimuladoActual = nuevoInicio;
+
+        // ojo: es static en tu clase
+        ultimoTiempoEjecucion = nuevoInicio;
+
+        // 4) limpiar caché y eventos por si quedó basura
+        vuelosCacheados = null;
+        cacheVuelosInicio = null;
+        cacheVuelosFin = null;
+
+        if (eventosProgramados != null) {
+            synchronized (eventosProgramados) {
+                for (ScheduledFuture<?> f : eventosProgramados) {
+                    if (f != null && !f.isDone() && !f.isCancelled())
+                        f.cancel(false);
+                }
+                eventosProgramados.clear();
+            }
+        }
+
+        System.out.printf("🧭 [RESET+REINICIO] Planificador reiniciado a %s (UTC-05)%n",
+                nuevoInicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+
+        // 5) volver a iniciar desde ese punto
+        iniciarPlanificacionProgramada(ModoSimulacion.OPERACIONES_DIARIAS, nuevoInicio, null);
     }
 
     // 🛰️ Notificación especial para el modo OPERACIONES_DIARIAS (mapa en tiempo
@@ -879,11 +930,16 @@ public class Planificador {
         List<Envio> pedidosNuevos = new ArrayList<>();
 
         // ⚡ MODO OPERACIONES_DIARIAS: Cargar envíos con estado NULL y filtrar por fecha
-        // considerando husos horarios
+        // considerando husos horarios (comparación por instante real)
         if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS) {
+
+            // Zona/offset de simulación (consistente con tu front y tu simTime)
+            ZoneOffset simOffset = ZoneOffset.ofHours(-5);
+
             System.out.printf(
-                    "📦 [obtenerPedidosEnVentana] Modo OPERACIONES_DIARIAS: Cargando envíos con estado NULL hasta %s (UTC)%n",
-                    inicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                    "📦 [obtenerPedidosEnVentana] Modo OPERACIONES_DIARIAS: Cargando envíos con estado NULL hasta %s (hora simulada UTC%s)%n",
+                    inicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                    simOffset.getId());
 
             try {
                 // Cargar todos los envíos con estado NULL
@@ -891,12 +947,14 @@ public class Planificador {
                 System.out.printf("✅ [obtenerPedidosEnVentana] Envíos pendientes (estado NULL) cargados: %d%n",
                         enviosPendientes.size());
 
-                // Convertir el inicio del horizonte a UTC para comparar
-                ZonedDateTime inicioUTC = inicio.atZone(ZoneOffset.UTC);
+                // Convertir el inicio del horizonte (hora simulada) a Instant para comparar
+                // correctamente
+                Instant inicioInst = inicio.atZone(simOffset).toInstant();
 
-                // Filtrar envíos cuya fechaIngreso (en su huso horario) <= inicio (en UTC)
-                // Convertir cada fechaIngreso a UTC usando su huso horario
+                // Filtrar envíos cuya fechaIngreso (en su huso horario real) <= inicio
+                // horizonte (instante)
                 for (Envio envio : enviosPendientes) {
+
                     // ⚡ Inicializar zonedFechaIngreso si es null (defensa adicional)
                     if (envio.getZonedFechaIngreso() == null && envio.getFechaIngreso() != null
                             && envio.getHusoHorarioDestino() != null) {
@@ -918,12 +976,11 @@ public class Planificador {
                         continue;
                     }
 
-                    // Convertir la fecha de ingreso del envío a UTC para comparar correctamente
-                    ZonedDateTime tiempoPedidoUTC = envio.getZonedFechaIngreso()
-                            .withZoneSameInstant(ZoneOffset.UTC);
+                    // Comparación por instante (no por "etiqueta" UTC/local)
+                    Instant envioInst = envio.getZonedFechaIngreso().toInstant();
 
-                    // Incluir solo envíos cuya fechaIngreso (en UTC) <= inicio (en UTC)
-                    if (!tiempoPedidoUTC.isAfter(inicioUTC)) {
+                    // Incluir solo envíos cuya fechaIngreso <= inicio del horizonte
+                    if (!envioInst.isAfter(inicioInst)) {
                         pedidosNuevos.add(crearCopiaEnvio(envio));
                     }
                 }
@@ -944,6 +1001,7 @@ public class Planificador {
                 }
 
                 return pedidosNuevos;
+
             } catch (Exception e) {
                 System.err.printf("❌ Error al cargar envíos pendientes desde BD: %s%n", e.getMessage());
                 e.printStackTrace();

@@ -27,8 +27,6 @@ public class RelojSimulacionDiaService {
     private static final long TICK_PERIOD_SECONDS = 1L;
 
     private final SimpMessagingTemplate messagingTemplate;
-    private final Planificador planificador; // servicio que tiene la última solución
-    private final PlanificacionWebSocketServiceImp planificacionWs; // envía a /topic/simulacion-dia
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
@@ -42,12 +40,8 @@ public class RelojSimulacionDiaService {
     private volatile boolean running = false;
 
     public RelojSimulacionDiaService(
-            SimpMessagingTemplate messagingTemplate,
-            Planificador planificador,
-            PlanificacionWebSocketServiceImp planificacionWs) {
+            SimpMessagingTemplate messagingTemplate) {
         this.messagingTemplate = messagingTemplate;
-        this.planificador = planificador;
-        this.planificacionWs = planificacionWs;
     }
 
     @PostConstruct
@@ -144,18 +138,6 @@ public class RelojSimulacionDiaService {
 
         // ⚠️ Esto lo usa SimulationControlsDia: se mantiene el topic y el formato
         messagingTemplate.convertAndSend("/topic/sim-time-dia", timePayload);
-
-        // 2) Vuelos + aeropuertos dinámicos para el mapa día a día
-        Solucion actual = planificador.getUltimaSolucion();
-        if (actual != null) {
-            List<VueloPlanificadorDto> vuelos = planificador.construirVuelosDto(actual);
-            List<AeropuertoEstadoDto> aeropuertos = planificador.construirAeropuertosDto();
-
-            planificacionWs.enviarEstadoVuelosYAeropuertosDia(
-                    vuelos,
-                    aeropuertos,
-                    ms);
-        }
     }
 
     /**
