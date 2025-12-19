@@ -336,6 +336,8 @@ public class PlanificadorController {
             System.out.println("⚙️ Creando planificador...");
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
                     aeropuertoService);
+            System.out.println(fechaInicio);
+            System.out.println(fechaFin);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.SEMANAL, fechaInicio, fechaFin);
 
             planificadorIniciado = true;
@@ -1260,14 +1262,14 @@ public class PlanificadorController {
         }
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-        LocalDateTime inicio = planificador.getInicioHorizonteUltimoCiclo();
-        LocalDateTime fin = planificador.getFinHorizonteUltimoCiclo();
+        ZonedDateTime inicio = planificador.getInicioHorizonteUltimoCiclo();
+        ZonedDateTime fin = planificador.getFinHorizonteUltimoCiclo();
 
         response.put("estado", "exito");
         response.put("cantidadVuelos", vuelos.size());
         response.put("horizonte", Map.of(
-                "inicio", inicio != null ? formatFechaConOffset(null, inicio, "0", formatter) : "N/A",
-                "fin", fin != null ? formatFechaConOffset(null, fin, "0", formatter) : "N/A"));
+                "inicio", inicio != null ? formatFechaConOffset(inicio, null, null, formatter) : "N/A",
+                "fin", fin != null ? formatFechaConOffset(fin, null, null, formatter) : "N/A"));
 
         List<Map<String, Object>> vuelosFrontend = vuelos.stream()
                 .map(v -> convertirVueloParaFrontend(v, asignacionesPorVuelo))

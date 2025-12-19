@@ -33,7 +33,7 @@ public class Planificador {
     private ScheduledFuture<?> tareaProgramada;
     private boolean enEjecucion = false;
     private volatile boolean cicloEnEjecucion = false; // ⚡ Flag para evitar que otras tareas compitan con GRASP
-    private LocalDateTime tiempoSimuladoActual; // Tiempo simulado actual para verificaciones de liberación
+    private ZonedDateTime tiempoSimuladoActual; // Tiempo simulado actual para verificaciones de liberación
 
     // Configuración de planificación programada
     private static final int SA_MINUTOS = 2; // Salto del algoritmo - ejecutar cada 2 minutos
@@ -52,20 +52,23 @@ public class Planificador {
 
     // Estado del planificador
     private AtomicInteger cicloActual = new AtomicInteger(0);
-    private LocalDateTime ultimaEjecucion;
-    private LocalDateTime proximaEjecucion;
+    private ZonedDateTime ultimaEjecucion;
+    private ZonedDateTime proximaEjecucion;
     private Solucion ultimaSolucion;
     private Map<String, Object> estadisticas = new HashMap<>();
     private List<Map<String, Object>> historicoCiclos = new ArrayList<>();
 
     private ArrayList<Envio> enviosOriginales;
-    private LocalDateTime inicioHorizonteUltimoCiclo;
-    private LocalDateTime finHorizonteUltimoCiclo;
+    private ZonedDateTime inicioHorizonteUltimoCiclo;
+    private ZonedDateTime finHorizonteUltimoCiclo;
     private List<PlanDeVuelo> vuelosUltimoCiclo = new ArrayList<>();
 
     // Controlar saltos para planificaciones semanales o del colapso
-    private LocalDateTime ultimoHorizontePlanificado;
-    private LocalDateTime tiempoInicioSimulacion;
+    private ZonedDateTime ultimoHorizontePlanificado;
+    private ZonedDateTime tiempoInicioSimulacion;
+
+    // Zona horaria de Lima (UTC-5) - constante para conversiones
+    private static final ZoneOffset ZONA_LIMA = ZoneOffset.ofHours(-5);
 
     // Control para modo COLAPSO: rastrear cuando se completa la semana y pedidos sin planificar
     private boolean semanaCompletaColapso = false;
@@ -171,8 +174,8 @@ public class Planificador {
     }
 
     private ModoSimulacion modoSimulacion = ModoSimulacion.NORMAL;
-    private LocalDateTime fechaInicioSimulacion;
-    private LocalDateTime fechaFinSimulacion;
+    private ZonedDateTime fechaInicioSimulacion;
+    private ZonedDateTime fechaFinSimulacion;
 
     public Planificador(Grasp grasp, PlanificacionWebSocketServiceImp webSocketService,
                         EnvioServiceImp envioService, PlanDeVueloServiceImp planDeVueloService,
@@ -204,8 +207,8 @@ public class Planificador {
         }
         System.out.println("✅ Scheduler inicializado correctamente");
         this.modoSimulacion = modo;
-        this.fechaInicioSimulacion = fechaInicio;
-        this.fechaFinSimulacion = fechaFin;
+        // Las fechas se convertirán a ZonedDateTime más adelante en el código
+        // (se mantienen como LocalDateTime aquí para compatibilidad con el método)
 
         // ✅ ENVIAR ESTADO INICIAL VÍA WEBSOCKET
         webSocketService.enviarEstadoPlanificador(true, cicloActual.get(), "inmediato");
@@ -235,11 +238,14 @@ public class Planificador {
                     }
                     return;
                 }
-                this.tiempoInicioSimulacion = fechaInicio;
-                this.ultimoHorizontePlanificado = fechaInicio;
-                this.tiempoSimuladoActual = fechaInicio; // Inicializar tiempo simulado para verificaciones
-                System.out.printf("⏰ Tiempo de inicio de simulación: %s%n",
-                        fechaInicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                // ✅ Convertir fechaInicio a ZonedDateTime de Lima (UTC-5)
+                this.tiempoInicioSimulacion = fechaInicio.atZone(ZONA_LIMA);
+                this.ultimoHorizontePlanificado = fechaInicio.atZone(ZONA_LIMA);
+                this.tiempoSimuladoActual = fechaInicio.atZone(ZONA_LIMA); // Inicializar tiempo simulado para verificaciones
+                // ✅ Asignar fechaInicioSimulacion para modo SEMANAL y COLAPSO
+                this.fechaInicioSimulacion = fechaInicio.atZone(ZONA_LIMA);
+                System.out.printf("⏰ Tiempo de inicio de simulación (Lima UTC-5): %s%n",
+                        tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                 if (modo == ModoSimulacion.SEMANAL) {
                     if (fechaFin == null) {
                         System.err.println("❌ Error: fechaFin es null en modo SEMANAL");
@@ -250,20 +256,26 @@ public class Planificador {
                         }
                         return;
                     }
-                    System.out.printf("⏰ Tiempo de fin de simulación: %s%n",
-                            fechaFin.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                    // ✅ Convertir fechaFin a ZonedDateTime de Lima (UTC-5)
+                    this.fechaFinSimulacion = fechaFin.atZone(ZONA_LIMA);
+                    System.out.printf("⏰ Tiempo de fin de simulación (Lima UTC-5): %s%n",
+                            fechaFinSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
                 } else if (modo == ModoSimulacion.OPERACIONES_DIARIAS) {
                     // Modo OPERACIONES_DIARIAS no tiene fecha fin
                     System.out.println("⏰ Modo OPERACIONES_DIARIAS: Sin fecha fin (tiempo real)");
                 }
             } else {
                 // Modo normal - obtener el primer pedido como referencia temporal
-                this.tiempoInicioSimulacion = obtenerPrimerPedidoTiempo();
+                LocalDateTime primerPedidoLocal = obtenerPrimerPedidoTiempo();
+                // ✅ Convertir a ZonedDateTime de Lima
+                this.tiempoInicioSimulacion = primerPedidoLocal != null ? primerPedidoLocal.atZone(ZONA_LIMA) : null;
                 this.ultimoHorizontePlanificado = this.tiempoInicioSimulacion;
                 this.tiempoSimuladoActual = this.tiempoInicioSimulacion; // Inicializar tiempo simulado para
                 // verificaciones
-                System.out.printf("⏰ Tiempo de inicio de simulación: %s%n",
-                        tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                if (tiempoInicioSimulacion != null) {
+                    System.out.printf("⏰ Tiempo de inicio de simulación (Lima UTC-5): %s%n",
+                            tiempoInicioSimulacion.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                }
             }
         } catch (Exception e) {
             System.err.printf("❌ Error al determinar tiempo de inicio: %s%n", e.getMessage());
@@ -326,9 +338,9 @@ public class Planificador {
                         System.err.println(
                                 "⚠️ ADVERTENCIA: ultimoTiempoEjecucion es null, usando tiempoInicioSimulacion");
                         ultimoTiempoEjecucion = tiempoInicioSimulacion != null ? tiempoInicioSimulacion
-                                : LocalDateTime.now();
+                                : ZonedDateTime.now(ZONA_LIMA);
                     }
-                    LocalDateTime tiempoActual = obtenerTiempoActualSimulacion();
+                    ZonedDateTime tiempoActual = obtenerTiempoActualSimulacion();
                     ejecutarCicloPlanificacion(tiempoActual);
                 } catch (Exception e) {
                     System.err.printf("❌ Error crítico en tarea programada (ciclo %d): %s%n",
@@ -434,19 +446,19 @@ public class Planificador {
         return primerPedidoZoned.toLocalDateTime();
     }
 
-    private LocalDateTime obtenerTiempoActualSimulacion() {
+    private ZonedDateTime obtenerTiempoActualSimulacion() {
         // En un sistema real, esto seria el tiempo actual
         // Para la simulacion, avanzamos el tiempo en cada ejecucion
         return obtenerUltimaEjecucionTiempo().plusMinutes(SA_MINUTOS);
     }
 
-    private LocalDateTime obtenerUltimaEjecucionTiempo() {
+    private ZonedDateTime obtenerUltimaEjecucionTiempo() {
         // Aqui llevarias registro del ultimo tiempo de ejecucion
         // Por simplicidad, usamos una variable estatica
         return ultimoTiempoEjecucion;
     }
 
-    private static LocalDateTime ultimoTiempoEjecucion;
+    private static ZonedDateTime ultimoTiempoEjecucion;
 
     /**
      * Obtiene el año de la fecha de inicio de la simulación
@@ -459,7 +471,7 @@ public class Planificador {
         return fechaInicioSimulacion.getYear();
     }
 
-    private void ejecutarCicloPlanificacion(LocalDateTime tiempoEjecucion) {
+    private void ejecutarCicloPlanificacion(ZonedDateTime tiempoEjecucion) {
         if (!enEjecucion)
             return;
 
@@ -469,7 +481,7 @@ public class Planificador {
 
         long inicioCiclo = System.currentTimeMillis();
         int ciclo = cicloActual.incrementAndGet();
-        ultimaEjecucion = LocalDateTime.now();
+        ultimaEjecucion = ZonedDateTime.now(ZONA_LIMA);
         proximaEjecucion = ultimaEjecucion.plusMinutes(SA_MINUTOS);
 
         System.out.printf("%n=== CICLO %d INICIADO ===%n", ciclo);
@@ -491,7 +503,7 @@ public class Planificador {
             if (modoSimulacion == ModoSimulacion.COLAPSO && obtenerAnioFechaInicio() == 2025) {
                 if (!semanaCompletaColapso && tiempoInicioSimulacion != null) {
                     // Verificar si han pasado 7 días desde el inicio
-                    LocalDateTime fechaSemanaCompleta = tiempoInicioSimulacion.plusDays(7);
+                    ZonedDateTime fechaSemanaCompleta = tiempoInicioSimulacion.plusDays(7);
                     if (this.ultimoHorizontePlanificado.isAfter(fechaSemanaCompleta) ||
                             this.ultimoHorizontePlanificado.isEqual(fechaSemanaCompleta)) {
                         semanaCompletaColapso = true;
@@ -512,9 +524,9 @@ public class Planificador {
             }
 
             // 2. Calcular horizonte temporal (Sc)
-            LocalDateTime inicioHorizonte = this.ultimoHorizontePlanificado;
+            ZonedDateTime inicioHorizonte = this.ultimoHorizontePlanificado;
             int kActual = obtenerK();
-            LocalDateTime finHorizonte = inicioHorizonte.plusMinutes(SA_MINUTOS * kActual);
+            ZonedDateTime finHorizonte = inicioHorizonte.plusMinutes(SA_MINUTOS * kActual);
 
             // En modo SEMANAL, limitar el horizonte a la fecha fin
             if (modoSimulacion == ModoSimulacion.SEMANAL && fechaFinSimulacion != null) {
@@ -523,11 +535,11 @@ public class Planificador {
                 }
             }
 
-            System.out.printf("📊 Horizonte de planificación: %s → %s%n",
+            System.out.printf("📊 Horizonte de planificación (Lima UTC-5): %s → %s%n",
                     inicioHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
                     finHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
-            // 3. Obtener pedidos dentro del horizonte actual
+            // 3. Obtener pedidos dentro del horizonte actual (ya en ZonedDateTime)
             List<Envio> pedidosParaPlanificar = obtenerPedidosEnVentana(inicioHorizonte, finHorizonte);
 
             System.out.printf("📦 Pedidos a planificar en el ciclo %d: %d%n", ciclo, pedidosParaPlanificar.size());
@@ -563,6 +575,8 @@ public class Planificador {
                         detenerPlanificacion();
                     }
                 }
+
+                recargarDatosBase(inicioHorizonte, finHorizonte);
 
                 return;
             }
@@ -722,6 +736,9 @@ public class Planificador {
             // ✅ ENVIAR ERROR VÍA WEBSOCKET
             webSocketService.enviarError("Error: " + e.getMessage(), ciclo);
             System.err.printf("❌ CICLO %d - ERROR: %s%n", ciclo, e.getMessage());
+            // ✅ IMPRIMIR STACK TRACE COMPLETO para identificar dónde ocurre el error
+            System.err.println("📋 STACK TRACE COMPLETO:");
+            e.printStackTrace();
             actualizarEstadisticasError(ciclo, e.getMessage());
             // ⚡ Marcar ciclo como terminado incluso en error
             cicloEnEjecucion = false;
@@ -828,10 +845,8 @@ public class Planificador {
 
     private long getSimMillis() {
         if (tiempoSimuladoActual != null) {
-            // Asumimos que el tiempo simulado está en UTC-5 (Perú) y lo convertimos a epoch
-            // ms
-            ZonedDateTime zdt = tiempoSimuladoActual.atZone(ZoneOffset.ofHours(-5));
-            return zdt.toInstant().toEpochMilli();
+            // ✅ tiempoSimuladoActual ya es ZonedDateTime (Lima UTC-5)
+            return tiempoSimuladoActual.toInstant().toEpochMilli();
         }
         // Fallback: tiempo real del servidor
         return System.currentTimeMillis();
@@ -857,14 +872,14 @@ public class Planificador {
         webSocketService.enviarEstadoVuelosYAeropuertosDia(vuelosDto, aeropuertosDto, simMs);
     }
 
-    private List<Envio> obtenerPedidosEnVentana(LocalDateTime inicio, LocalDateTime fin) {
+    private List<Envio> obtenerPedidosEnVentana(ZonedDateTime inicio, ZonedDateTime fin) {
         List<Envio> pedidosNuevos = new ArrayList<>();
 
         // ⚡ MODO OPERACIONES_DIARIAS: Cargar envíos con estado NULL y filtrar por fecha
         // considerando husos horarios
         if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS) {
             System.out.printf(
-                    "📦 [obtenerPedidosEnVentana] Modo OPERACIONES_DIARIAS: Cargando envíos con estado NULL hasta %s (UTC)%n",
+                    "📦 [obtenerPedidosEnVentana] Modo OPERACIONES_DIARIAS: Cargando envíos con estado NULL hasta %s (Lima UTC-5)%n",
                     inicio.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
             try {
@@ -873,8 +888,8 @@ public class Planificador {
                 System.out.printf("✅ [obtenerPedidosEnVentana] Envíos pendientes (estado NULL) cargados: %d%n",
                         enviosPendientes.size());
 
-                // Convertir el inicio del horizonte a UTC para comparar
-                ZonedDateTime inicioUTC = inicio.atZone(ZoneOffset.UTC);
+                // ✅ El inicio ya está en ZonedDateTime (Lima), comparar directamente
+                ZonedDateTime inicioLima = inicio; // Ya está en zona de Lima
 
                 // Filtrar envíos cuya fechaIngreso (en su huso horario) <= inicio (en UTC)
                 // Convertir cada fechaIngreso a UTC usando su huso horario
@@ -900,12 +915,10 @@ public class Planificador {
                         continue;
                     }
 
-                    // Convertir la fecha de ingreso del envío a UTC para comparar correctamente
-                    ZonedDateTime tiempoPedidoUTC = envio.getZonedFechaIngreso()
-                            .withZoneSameInstant(ZoneOffset.UTC);
-
-                    // Incluir solo envíos cuya fechaIngreso (en UTC) <= inicio (en UTC)
-                    if (!tiempoPedidoUTC.isAfter(inicioUTC)) {
+                    // ✅ Comparar ZonedDateTime directamente (Java convierte automáticamente)
+                    // El envío tiene su zonedFechaIngreso en su huso horario, el inicio está en Lima
+                    // Java compara correctamente los instantes
+                    if (!envio.getZonedFechaIngreso().isAfter(inicioLima)) {
                         pedidosNuevos.add(crearCopiaEnvio(envio));
                     }
                 }
@@ -947,7 +960,10 @@ public class Planificador {
                     fin.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
             try {
-                enviosEnRango = envioService.obtenerEnviosEnRango(inicio, "0", fin, "0");
+                // ✅ Convertir ZonedDateTime a LocalDateTime para el servicio
+                // IMPORTANTE: Pasar el huso horario de Lima (-5) para que el servicio interprete correctamente las fechas
+                enviosEnRango = envioService.obtenerEnviosEnRango(
+                    inicio.toLocalDateTime(), "-5", fin.toLocalDateTime(), "-5");
                 System.out.printf("✅ [obtenerPedidosEnVentana] Envíos cargados: %d%n", enviosEnRango.size());
 
                 // ⚡ Configurar hubs para los envíos cargados
@@ -966,24 +982,38 @@ public class Planificador {
             }
         }
 
-        // Convertir los límites del horizonte a ZonedDateTime en UTC para comparar
-        // correctamente
-        ZonedDateTime inicioUTC = inicio.atZone(ZoneOffset.UTC);
-        ZonedDateTime finUTC = fin.atZone(ZoneOffset.UTC);
+        // ✅ Los límites del horizonte ya están en ZonedDateTime (Lima)
+        ZonedDateTime inicioLima = inicio; // Ya está en zona de Lima
+        ZonedDateTime finLima = fin; // Ya está en zona de Lima
 
-        ZonedDateTime fechaInicioSimulacionUTC = null;
-        ZonedDateTime fechaFinSimulacionUTC = null;
-        if (fechaInicioSimulacion != null) {
-            fechaInicioSimulacionUTC = fechaInicioSimulacion.atZone(ZoneOffset.UTC);
-        }
-        if (fechaFinSimulacion != null) {
-            fechaFinSimulacionUTC = fechaFinSimulacion.atZone(ZoneOffset.UTC);
-        }
+        // Las fechas de simulación ya están en ZonedDateTime (Lima)
+        ZonedDateTime fechaInicioSimulacionLima = fechaInicioSimulacion; // Ya está en zona de Lima
+        ZonedDateTime fechaFinSimulacionLima = fechaFinSimulacion; // Ya está en zona de Lima
 
         for (Envio envio : enviosEnRango) {
-            // Convertir la fecha de ingreso del pedido a UTC para comparar correctamente
-            ZonedDateTime tiempoPedidoUTC = envio.getZonedFechaIngreso()
-                    .withZoneSameInstant(ZoneOffset.UTC);
+            // ⚡ Inicializar zonedFechaIngreso si es null (defensa adicional)
+            if (envio.getZonedFechaIngreso() == null && envio.getFechaIngreso() != null
+                    && envio.getHusoHorarioDestino() != null) {
+                try {
+                    Integer offsetDestino = Integer.parseInt(envio.getHusoHorarioDestino());
+                    ZoneOffset zoneDestino = ZoneOffset.ofHours(offsetDestino);
+                    envio.setZonedFechaIngreso(envio.getFechaIngreso().atZone(zoneDestino));
+                } catch (Exception e) {
+                    System.err.printf("⚠️ Error al inicializar zonedFechaIngreso para envío %d: %s%n",
+                            envio.getId(), e.getMessage());
+                    continue; // Saltar este envío si no se puede inicializar
+                }
+            }
+
+            // Si aún es null después del intento de inicialización, saltar este envío
+            if (envio.getZonedFechaIngreso() == null) {
+                System.err.printf("⚠️ Envío %d no tiene zonedFechaIngreso inicializado, saltando...%n",
+                        envio.getId());
+                continue;
+            }
+
+            // ✅ Comparar ZonedDateTime directamente (el envío tiene su huso horario, el horizonte está en Lima)
+            ZonedDateTime tiempoPedido = envio.getZonedFechaIngreso();
 
             // Filtrar según el modo de simulación
             boolean incluirPedido = false;
@@ -991,30 +1021,67 @@ public class Planificador {
             if (modoSimulacion == ModoSimulacion.SEMANAL) {
                 // En modo semanal, solo incluir pedidos dentro del rango fechaInicioSimulacion
                 // - fechaFinSimulacion
-                if (fechaInicioSimulacionUTC != null && fechaFinSimulacionUTC != null) {
-                    if (!tiempoPedidoUTC.isBefore(fechaInicioSimulacionUTC) &&
-                            !tiempoPedidoUTC.isAfter(fechaFinSimulacionUTC)) {
-                        // Y además deben estar en el horizonte actual
-                        if (!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
+                if (fechaInicioSimulacionLima != null && fechaFinSimulacionLima != null) {
+                    if (!tiempoPedido.isBefore(fechaInicioSimulacionLima) &&
+                            !tiempoPedido.isAfter(fechaFinSimulacionLima)) {
+                        // Y además deben estar en el horizonte actual (incluyendo el límite)
+                        if (!tiempoPedido.isBefore(inicioLima) && !tiempoPedido.isAfter(finLima)) {
                             incluirPedido = true;
                         }
                     }
                 }
             } else if (modoSimulacion == ModoSimulacion.COLAPSO) {
-                // En modo colapso, solo incluir pedidos desde fechaInicioSimulacion en adelante
-                if (fechaInicioSimulacionUTC != null) {
-                    if (!tiempoPedidoUTC.isBefore(fechaInicioSimulacionUTC)) {
-                        // Y además deben estar en el horizonte actual
-                        if (!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
-                            incluirPedido = true;
-                        }
-                    }
+                // En modo colapso, comportarse igual que semanal: solo pedidos en el horizonte actual
+                // (sin verificar fechaInicioSimulacion, solo el horizonte)
+                // ✅ Incluir pedidos que están en el horizonte (incluyendo los límites)
+                if (!tiempoPedido.isBefore(inicioLima) && !tiempoPedido.isAfter(finLima)) {
+                    incluirPedido = true;
                 }
             } else {
                 // Modo normal - comportamiento original
-                if (!tiempoPedidoUTC.isBefore(inicioUTC) && tiempoPedidoUTC.isBefore(finUTC)) {
+                // ✅ Incluir pedidos que están en el horizonte (incluyendo los límites)
+                if (!tiempoPedido.isBefore(inicioLima) && !tiempoPedido.isAfter(finLima)) {
                     incluirPedido = true;
                 }
+            }
+
+            // 🔍 DEBUG: Log para entender por qué se incluye o no un pedido
+            if (enviosEnRango.size() <= 10) { // Solo loggear si hay pocos envíos para no saturar
+                // Convertir a UTC para comparar
+                ZonedDateTime tiempoPedidoUTC = tiempoPedido.withZoneSameInstant(ZoneOffset.UTC);
+                ZonedDateTime inicioLimaUTC = inicioLima.withZoneSameInstant(ZoneOffset.UTC);
+                ZonedDateTime finLimaUTC = finLima.withZoneSameInstant(ZoneOffset.UTC);
+
+                boolean antesInicio = tiempoPedido.isBefore(inicioLima);
+                boolean despuesFin = tiempoPedido.isAfter(finLima);
+                boolean condicionHorizonte = !antesInicio && !despuesFin;
+
+                String modoStr = modoSimulacion != null ? modoSimulacion.toString() : "null";
+                String fechaInicioStr = fechaInicioSimulacionLima != null ?
+                    fechaInicioSimulacionLima.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) : "null";
+                String fechaFinStr = fechaFinSimulacionLima != null ?
+                    fechaFinSimulacionLima.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) : "null";
+
+                System.out.printf("🔍 [DEBUG] Envío %d:%n" +
+                        "  Modo simulación: %s%n" +
+                        "  fechaIngreso (local)=%s (zona=%s, UTC=%s)%n" +
+                        "  inicioLima (local)=%s (zona=%s, UTC=%s)%n" +
+                        "  finLima (local)=%s (zona=%s, UTC=%s)%n" +
+                        "  fechaInicioSimulacion=%s, fechaFinSimulacion=%s%n" +
+                        "  antesInicio=%s, despuesFin=%s, condicionHorizonte=%s, incluir=%s%n",
+                        envio.getId(),
+                        modoStr,
+                        tiempoPedido.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                        tiempoPedido.getZone(),
+                        tiempoPedidoUTC.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                        inicioLima.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                        inicioLima.getZone(),
+                        inicioLimaUTC.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                        finLima.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                        finLima.getZone(),
+                        finLimaUTC.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                        fechaInicioStr, fechaFinStr,
+                        antesInicio, despuesFin, condicionHorizonte, incluirPedido);
             }
 
             if (incluirPedido) {
@@ -1089,12 +1156,12 @@ public class Planificador {
         return copia;
     }
 
-    private Solucion ejecutarGRASPConTimeout(List<Envio> pedidos, LocalDateTime tiempoEjecucion) {
+    private Solucion ejecutarGRASPConTimeout(List<Envio> pedidos, ZonedDateTime tiempoEjecucion) {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         // Usar AtomicReference para compartir la mejor solución entre threads
         AtomicReference<Solucion> mejorSolucionHastaAhora = new AtomicReference<>(null);
 
-        Future<Solucion> future = executor.submit(() -> {
+        Future<Solucion> future = executor.submit((Callable<Solucion>) () -> {
             // Preparar GRASP para este ciclo específico
             grasp.setEnvios(new ArrayList<>(pedidos));
             grasp.setEnviosPorDiaPropio();
@@ -1128,7 +1195,7 @@ public class Planificador {
         }
     }
 
-    private Solucion ejecutarGRASPLimitado(LocalDateTime tiempoEjecucion, AtomicReference<Solucion> mejorSolucionRef) {
+    private Solucion ejecutarGRASPLimitado(ZonedDateTime tiempoEjecucion, AtomicReference<Solucion> mejorSolucionRef) {
         Solucion mejorSolucion = null;
         long inicioEjecucion = System.currentTimeMillis();
 
@@ -1571,7 +1638,7 @@ public class Planificador {
      * Genera el reporte completo incluyendo pedidos sin ruta cuando se cumplen las condiciones
      * Se llama desde la sección donde se detectan pedidos sin ruta antes de detener la planificación
      */
-    private void generarReporteConPedidosSinRuta(Solucion solucion, List<Envio> pedidosProcesados, Integer ciclo, List<Envio> pedidosSinRuta, LocalDateTime inicioHorizonte) {
+    private void generarReporteConPedidosSinRuta(Solucion solucion, List<Envio> pedidosProcesados, Integer ciclo, List<Envio> pedidosSinRuta, ZonedDateTime inicioHorizonte) {
         // Crear StringBuilder para acumular el contenido del reporte
         StringBuilder reporte = new StringBuilder();
 
@@ -1885,25 +1952,26 @@ public class Planificador {
         return asignaciones;
     }
 
-    public LocalDateTime getInicioHorizonteUltimoCiclo() {
+    public ZonedDateTime getInicioHorizonteUltimoCiclo() {
         return inicioHorizonteUltimoCiclo;
     }
 
-    public LocalDateTime getFinHorizonteUltimoCiclo() {
+    public ZonedDateTime getFinHorizonteUltimoCiclo() {
         return finHorizonteUltimoCiclo;
     }
 
     @Deprecated
-    private void liberarProductosEntregados(LocalDateTime tiempoSimulado) {
+    private void liberarProductosEntregados(ZonedDateTime tiempoSimulado) {
         try {
-            LocalDateTime fechaInicio = this.tiempoInicioSimulacion != null ? this.tiempoInicioSimulacion
+            ZonedDateTime fechaInicio = this.tiempoInicioSimulacion != null ? this.tiempoInicioSimulacion
                     : tiempoSimulado.minusDays(1);
-            LocalDateTime fechaFin = tiempoSimulado;
+            ZonedDateTime fechaFin = tiempoSimulado;
 
             List<Envio> enviosConPartes;
             try {
+                // ✅ Convertir ZonedDateTime a LocalDateTime para el servicio
                 enviosConPartes = new ArrayList<>(envioService.obtenerEnviosEnRangoConPartes(
-                        fechaInicio, "0", fechaFin, "0"));
+                        fechaInicio.toLocalDateTime(), "0", fechaFin.toLocalDateTime(), "0"));
             } catch (Exception e) {
                 enviosConPartes = this.enviosOriginales != null ? new ArrayList<>(this.enviosOriginales)
                         : new ArrayList<>();
@@ -1954,13 +2022,13 @@ public class Planificador {
                         continue;
                     }
 
+                    // ✅ tiempoSimulado ya es ZonedDateTime, solo cambiar zona si es necesario
                     ZonedDateTime tiempoSimuladoZoned;
                     try {
                         java.time.ZoneId zonaLlegada = parte.getLlegadaFinal().getZone();
-                        tiempoSimuladoZoned = tiempoSimulado.atZone(zonaLlegada);
+                        tiempoSimuladoZoned = tiempoSimulado.withZoneSameInstant(zonaLlegada);
                     } catch (Exception e) {
-                        tiempoSimuladoZoned = tiempoSimulado.atZone(java.time.ZoneOffset.UTC)
-                                .withZoneSameInstant(parte.getLlegadaFinal().getZone());
+                        tiempoSimuladoZoned = tiempoSimulado.withZoneSameInstant(parte.getLlegadaFinal().getZone());
                     }
 
                     long horasTranscurridas = java.time.Duration.between(
@@ -2055,17 +2123,19 @@ public class Planificador {
      * Recarga desde la base de datos el estado actual de planes de vuelo y
      * aeropuertos.
      */
-    private void recargarDatosBase(LocalDateTime inicioHorizonte, LocalDateTime finHorizonte) {
-        LocalDateTime finConsultaVuelos = inicioHorizonte.plusDays(6);
+    private void recargarDatosBase(ZonedDateTime inicioHorizonte, ZonedDateTime finHorizonte) {
+        // ✅ Convertir a LocalDateTime para la consulta a BD (el servicio espera LocalDateTime)
+        LocalDateTime inicioHorizonteLocal = inicioHorizonte.toLocalDateTime();
+        LocalDateTime finConsultaVuelosLocal = inicioHorizonteLocal.plusDays(6);
 
         boolean usarCache = false;
         if (vuelosCacheados != null && cacheVuelosInicio != null && cacheVuelosFin != null) {
-            boolean inicioCubierto = !inicioHorizonte.isBefore(cacheVuelosInicio);
-            boolean finCubierto = !finConsultaVuelos.isAfter(cacheVuelosFin);
+            boolean inicioCubierto = !inicioHorizonteLocal.isBefore(cacheVuelosInicio);
+            boolean finCubierto = !finConsultaVuelosLocal.isAfter(cacheVuelosFin);
             usarCache = inicioCubierto && finCubierto;
 
             if (!usarCache) {
-                long horasFaltantesFin = java.time.Duration.between(cacheVuelosFin, finConsultaVuelos).toHours();
+                long horasFaltantesFin = java.time.Duration.between(cacheVuelosFin, finConsultaVuelosLocal).toHours();
                 System.out.printf("⚠️ [CACHÉ] No usado: inicioCubierto=%s, finCubierto=%s (falta %dh)%n",
                         inicioCubierto, finCubierto, horasFaltantesFin);
             }
@@ -2080,32 +2150,42 @@ public class Planificador {
         } else {
             System.out.printf(
                     "📊 [recargarDatosBase] Cargando vuelos desde %s hasta %s (6 días para caché)%n",
-                    inicioHorizonte.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
-                    finConsultaVuelos.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                    inicioHorizonteLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                    finConsultaVuelosLocal.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
             planesActualizados = planDeVueloService.obtenerVuelosEnRango(
-                    inicioHorizonte, "0", finConsultaVuelos, "0");
+                    inicioHorizonteLocal, "0", finConsultaVuelosLocal, "0");
 
             System.out.printf("✅ [recargarDatosBase] Vuelos cargados: %d (en lugar de 2+ millones)%n",
                     planesActualizados.size());
 
             vuelosCacheados = planesActualizados;
-            cacheVuelosInicio = inicioHorizonte;
-            cacheVuelosFin = finConsultaVuelos;
+            cacheVuelosInicio = inicioHorizonteLocal;
+            cacheVuelosFin = finConsultaVuelosLocal;
         }
 
         ArrayList<Aeropuerto> aeropuertosActualizados = aeropuertoService.obtenerTodosAeropuertos();
 
+        // ✅ Filtrar vuelos usando ZonedDateTime correctamente
         ArrayList<PlanDeVuelo> planesFiltrados = planesActualizados.stream()
                 .filter(plan -> {
-                    LocalDateTime salida = plan.getHoraOrigen();
-                    LocalDateTime llegada = plan.getHoraDestino();
-                    if (salida == null || llegada == null)
+                    // Verificar que el vuelo tenga los ZonedDateTime cargados
+                    if (plan.getZonedHoraOrigen() == null || plan.getZonedHoraDestino() == null) {
                         return false;
+                    }
 
-                    boolean salidaEnRango = !salida.isBefore(inicioHorizonte) && !salida.isAfter(finHorizonte);
-                    boolean llegadaEnRango = !llegada.isBefore(inicioHorizonte) && !llegada.isAfter(finHorizonte);
-                    boolean cruzaHorizonte = salida.isBefore(inicioHorizonte) && llegada.isAfter(inicioHorizonte);
+                    ZonedDateTime salida = plan.getZonedHoraOrigen();
+                    ZonedDateTime llegada = plan.getZonedHoraDestino();
+
+                    // ✅ Comparar ZonedDateTime directamente (Java convierte automáticamente)
+                    // inicioHorizonte y finHorizonte están en zona de Lima
+                    boolean salidaEnRango = !salida.isBefore(inicioHorizonte) &&
+                                           !salida.isAfter(finHorizonte);
+                    boolean llegadaEnRango = !llegada.isBefore(inicioHorizonte) &&
+                                           !llegada.isAfter(finHorizonte);
+                    boolean cruzaHorizonte = salida.isBefore(inicioHorizonte) &&
+                                           llegada.isAfter(inicioHorizonte);
+
                     return salidaEnRango || llegadaEnRango || cruzaHorizonte;
                 })
                 .collect(Collectors.toCollection(ArrayList::new));
@@ -2223,7 +2303,26 @@ public class Planificador {
                         ParteAsignada nuevaParte = new ParteAsignada();
                         nuevaParte.setEnvio(envioReal);
                         nuevaParte.setCantidad(parteCopia.getCantidad());
-                        nuevaParte.setLlegadaFinal(parteCopia.getLlegadaFinal());
+                        // ✅ Usar llegadaFinalLocal directamente para evitar problemas con Hibernate
+                        // El setter de setLlegadaFinal sincroniza llegadaFinalLocal, pero luego
+                        // Hibernate podría intentar acceder a llegadaFinal, así que usamos llegadaFinalLocal directamente
+                        try {
+                            // Intentar obtener llegadaFinalLocal primero (más seguro)
+                            if (parteCopia.getLlegadaFinalLocal() != null) {
+                                nuevaParte.setLlegadaFinalLocal(parteCopia.getLlegadaFinalLocal());
+                            } else {
+                                // Si no hay llegadaFinalLocal, usar llegadaFinal para sincronizarlo
+                                ZonedDateTime llegadaFinal = parteCopia.getLlegadaFinal();
+                                if (llegadaFinal != null) {
+                                    nuevaParte.setLlegadaFinal(llegadaFinal);
+                                    // Limpiar llegadaFinal después de sincronizar para evitar problemas
+                                    nuevaParte.setLlegadaFinal(null);
+                                }
+                            }
+                        } catch (Exception e) {
+                            System.err.printf("⚠️ Error al establecer llegadaFinal para nueva parte: %s%n", e.getMessage());
+                            e.printStackTrace();
+                        }
 
                         if (parteCopia.getAeropuertoOrigen() != null
                                 && parteCopia.getAeropuertoOrigen().getId() != null) {
@@ -2254,6 +2353,10 @@ public class Planificador {
                             nuevaParte.sincronizarRutaConBD();
                         }
 
+                        // ✅ CRÍTICO: Limpiar llegadaFinal ANTES de agregar la parte al envío
+                        // para evitar que Hibernate intente acceder a él durante la persistencia
+                        nuevaParte.setLlegadaFinal(null);
+
                         if (envioReal.getParteAsignadas() == null) {
                             envioReal.setParteAsignadas(new ArrayList<>());
                         }
@@ -2265,6 +2368,19 @@ public class Planificador {
             if (envioReal.getParteAsignadas() != null && !envioReal.getParteAsignadas().isEmpty()) {
                 if (envioReal.getEstado() == null || envioReal.getEstado() != Envio.EstadoEnvio.PLANIFICADO) {
                     envioReal.setEstado(Envio.EstadoEnvio.PLANIFICADO);
+                }
+            }
+
+            // ✅ CRÍTICO: Limpiar llegadaFinal de TODAS las partes antes de guardar
+            // para evitar que Hibernate intente acceder a él durante la persistencia
+            if (envioReal.getParteAsignadas() != null) {
+                for (ParteAsignada parte : envioReal.getParteAsignadas()) {
+                    try {
+                        parte.setLlegadaFinal(null);
+                    } catch (Exception e) {
+                        System.err.printf("⚠️ Error al limpiar llegadaFinal para parte %d: %s%n",
+                                parte.getId(), e.getMessage());
+                    }
                 }
             }
 
@@ -2320,7 +2436,7 @@ public class Planificador {
     /**
      * ⚡ Crea y programa eventos temporales individualmente.
      */
-    private void crearEventosTemporales(Solucion solucion, LocalDateTime tiempoReferencia) {
+    private void crearEventosTemporales(Solucion solucion, ZonedDateTime tiempoReferencia) {
         long inicioCreacion = System.currentTimeMillis();
 
         if (solucion == null || solucion.getEnvios() == null) {
@@ -2339,7 +2455,7 @@ public class Planificador {
             FACTOR_CONVERSION = 2.0; // minutos simulados por segundo real
         }
 
-        LocalDateTime tiempoSimuladoActual = this.tiempoSimuladoActual != null
+        ZonedDateTime tiempoSimuladoActual = this.tiempoSimuladoActual != null
                 ? this.tiempoSimuladoActual
                 : tiempoReferencia;
 
@@ -2367,9 +2483,9 @@ public class Planificador {
 
                     ZonedDateTime llegada = vuelo.getZonedHoraDestino();
                     if (llegada != null) {
-                        LocalDateTime llegadaLocal = llegada.toLocalDateTime();
-
-                        long minutosSimulados = Duration.between(tiempoSimuladoActual, llegadaLocal).toMinutes();
+                        // ✅ Usar ZonedDateTime directamente, no convertir a LocalDateTime
+                        // Duration.between() necesita ambos parámetros del mismo tipo temporal
+                        long minutosSimulados = Duration.between(tiempoSimuladoActual, llegada).toMinutes();
                         if (minutosSimulados >= 0) {
                             long delaySegundos = (long) (minutosSimulados / FACTOR_CONVERSION);
 
@@ -2411,9 +2527,9 @@ public class Planificador {
 
                     ZonedDateTime salida = vuelo.getZonedHoraOrigen();
                     if (salida != null) {
-                        LocalDateTime salidaLocal = salida.toLocalDateTime();
-
-                        long minutosSimulados = Duration.between(tiempoSimuladoActual, salidaLocal).toMinutes();
+                        // ✅ Usar ZonedDateTime directamente, no convertir a LocalDateTime
+                        // Duration.between() necesita ambos parámetros del mismo tipo temporal
+                        long minutosSimulados = Duration.between(tiempoSimuladoActual, salida).toMinutes();
                         if (minutosSimulados >= 0) {
                             long delaySegundos = (long) (minutosSimulados / FACTOR_CONVERSION);
 
@@ -2602,10 +2718,9 @@ public class Planificador {
                                     FACTOR_CONVERSION = 2.0;
                                 }
 
-                                LocalDateTime tiempoReferencia = tiempoLlegada.toLocalDateTime();
-
-                                long minutosSimulados = Duration.between(tiempoReferencia,
-                                        tiempoLiberacion.toLocalDateTime()).toMinutes();
+                                // ✅ Usar ZonedDateTime directamente, no convertir a LocalDateTime
+                                // Duration.between() necesita ambos parámetros del mismo tipo temporal
+                                long minutosSimulados = Duration.between(tiempoLlegada, tiempoLiberacion).toMinutes();
 
                                 if (minutosSimulados >= 0) {
                                     long delaySegundos = (long) (minutosSimulados / FACTOR_CONVERSION);

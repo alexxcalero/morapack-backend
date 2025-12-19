@@ -10,8 +10,8 @@ import pe.edu.pucp.morapack.dtos.VueloPlanificadorDto;
 import pe.edu.pucp.morapack.dtos.AeropuertoEstadoDto;
 import pe.edu.pucp.morapack.dtos.EnvioSimDiaResumenDto;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -26,7 +26,7 @@ public class PlanificacionWebSocketServiceImp {
     private final AeropuertoService aeropuertoService;
     private final SimpMessagingTemplate messagingTemplate;
     private final EnvioSimulacionDiaService envioSimulacionDiaService;
-    
+
 
     public void enviarEstadoSimulacionDia(long simMs, String fechaYyyyMmDd, int ciclo) {
         EnvioSimDiaResumenDto resumen = envioSimulacionDiaService.obtenerResumen(fechaYyyyMmDd, simMs);
@@ -166,8 +166,23 @@ public class PlanificacionWebSocketServiceImp {
                     Map<String, Object> parteFrontend = new HashMap<>();
                     parteFrontend.put("cantidad", parte.getCantidad());
                     parteFrontend.put("origen", parte.getAeropuertoOrigen().getCodigo());
-                    parteFrontend.put("llegadaFinal", parte.getLlegadaFinal().format(
-                            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+
+                    // ✅ Proteger contra llegadaFinal null o que no sea ZonedDateTime
+                    try {
+                        ZonedDateTime llegadaFinal = parte.getLlegadaFinal();
+                        if (llegadaFinal != null) {
+                            parteFrontend.put("llegadaFinal", llegadaFinal.format(
+                                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+                        } else {
+                            parteFrontend.put("llegadaFinal", "N/A");
+                        }
+                    } catch (Exception e) {
+                        // Si hay error al acceder a llegadaFinal, usar "N/A"
+                        System.err.printf("⚠️ Error accediendo a llegadaFinal para parte %d: %s%n",
+                                parte.getId(), e.getMessage());
+                        e.printStackTrace();
+                        parteFrontend.put("llegadaFinal", "N/A");
+                    }
 
                     // Tramos de la parte
                     List<Map<String, Object>> tramosFrontend = new ArrayList<>();

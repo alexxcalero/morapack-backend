@@ -274,7 +274,7 @@ public class EnvioController {
                     Map<String, Object> parteMap = new HashMap<>();
                     parteMap.put("id", parte.getId());
                     parteMap.put("cantidad", parte.getCantidad());
-                    parteMap.put("llegadaFinal", parte.getLlegadaFinal());
+                    //parteMap.put("llegadaFinal", parte.getLlegadaFinal());
 
                     if (parte.getAeropuertoOrigen() != null) {
                         parteMap.put("aeropuertoOrigen", Map.of(
@@ -448,7 +448,7 @@ public class EnvioController {
                 parteMap.put("id", parte.getId());
                 parteMap.put("cantidad", parte.getCantidad());
                 parteMap.put("entregado", parte.getEntregado());
-                parteMap.put("llegadaFinal", parte.getLlegadaFinal());
+                //parteMap.put("llegadaFinal", parte.getLlegadaFinal());
 
                 // Aeropuerto origen de la parte
                 if (parte.getAeropuertoOrigen() != null) {

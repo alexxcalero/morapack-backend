@@ -1,0 +1,20 @@
+=== REPORTE DE PLANIFICACIÓN ===
+Fecha: 2025-12-18 23:14:04
+
+📊 RESULTADOS DEL CICLO 1:
+   • Horizonte planificado: 2025-12-25 18:13 → 2025-12-25 22:13
+   • Pedidos procesados: 2
+   • Pedidos completados: 2
+
+📋 DETALLE DE RUTAS ASIGNADAS
+====================================================================================================
+📦 PEDIDO 12 → SCEL (990 unidades)
+   ⏰ Aparición: dic 25 20:28 (UTC-03:00)
+   🚚 Parte 1 (300 unidades desde SPIM):
+      ✈️  SPIM → SCEL | dic 25 19:34 (UTC-05:00) - dic 26 02:38 (UTC-03:00) | Cap: 300/300
+      🏁 Llegada final: dic 26 02:38 (UTC-03:00)
+   🚚 Parte 2 (160 unidades desde SPIM):
+      ✈️  SPIM → SCEL | dic 26 03:11 (UTC-05:00) - dic 26 10:15 (UTC-03:00) | Cap: 160/340
+      🏁 Llegada final: dic 26 10:15 (UTC-03:00)
+
+====================================================================================================
