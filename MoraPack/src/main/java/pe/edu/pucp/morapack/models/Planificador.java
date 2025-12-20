@@ -606,9 +606,27 @@ public class Planificador {
                 }
             }
 
+            int flag = 1;
             if (!pedidosSinRuta.isEmpty()) {
                 System.out.printf("⚠️ ALERTA: %d pedido(s) no pudieron ser asignados completamente:%n",
                         pedidosSinRuta.size());
+
+                // -------------------------------
+                if(flag == 1) {
+                    for (Envio envio : pedidosSinRuta) {
+                        System.out.printf("  - Pedido ID: %d, Cliente: %s, Cantidad restante: %d%n",
+                                envio.getId(), envio.getCliente(), envio.cantidadRestante());
+                    }
+
+                    // Detener planificación si hay pedidos sin ruta (aplica para ambos modos)
+                    System.out.println("🛑 Deteniendo planificación: no se encontró ruta para uno o más pedidos");
+                    generarReporteConPedidosSinRuta(solucion, pedidosParaPlanificar, ciclo, pedidosSinRuta,
+                            inicioHorizonte);
+                    detenerPlanificacion();
+                    return;
+                }
+                
+                // -------------------------------
 
                 // Verificar si se deben mostrar pedidos sin ruta en el reporte
                 boolean mostrarPedidosSinRutaEnReporte = false;
@@ -1702,9 +1720,11 @@ public class Planificador {
 
         // Determinar valor de pedidos completados según condiciones
         int pedidosCompletadosArchivo = solucion.getEnviosCompletados();
-        if (modoSimulacion == ModoSimulacion.SEMANAL && obtenerAnioFechaInicio() == 2025) {
-            pedidosCompletadosArchivo = pedidosProcesados.size();
-        }
+        // OJO
+
+        //if (modoSimulacion == ModoSimulacion.SEMANAL && obtenerAnioFechaInicio() == 2025) {
+        //    pedidosCompletadosArchivo = pedidosProcesados.size();
+        //}
 
         String lineaCompletadosArchivo = String.format("   • Pedidos completados: %d", pedidosCompletadosArchivo);
         reporte.append(lineaCompletadosArchivo).append("\n");
