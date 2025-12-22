@@ -555,7 +555,7 @@ public class Grasp {
         for (Envio envio : enviosCopia) {
             Integer partesUsadas = 0;
 
-            while (envio.cantidadRestante() > 0 && partesUsadas < 3) {
+            while (envio.cantidadRestante() > 0 && partesUsadas < 4) {
                 List<CandidatoRuta> rutaCandidata = getCandidatosRuta(envio, planesDeVuelo);
 
                 if (rutaCandidata.isEmpty()) {
