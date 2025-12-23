@@ -40,9 +40,7 @@ public class Planificador {
 
     // Configuración de planificación programada
     private static final int SA_MINUTOS = 2; // Salto del algoritmo - ejecutar cada 2 minutos
-    private static final int K_NORMAL = 120; // Factor de consumo - planificar 240 minutos adelante (modo normal y
-    // semanal)
-    private static final int K_COLAPSO = 240; // Factor de consumo - planificar 480 minutos adelante (modo colapso)
+    private static final int K = 240; // Factor de consumo - planificar 480 minutos adelante (para SEMANAL y COLAPSO)
     private static final int TA_SEGUNDOS = 100; // ⚡ OPTIMIZADO: Tiempo máximo GRASP - ~1 minuto (antes 100s)
 
     // Método para obtener el valor de K según el modo de simulación
@@ -50,7 +48,8 @@ public class Planificador {
         if (modoSimulacion == ModoSimulacion.OPERACIONES_DIARIAS) {
             return 1; // K=1 para operaciones diarias en tiempo real
         }
-        return modoSimulacion == ModoSimulacion.COLAPSO ? K_COLAPSO : K_NORMAL;
+        // Para SEMANAL y COLAPSO, siempre usar K=240
+        return K;
     }
 
     // Estado del planificador
@@ -625,7 +624,7 @@ public class Planificador {
                     detenerPlanificacion();
                     return;
                 }
-                
+
                 // -------------------------------
 
                 // Verificar si se deben mostrar pedidos sin ruta en el reporte

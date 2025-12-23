@@ -613,39 +613,32 @@ public class PlanificadorController {
             this.fechaInicioSimulacion = fechaInicio;
             this.fechaFinSimulacion = null; // Sin límite para simulación colapso
 
-            // Cargar datos necesarios
+            // Cargar datos necesarios (solo básicos - envíos y vuelos se cargarán por ciclo desde BD)
+            System.out.println("📂 Cargando aeropuertos...");
             ArrayList<Aeropuerto> aeropuertos = aeropuertoService.obtenerTodosAeropuertos();
-            ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
-            ArrayList<Pais> paises = paisService.obtenerTodosPaises();
+            System.out.println("✅ Aeropuertos cargados: " + aeropuertos.size());
 
-            // ⚡ OPTIMIZACIÓN: Cargar solo vuelos y envíos desde la fecha de inicio
-            // (simulación colapso sin límite)
-            LocalDateTime fechaInicioVuelos = fechaInicio.minusDays(1);
-            ArrayList<PlanDeVuelo> planes = planDeVueloService.obtenerVuelosDesdeFecha(fechaInicioVuelos, "0");
-            ArrayList<Envio> envios = envioService.obtenerEnviosDesdeFechaConPartes(fechaInicioVuelos, "0");
+            System.out.println("📂 Cargando continentes...");
+            ArrayList<Continente> continentes = continenteService.obtenerTodosContinentes();
+            System.out.println("✅ Continentes cargados: " + continentes.size());
+
+            System.out.println("📂 Cargando países...");
+            ArrayList<Pais> paises = paisService.obtenerTodosPaises();
+            System.out.println("✅ Países cargados: " + paises.size());
 
             System.out.println("🚀 INICIANDO SIMULACIÓN DE COLAPSO");
-            System.out.println("DEBUG: aeropuertos=" + aeropuertos.size() +
-                    ", planes=" + planes.size() + " (desde: " + fechaInicioVuelos + ")" +
-                    ", envios=" + envios.size());
+            System.out.println("📊 DEBUG: aeropuertos=" + aeropuertos.size() +
+                    " (envíos y vuelos se cargarán por ciclo desde BD según horizonte K)");
 
-            // Configurar GRASP
+            // Configurar GRASP con datos básicos solamente
+            // ⚡ OPTIMIZACIÓN: No cargar envíos ni vuelos aquí - se cargarán por ciclo desde BD
             Grasp grasp = new Grasp();
             grasp.setAeropuertos(aeropuertos);
             grasp.setContinentes(continentes);
             grasp.setPaises(paises);
-            grasp.setEnvios(envios);
-            grasp.setPlanesDeVuelo(planes);
+            grasp.setEnvios(new ArrayList<>()); // Lista vacía inicial - se cargarán por ciclo
+            grasp.setPlanesDeVuelo(new ArrayList<>()); // Lista vacía inicial - se cargarán por ciclo
             grasp.setHubsPropio();
-
-            // Configurar hubs para los envíos
-            ArrayList<Aeropuerto> hubs = grasp.getHubs();
-            if (hubs != null && !hubs.isEmpty()) {
-                ArrayList<Aeropuerto> uniqHubs = new ArrayList<>(new LinkedHashSet<>(hubs));
-                for (Envio e : grasp.getEnvios()) {
-                    e.setAeropuertosOrigen(new ArrayList<>(uniqHubs));
-                }
-            }
 
             // Crear e iniciar el planificador en modo COLAPSO
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
@@ -1784,7 +1777,7 @@ public class PlanificadorController {
 
     /**
      * Endpoint para descargar el reporte de la última planificación
-     * 
+     *
      * @return ResponseEntity con el archivo de reporte
      */
     @GetMapping("/descargar-reporte")

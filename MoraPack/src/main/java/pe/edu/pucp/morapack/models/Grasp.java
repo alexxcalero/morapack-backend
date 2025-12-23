@@ -555,7 +555,7 @@ public class Grasp {
         for (Envio envio : enviosCopia) {
             Integer partesUsadas = 0;
 
-            while (envio.cantidadRestante() > 0 && partesUsadas < 4) {
+            while (envio.cantidadRestante() > 0 && partesUsadas < 8) {
                 List<CandidatoRuta> rutaCandidata = getCandidatosRuta(envio, planesDeVuelo);
 
                 if (rutaCandidata.isEmpty()) {
@@ -589,9 +589,38 @@ public class Grasp {
                     Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
                     if (destinoAeropuerto != null) {
                         // Los productos llegan al aeropuerto destino cuando el vuelo llega
-                        // Verificar capacidad disponible en el aeropuerto destino (considerando
-                        // reservas)
-                        int capacidadLibreAeropuerto = getCapacidadLibreAeropuertoConReservas(destinoAeropuerto);
+                        // Verificar capacidad disponible en el aeropuerto destino
+
+                        // ⚡ CRÍTICO: Si es el aeropuerto destino FINAL del envío, considerar que
+                        // múltiples partes del mismo envío pueden llegar en diferentes momentos
+                        // Por lo tanto, solo considerar la capacidad base y las partes ya asignadas
+                        // del mismo envío, no las reservas de otras partes que aún no han llegado
+                        boolean esDestinoFinal = (i == escogido.getTramos().size() - 1) &&
+                                destinoAeropuerto.getId().equals(envio.getAeropuertoDestino().getId());
+
+                        int capacidadLibreAeropuerto;
+                        if (esDestinoFinal) {
+                            // ⚡ CRÍTICO: Para el destino final, permitir múltiples partes del mismo envío
+                            // que lleguen en diferentes momentos. Las partes anteriores se entregarán
+                            // y liberarán espacio antes de que lleguen las siguientes.
+                            // Por lo tanto, solo considerar la capacidad base, no las reservas de
+                            // otras partes del mismo envío que aún no han llegado.
+                            int capacidadOcupada = destinoAeropuerto.getCapacidadOcupada() != null
+                                    ? destinoAeropuerto.getCapacidadOcupada() : 0;
+                            int reservasTotales = reservasAeropuertos.getOrDefault(destinoAeropuerto.getId(), 0);
+                            // Restar las partes ya asignadas de este envío de las reservas totales
+                            // (porque esas reservas son de este envío y no deberían limitar nuevas partes)
+                            int partesYaAsignadasEsteEnvio = envio.cantidadAsignada();
+                            int reservasOtrosEnvios = Math.max(0, reservasTotales - partesYaAsignadasEsteEnvio);
+                            capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadMaxima()
+                                    - capacidadOcupada
+                                    - reservasOtrosEnvios;
+                            // Asegurar que no sea negativo
+                            capacidadLibreAeropuerto = Math.max(0, capacidadLibreAeropuerto);
+                        } else {
+                            // Para aeropuertos intermedios: usar la verificación normal con reservas
+                            capacidadLibreAeropuerto = getCapacidadLibreAeropuertoConReservas(destinoAeropuerto);
+                        }
                         capacidadReal = Math.min(capacidadReal, capacidadLibreAeropuerto);
                     }
                 }
@@ -657,7 +686,62 @@ public class Grasp {
             rutas.put(clave, candidatos);
         }
 
-        return new ArrayList<>(rutas.get(clave));
+        // ⚡ CRÍTICO: Filtrar y ajustar candidatos cacheados considerando reservas actuales
+        // Los candidatos se generaron antes de que otros envíos hicieran reservas,
+        // por lo que debemos verificar que aún tengan capacidad disponible
+        ArrayList<CandidatoRuta> candidatosCacheados = rutas.get(clave);
+        ArrayList<CandidatoRuta> candidatosValidos = new ArrayList<>();
+
+        for (CandidatoRuta candidato : candidatosCacheados) {
+            // Recalcular la capacidad real de la ruta considerando reservas actuales
+            Integer capacidadReal = Integer.MAX_VALUE;
+
+            // Verificar capacidad de vuelos en la ruta
+            for (PlanDeVuelo v : candidato.getTramos()) {
+                capacidadReal = Math.min(capacidadReal, getCapacidadLibreConReservas(v));
+            }
+
+            // Verificar capacidad de aeropuertos en la ruta
+            for (int i = 0; i < candidato.getTramos().size(); i++) {
+                PlanDeVuelo vuelo = candidato.getTramos().get(i);
+                Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
+                if (destinoAeropuerto != null) {
+                    boolean esDestinoFinal = (i == candidato.getTramos().size() - 1) &&
+                            destinoAeropuerto.getId().equals(envio.getAeropuertoDestino().getId());
+
+                    int capacidadLibreAeropuerto;
+                    if (esDestinoFinal) {
+                        // Para destino final: permitir múltiples partes del mismo envío
+                        int capacidadOcupada = destinoAeropuerto.getCapacidadOcupada() != null
+                                ? destinoAeropuerto.getCapacidadOcupada() : 0;
+                        int reservasTotales = reservasAeropuertos.getOrDefault(destinoAeropuerto.getId(), 0);
+                        int partesYaAsignadasEsteEnvio = envio.cantidadAsignada();
+                        int reservasOtrosEnvios = Math.max(0, reservasTotales - partesYaAsignadasEsteEnvio);
+                        capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadMaxima()
+                                - capacidadOcupada
+                                - reservasOtrosEnvios;
+                        capacidadLibreAeropuerto = Math.max(0, capacidadLibreAeropuerto);
+                    } else {
+                        capacidadLibreAeropuerto = getCapacidadLibreAeropuertoConReservas(destinoAeropuerto);
+                    }
+                    capacidadReal = Math.min(capacidadReal, capacidadLibreAeropuerto);
+                }
+            }
+
+            // Solo incluir candidatos que aún tengan capacidad disponible
+            if (capacidadReal > 0) {
+                // Crear una copia del candidato con la capacidad actualizada
+                CandidatoRuta candidatoActualizado = new CandidatoRuta();
+                candidatoActualizado.setTramos(candidato.getTramos());
+                candidatoActualizado.setLlegada(candidato.getLlegada());
+                candidatoActualizado.setScore(candidato.getScore());
+                candidatoActualizado.setCapacidadRuta(Math.min(candidato.getCapacidadRuta(), capacidadReal));
+                candidatoActualizado.setOrigen(candidato.getOrigen());
+                candidatosValidos.add(candidatoActualizado);
+            }
+        }
+
+        return candidatosValidos;
     }
 
     private String generarClave(Envio envio) {
