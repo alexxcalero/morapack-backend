@@ -2532,6 +2532,9 @@ public class Planificador {
                                         minutosSimulados, delaySegundos);
                             }
 
+                            // ⚡ COMENTADO: Eventos temporales de asignación de capacidad en aeropuertos
+                            // Ahora se manejan mediante WebSocket desde el frontend
+                            /*
                             EventoTemporal eventoLlegada = new EventoTemporal(
                                     llegada,
                                     EventoTemporal.TipoEvento.LLEGADA_VUELO,
@@ -2559,6 +2562,7 @@ public class Planificador {
                                                 ? ((ThreadPoolExecutor) schedulerEventos).getActiveCount()
                                                 : -1);
                             }
+                            */
                         }
                     }
 
@@ -2576,6 +2580,9 @@ public class Planificador {
                                         minutosSimulados, delaySegundos);
                             }
 
+                            // ⚡ COMENTADO: Eventos temporales de desasignación de capacidad en aeropuertos
+                            // Ahora se manejan mediante WebSocket desde el frontend
+                            /*
                             EventoTemporal eventoSalida = new EventoTemporal(
                                     salida,
                                     EventoTemporal.TipoEvento.SALIDA_VUELO,
@@ -2603,6 +2610,7 @@ public class Planificador {
                                                 ? ((ThreadPoolExecutor) schedulerEventos).getActiveCount()
                                                 : -1);
                             }
+                            */
                         }
                     }
                 }
@@ -2763,6 +2771,9 @@ public class Planificador {
                                 if (minutosSimulados >= 0) {
                                     long delaySegundos = (long) (minutosSimulados / FACTOR_CONVERSION);
 
+                                    // ⚡ COMENTADO: Evento temporal de liberación de productos del aeropuerto destino final
+                                    // Ahora se maneja mediante WebSocket desde el frontend
+                                    /*
                                     EventoTemporal eventoLiberacion = new EventoTemporal(
                                             tiempoLiberacion,
                                             EventoTemporal.TipoEvento.LIBERAR_PRODUCTOS,
@@ -2780,6 +2791,7 @@ public class Planificador {
                                             TimeUnit.SECONDS);
 
                                     eventosProgramados.add(futuro);
+                                    */
                                 }
                             }
                         } catch (Exception e) {
@@ -2799,7 +2811,12 @@ public class Planificador {
                 }
 
             } else if (evento.getTipo() == EventoTemporal.TipoEvento.SALIDA_VUELO) {
-                aeropuertoService.decrementarCapacidadOcupada(evento.getAeropuertoId(), evento.getCantidad());
+                // ⚡ CRÍTICO: NO desasignar capacidad del aeropuerto origen si es el primer vuelo
+                // porque los productos están en el hub (capacidad ilimitada) y no ocupan capacidad real
+                // Solo desasignar si NO es el primer vuelo (productos salen de un aeropuerto intermedio)
+                if (!evento.isPrimerVuelo()) {
+                    aeropuertoService.decrementarCapacidadOcupada(evento.getAeropuertoId(), evento.getCantidad());
+                }
 
                 Envio envio = evento.getEnvio();
                 if (evento.isPrimerVuelo() && envio != null && envio.getId() != null) {

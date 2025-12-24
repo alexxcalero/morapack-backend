@@ -91,9 +91,18 @@ public class ParteAsignada {
         }
 
         // Ordenar por orden y extraer los planes de vuelo
+        // Manejar casos donde orden puede ser null
         this.ruta = this.vuelosRuta.stream()
-                .sorted((a, b) -> Integer.compare(a.getOrden(), b.getOrden()))
+                .sorted((a, b) -> {
+                    Integer ordenA = a.getOrden();
+                    Integer ordenB = b.getOrden();
+                    if (ordenA == null && ordenB == null) return 0;
+                    if (ordenA == null) return 1; // nulls al final
+                    if (ordenB == null) return -1;
+                    return Integer.compare(ordenA, ordenB);
+                })
                 .map(ParteAsignadaPlanDeVuelo::getPlanDeVuelo)
+                .filter(vuelo -> vuelo != null) // Filtrar vuelos null por si acaso
                 .collect(Collectors.toList());
     }
 

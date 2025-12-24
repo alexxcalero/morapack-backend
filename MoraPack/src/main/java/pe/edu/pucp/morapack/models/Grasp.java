@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 public class Grasp {
 
     // ⚡ OPTIMIZADO: Reducir iteraciones para completar en < 90 segundos
-    private static final int MAX_ITERACIONES = 30; // Antes: 100
+    private static final int MAX_ITERACIONES = 50; // Antes: 100
     private static final int MAX_SIN_MEJORA = 2; // Antes: 3
     private static final int DIAS_A_INSTANCIAR = 3;
 
@@ -555,7 +555,7 @@ public class Grasp {
         for (Envio envio : enviosCopia) {
             Integer partesUsadas = 0;
 
-            while (envio.cantidadRestante() > 0 && partesUsadas < 8) {
+            while (envio.cantidadRestante() > 0 && partesUsadas < 12) {
                 List<CandidatoRuta> rutaCandidata = getCandidatosRuta(envio, planesDeVuelo);
 
                 if (rutaCandidata.isEmpty()) {
@@ -617,7 +617,7 @@ public class Grasp {
                             ZonedDateTime llegadaEstaParte = escogido.getLlegada();
                             int reservasMismoMomento = 0;
 
-                            // Sumar reservas de partes ya asignadas de otros envíos que lleguen en el mismo momento
+                            // Sumar reservas de partes ya asignadas de OTROS envíos que lleguen en el mismo momento
                             for (Envio otroEnvio : enviosCopia) {
                                 if (otroEnvio.getId() != null && envio.getId() != null
                                         && otroEnvio.getId().equals(envio.getId()))
@@ -637,21 +637,119 @@ public class Grasp {
                                 }
                             }
 
+                            // ⚡ NUEVO: También considerar las partes del MISMO envío que ya se asignaron
+                            // en esta iteración y que llegarán en el mismo momento
+                            if (envio.getParteAsignadas() != null) {
+                                for (ParteAsignada parte : envio.getParteAsignadas()) {
+                                    if (parte.getLlegadaFinal() != null && llegadaEstaParte != null) {
+                                        // Si la llegada está dentro de 2 horas, considerar la reserva
+                                        Duration diferencia = Duration.between(
+                                                parte.getLlegadaFinal(), llegadaEstaParte).abs();
+                                        if (diferencia.toHours() <= 2) {
+                                            reservasMismoMomento += parte.getCantidad();
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ⚡ CRÍTICO: Para el destino final, usar solo reservas en el mismo momento
+                            // (dentro de 2 horas). Esto permite que envíos con diferentes tiempos de llegada
+                            // no compitan directamente, lo cual es correcto porque los productos se liberan
+                            // después de 2 horas en el destino final.
+                            // Las reservas globales pueden incluir reservas que llegarán en otros momentos,
+                            // por lo que no debemos considerarlas aquí (sería demasiado restrictivo).
                             capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadMaxima()
                                     - capacidadOcupada
                                     - reservasMismoMomento;
                             capacidadLibreAeropuerto = Math.max(0, capacidadLibreAeropuerto);
                         } else {
-                            // Para aeropuertos intermedios: usar la verificación normal con reservas
-                            capacidadLibreAeropuerto = getCapacidadLibreAeropuertoConReservas(destinoAeropuerto);
+                            // ⚡ CRÍTICO: Para aeropuertos intermedios (escalas), los productos permanecen
+                            // desde la llegada hasta la salida del siguiente vuelo. Necesitamos verificar
+                            // si hay solapamiento de tiempos con otras partes que ya están asignadas.
+
+                            // Calcular el período de tiempo que esta parte estará en el aeropuerto intermedio
+                            ZonedDateTime llegadaAeropuertoIntermedio = vuelo.getZonedHoraDestino();
+                            ZonedDateTime salidaAeropuertoIntermedio = null;
+
+                            // El siguiente vuelo en la ruta es el que sacará los productos del aeropuerto
+                            if (i + 1 < escogido.getTramos().size()) {
+                                PlanDeVuelo siguienteVuelo = escogido.getTramos().get(i + 1);
+                                salidaAeropuertoIntermedio = siguienteVuelo.getZonedHoraOrigen();
+                            }
+
+                            int capacidadOcupada = destinoAeropuerto.getCapacidadOcupada() != null
+                                    ? destinoAeropuerto.getCapacidadOcupada() : 0;
+
+                            // Si tenemos información temporal completa, verificar solapamientos
+                            if (llegadaAeropuertoIntermedio != null && salidaAeropuertoIntermedio != null) {
+                                int reservasSolapadas = 0;
+
+                                // Sumar reservas de partes ya asignadas que se solapen temporalmente
+                                // (que lleguen antes de que esta parte salga, y salgan después de que esta parte llegue)
+                                for (Envio otroEnvio : enviosCopia) {
+                                    if (otroEnvio.getParteAsignadas() != null) {
+                                        for (ParteAsignada parte : otroEnvio.getParteAsignadas()) {
+                                            // Buscar si esta parte pasa por el mismo aeropuerto intermedio
+                                            List<PlanDeVuelo> rutaParte = parte.getRuta();
+                                            if (rutaParte != null && rutaParte.size() > 0) {
+                                                for (int j = 0; j < rutaParte.size() - 1; j++) {
+                                                    PlanDeVuelo vueloParte = rutaParte.get(j);
+                                                    if (vueloParte.getCiudadDestino().equals(destinoAeropuerto.getId())) {
+                                                        // Esta parte también pasa por este aeropuerto intermedio
+                                                        ZonedDateTime llegadaParte = vueloParte.getZonedHoraDestino();
+                                                        ZonedDateTime salidaParte = null;
+
+                                                        if (j + 1 < rutaParte.size()) {
+                                                            salidaParte = rutaParte.get(j + 1).getZonedHoraOrigen();
+                                                        }
+
+                                                        // Verificar solapamiento: si hay intersección temporal
+                                                        if (llegadaParte != null && salidaParte != null) {
+                                                            // Hay solapamiento si:
+                                                            // - La parte llega antes de que esta parte salga, Y
+                                                            // - La parte sale después de que esta parte llegue
+                                                            boolean seSolapan = llegadaParte.isBefore(salidaAeropuertoIntermedio) &&
+                                                                    salidaParte.isAfter(llegadaAeropuertoIntermedio);
+
+                                                            if (seSolapan) {
+                                                                reservasSolapadas += parte.getCantidad();
+                                                                break; // Solo contar una vez por parte
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Para aeropuertos intermedios con información temporal, usar solo reservas solapadas
+                                // (más preciso que considerar todas las reservas globales)
+                                capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadMaxima()
+                                        - capacidadOcupada
+                                        - reservasSolapadas;
+                                capacidadLibreAeropuerto = Math.max(0, capacidadLibreAeropuerto);
+                            } else {
+                                // Si no tenemos información temporal, usar la verificación normal con reservas
+                                // (esto puede ser demasiado conservador, pero es necesario cuando no hay info temporal)
+                                capacidadLibreAeropuerto = getCapacidadLibreAeropuertoConReservas(destinoAeropuerto);
+                            }
                         }
                         capacidadReal = Math.min(capacidadReal, capacidadLibreAeropuerto);
                     }
                 }
 
                 Integer cant = Math.min(envio.cantidadRestante(), capacidadReal);
-                if (cant <= 0)
+                if (cant <= 0) {
+                    // ⚡ DEBUG: Log cuando no hay capacidad disponible en esta iteración
+                    // Esto es normal en GRASP - otras iteraciones pueden encontrar solución
+                    if (envio.cantidadRestante() > 0 && partesUsadas == 0) {
+                        // Solo log si no se ha asignado ninguna parte (problema más serio)
+                        System.out.printf("⚠️ [GRASP] Envío ID=%d: Sin capacidad disponible en esta iteración. Restante=%d, Partes usadas=%d%n",
+                                envio.getId() != null ? envio.getId() : -1, envio.cantidadRestante(), partesUsadas);
+                    }
                     break;
+                }
 
                 // ⚡ RESERVAR capacidad en vuelos (NO asignar realmente)
                 // Las asignaciones reales se harán cuando los vuelos lleguen (eventos
@@ -755,7 +853,21 @@ public class Grasp {
                 CandidatoRuta candidatoActualizado = new CandidatoRuta();
                 candidatoActualizado.setTramos(candidato.getTramos());
                 candidatoActualizado.setLlegada(candidato.getLlegada());
-                candidatoActualizado.setScore(candidato.getScore());
+
+                // ⚡ AJUSTAR SCORE: Penalizar rutas con poca capacidad disponible
+                // Esto hace que las rutas con escalas sean más atractivas cuando los vuelos directos están saturados
+                long scoreAjustado = candidato.getScore();
+                if (capacidadReal < envio.getNumProductos()) {
+                    // Si la capacidad disponible es menor que el pedido completo, penalizar más
+                    // Penalización inversamente proporcional a la capacidad disponible
+                    // Multiplicador de 50 para que sea significativo comparado con la penalización por escalas (10k)
+                    // Ejemplo: si capacidadReal = 100 y numProductos = 990, penalización = 44,500 puntos
+                    // Esto hará que un vuelo directo con poca capacidad tenga peor score que una ruta con escalas con buena capacidad
+                    long penalizacionCapacidad = (envio.getNumProductos() - capacidadReal) * 50L;
+                    scoreAjustado += penalizacionCapacidad;
+                }
+
+                candidatoActualizado.setScore(scoreAjustado);
                 candidatoActualizado.setCapacidadRuta(Math.min(candidato.getCapacidadRuta(), capacidadReal));
                 candidatoActualizado.setOrigen(candidato.getOrigen());
                 candidatosValidos.add(candidatoActualizado);
@@ -796,7 +908,9 @@ public class Grasp {
             // Estamos en el aeropuerto de origen, sin vuelos tomados y espacio infinito
             beam.add(new PathState(origen, null, new ArrayList<>(), null, Integer.MAX_VALUE));
 
-            // ⚡ OPTIMIZADO: Reducir niveles de búsqueda de 5 a 3 para acelerar
+            // ⚡ AUMENTADO: Permitir hasta 2 escalas (3 segmentos) para mayor flexibilidad en rutas
+            // Esto permite distribuir mejor la carga en múltiples vuelos
+            // Nota: 4 niveles puede generar demasiados candidatos, reducido a 3 niveles (2 escalas) para estabilidad
             for (int nivel = 0; nivel < 3; nivel++) {
                 List<PathState> nuevosEstados = new ArrayList<>();
 
@@ -885,9 +999,9 @@ public class Grasp {
                 // Se ordena por scoreRuta
                 nuevosEstados.sort(Comparator
                         .comparingLong(ps -> scoreRuta(ps.getTramos(), ps.getLlegadaUltimoVuelo(), envio, origen)));
-                // ⚡ OPTIMIZADO: Reducir beam size de 10 a 5 para acelerar
-                if (nuevosEstados.size() > 5)
-                    nuevosEstados = nuevosEstados.subList(0, 5);
+                // ⚡ AUMENTADO: Beam size aumentado a 10 para manejar mejor más niveles de escalas
+                if (nuevosEstados.size() > 10)
+                    nuevosEstados = nuevosEstados.subList(0, 10);
 
                 beam = nuevosEstados;
 
@@ -911,7 +1025,10 @@ public class Grasp {
         if (tramos.isEmpty() || llegada == null)
             return Long.MAX_VALUE / 4;
 
-        long escalas = (long) tramos.size() * 10_000L; // Cada escala suma 10k puntos
+        // ⚡ REDUCIDO: Penalización por escalas reducida de 10k a 3k para hacerlas más atractivas
+        // Esto favorece la distribución de carga en múltiples vuelos en lugar de saturar vuelos directos
+        // Nota: Balance entre hacer escalas atractivas y mantener estabilidad del algoritmo
+        long escalas = (long) tramos.size() * 3_000L; // Cada escala suma 3k puntos (antes 10k)
         long tiempo = llegada.toInstant().toEpochMilli() / 60_000L; // Tiempo en minutos
 
         Duration dl = e.deadlineDesde(origenElegido);

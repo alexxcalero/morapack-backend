@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import pe.edu.pucp.morapack.models.*;
 import pe.edu.pucp.morapack.services.RelojSimulacionDiaService;
+import pe.edu.pucp.morapack.services.LiberacionCapacidadService;
 import pe.edu.pucp.morapack.services.servicesImp.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -40,6 +41,7 @@ public class PlanificadorController {
     private final PlanificacionWebSocketServiceImp webSocketService;
     private final EntityManager entityManager;
     private final RelojSimulacionDiaService relojSimulacionDiaService;
+    private final LiberacionCapacidadService liberacionCapacidadService;
     // Nota: Se eliminaron los repositorios directos - ahora usamos SQL nativo vía
     // EntityManager
 
@@ -51,6 +53,15 @@ public class PlanificadorController {
     private LocalDateTime fechaFinSimulacion;
 
     private final SimpMessagingTemplate messagingTemplate;
+
+    /**
+     * Helper para configurar el planificador después de crearlo
+     */
+    private void configurarPlanificador(Planificador planificador) {
+        if (planificador != null) {
+            liberacionCapacidadService.setPlanificador(planificador);
+        }
+    }
 
     /**
      * Limpia el estado de la simulación día a día (usado por el botón "Limpiar
@@ -215,6 +226,9 @@ public class PlanificadorController {
                     aeropuertoService, relojSimulacionDiaService);
             planificador.iniciarPlanificacionProgramada();
 
+            // ⚡ Configurar el planificador en el servicio de liberación de capacidad
+            configurarPlanificador(planificador);
+
             planificadorIniciado = true;
 
             response.put("estado", "éxito");
@@ -337,6 +351,7 @@ public class PlanificadorController {
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
                     aeropuertoService, relojSimulacionDiaService);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.SEMANAL, fechaInicio, fechaFin);
+            configurarPlanificador(planificador);
 
             planificadorIniciado = true;
 
@@ -436,6 +451,7 @@ public class PlanificadorController {
                     Planificador.ModoSimulacion.OPERACIONES_DIARIAS,
                     fechaAparicionUTC.minusHours(5),
                     null); // Sin fecha fin, usar fecha en UTC
+            configurarPlanificador(planificador);
 
             planificadorIniciado = true;
 
@@ -557,6 +573,7 @@ public class PlanificadorController {
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
                     aeropuertoService, relojSimulacionDiaService);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.SEMANAL, fechaInicio, fechaFin);
+            configurarPlanificador(planificador);
 
             planificadorIniciado = true;
 
@@ -644,6 +661,7 @@ public class PlanificadorController {
             planificador = new Planificador(grasp, webSocketService, envioService, planDeVueloService,
                     aeropuertoService, relojSimulacionDiaService);
             planificador.iniciarPlanificacionProgramada(Planificador.ModoSimulacion.COLAPSO, fechaInicio, null);
+            configurarPlanificador(planificador);
 
             planificadorIniciado = true;
 
@@ -833,6 +851,7 @@ public class PlanificadorController {
                         Planificador.ModoSimulacion.OPERACIONES_DIARIAS,
                         fechaAparicionUTC.minusHours(5),
                         null); // Sin fecha fin, usar fecha en UTC
+                configurarPlanificador(planificador);
 
                 planificadorIniciado = true;
 

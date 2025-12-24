@@ -38,4 +38,24 @@ public interface AeropuertoService {
      * @param cantidad Cantidad a decrementar
      */
     void decrementarCapacidadOcupada(Integer id, Integer cantidad);
+
+    /**
+     * Disminuye la capacidad ocupada de un aeropuerto cuando un vuelo despega.
+     * Versión con validaciones y retorno de éxito/fallo para WebSocket.
+     *
+     * @param aeropuertoId ID del aeropuerto
+     * @param cantidad Cantidad a disminuir (debe ser positiva)
+     * @return true si se actualizó correctamente, false en caso contrario
+     */
+    boolean disminuirCapacidadOcupada(Integer aeropuertoId, Integer cantidad);
+
+    /**
+     * Aumenta la capacidad ocupada de un aeropuerto cuando un vuelo aterriza.
+     * Versión con validaciones y retorno de éxito/fallo para WebSocket.
+     *
+     * @param aeropuertoId ID del aeropuerto
+     * @param cantidad Cantidad a aumentar (debe ser positiva)
+     * @return true si se actualizó correctamente, false en caso contrario
+     */
+    boolean aumentarCapacidadOcupada(Integer aeropuertoId, Integer cantidad);
 }
