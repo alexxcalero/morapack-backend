@@ -83,4 +83,28 @@ public interface EnvioService {
          * El filtrado por fecha se hace en memoria considerando husos horarios.
          */
         ArrayList<Envio> obtenerEnviosPendientes();
+
+        /**
+         * Actualiza el estado de los envíos cuando un vuelo despega.
+         * Si el vuelo es el primer vuelo de alguna parte del envío, cambia el estado a EN_RUTA.
+         *
+         * @param vueloId ID del vuelo que despegó
+         */
+        void actualizarEstadosPorDespegue(Integer vueloId);
+
+        /**
+         * Actualiza el estado de los envíos cuando un vuelo aterriza.
+         * Si el vuelo es el último vuelo de alguna parte y llegó al destino final, cambia el estado a FINALIZADO.
+         *
+         * @param vueloId ID del vuelo que aterrizó
+         * @param aeropuertoDestinoId ID del aeropuerto donde aterrizó
+         */
+        void actualizarEstadosPorAterrizaje(Integer vueloId, Integer aeropuertoDestinoId);
+
+        /**
+         * Actualiza el estado de un envío a ENTREGADO cuando se libera la capacidad del aeropuerto.
+         *
+         * @param parteId ID de la parte asignada que fue entregada
+         */
+        void actualizarEstadoAEntregado(Integer parteId);
 }

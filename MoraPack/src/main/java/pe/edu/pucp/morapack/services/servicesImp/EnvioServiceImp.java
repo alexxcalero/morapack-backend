@@ -8,6 +8,8 @@ import pe.edu.pucp.morapack.models.ParteAsignada;
 import pe.edu.pucp.morapack.models.ParteAsignadaPlanDeVuelo;
 import pe.edu.pucp.morapack.models.PlanDeVuelo;
 import pe.edu.pucp.morapack.repository.EnvioRepository;
+import pe.edu.pucp.morapack.repository.ParteAsignadaRepository;
+import pe.edu.pucp.morapack.repository.ParteAsignadaPlanDeVueloRepository;
 import pe.edu.pucp.morapack.services.EnvioService;
 
 import java.time.*;
@@ -22,6 +24,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class EnvioServiceImp implements EnvioService {
     private final EnvioRepository envioRepository;
+    private final ParteAsignadaPlanDeVueloRepository parteAsignadaPlanDeVueloRepository;
+    private final ParteAsignadaRepository parteAsignadaRepository;
 
     @Override
     public Envio insertarEnvio(Envio envio) {
@@ -709,5 +713,185 @@ public class EnvioServiceImp implements EnvioService {
     @Override
     public ArrayList<Envio> obtenerEnviosPendientes() {
         return envioRepository.findByEstadoIsNull();
+    }
+
+    @Override
+    @Transactional
+    public void actualizarEstadosPorDespegue(Integer vueloId) {
+        if (vueloId == null) {
+            return;
+        }
+
+        try {
+            // Buscar todas las partes asignadas que usan este vuelo
+            List<ParteAsignadaPlanDeVuelo> relaciones = parteAsignadaPlanDeVueloRepository.findAll();
+
+            for (ParteAsignadaPlanDeVuelo relacion : relaciones) {
+                if (relacion.getPlanDeVuelo() == null ||
+                    relacion.getPlanDeVuelo().getId() == null ||
+                    !relacion.getPlanDeVuelo().getId().equals(vueloId)) {
+                    continue;
+                }
+
+                ParteAsignada parte = relacion.getParteAsignada();
+                if (parte == null || parte.getEnvio() == null) {
+                    continue;
+                }
+
+                Envio envio = parte.getEnvio();
+
+                // Cargar la ruta desde BD si es necesario
+                try {
+                    parte.cargarRutaDesdeBD();
+                } catch (Exception e) {
+                    System.err.printf("⚠️ Error al cargar ruta desde BD para parte %d: %s%n",
+                        parte.getId() != null ? parte.getId() : -1, e.getMessage());
+                    continue;
+                }
+
+                // Verificar si este vuelo es el primer vuelo de la ruta
+                List<PlanDeVuelo> ruta = parte.getRuta();
+                if (ruta == null || ruta.isEmpty()) {
+                    continue;
+                }
+
+                PlanDeVuelo primerVuelo = ruta.get(0);
+                if (primerVuelo.getId() == null || !primerVuelo.getId().equals(vueloId)) {
+                    // Este vuelo no es el primero, no cambia el estado
+                    continue;
+                }
+
+                // Si el envío está en PLANIFICADO o null, cambiar a EN_RUTA
+                if (envio.getEstado() == null || envio.getEstado() == Envio.EstadoEnvio.PLANIFICADO) {
+                    envio.setEstado(Envio.EstadoEnvio.EN_RUTA);
+                    envioRepository.save(envio);
+                    System.out.printf("✅ Estado actualizado: Envío %d → EN_RUTA (vuelo %d despegó)%n",
+                        envio.getId(), vueloId);
+                }
+            }
+        } catch (Exception e) {
+            System.err.printf("❌ Error al actualizar estados por despegue para vuelo %d: %s%n",
+                vueloId, e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    @Transactional
+    public void actualizarEstadosPorAterrizaje(Integer vueloId, Integer aeropuertoDestinoId) {
+        if (vueloId == null || aeropuertoDestinoId == null) {
+            return;
+        }
+
+        try {
+            // Buscar todas las partes asignadas que usan este vuelo
+            List<ParteAsignadaPlanDeVuelo> relaciones = parteAsignadaPlanDeVueloRepository.findAll();
+
+            for (ParteAsignadaPlanDeVuelo relacion : relaciones) {
+                if (relacion.getPlanDeVuelo() == null ||
+                    relacion.getPlanDeVuelo().getId() == null ||
+                    !relacion.getPlanDeVuelo().getId().equals(vueloId)) {
+                    continue;
+                }
+
+                ParteAsignada parte = relacion.getParteAsignada();
+                if (parte == null || parte.getEnvio() == null) {
+                    continue;
+                }
+
+                // Cargar la ruta desde BD si es necesario
+                try {
+                    parte.cargarRutaDesdeBD();
+                } catch (Exception e) {
+                    System.err.printf("⚠️ Error al cargar ruta desde BD para parte %d: %s%n",
+                        parte.getId() != null ? parte.getId() : -1, e.getMessage());
+                    continue;
+                }
+
+                // Verificar si este vuelo es el último de la ruta (llegada a destino final)
+                List<PlanDeVuelo> ruta = parte.getRuta();
+                if (ruta == null || ruta.isEmpty()) {
+                    continue;
+                }
+
+                PlanDeVuelo ultimoVuelo = ruta.get(ruta.size() - 1);
+                if (ultimoVuelo.getId() == null || !ultimoVuelo.getId().equals(vueloId)) {
+                    // Este vuelo no es el último, el pedido está en escala
+                    continue;
+                }
+
+                // Verificar que el aeropuerto destino del vuelo coincida con el destino final del envío
+                Envio envio = parte.getEnvio();
+                if (envio.getAeropuertoDestino() == null ||
+                    envio.getAeropuertoDestino().getId() == null ||
+                    !envio.getAeropuertoDestino().getId().equals(aeropuertoDestinoId)) {
+                    // No llegó a su destino final
+                    continue;
+                }
+
+                // ✅ Este pedido llegó a su destino final
+                // Cambiar estado a FINALIZADO si aún no está en FINALIZADO o ENTREGADO
+                if (envio.getEstado() != Envio.EstadoEnvio.FINALIZADO &&
+                    envio.getEstado() != Envio.EstadoEnvio.ENTREGADO) {
+                    envio.setEstado(Envio.EstadoEnvio.FINALIZADO);
+                    envioRepository.save(envio);
+                    System.out.printf("✅ Estado actualizado: Envío %d → FINALIZADO (llegó a destino final)%n",
+                        envio.getId());
+                }
+            }
+        } catch (Exception e) {
+            System.err.printf("❌ Error al actualizar estados por aterrizaje para vuelo %d: %s%n",
+                vueloId, e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    @Transactional
+    public void actualizarEstadoAEntregado(Integer parteId) {
+        if (parteId == null) {
+            return;
+        }
+
+        try {
+            // Buscar la parte asignada
+            Optional<ParteAsignada> parteOpt = parteAsignadaRepository.findById(parteId);
+            if (parteOpt.isEmpty()) {
+                return;
+            }
+
+            ParteAsignada parte = parteOpt.get();
+            Envio envio = parte.getEnvio();
+            if (envio == null) {
+                return;
+            }
+
+            // Marcar la parte como entregada
+            parte.setEntregado(true);
+            parteAsignadaRepository.save(parte);
+
+            // Verificar si todas las partes del envío están entregadas
+            boolean todasEntregadas = true;
+            if (envio.getParteAsignadas() != null) {
+                for (ParteAsignada otraParte : envio.getParteAsignadas()) {
+                    if (otraParte.getEntregado() == null || !otraParte.getEntregado()) {
+                        todasEntregadas = false;
+                        break;
+                    }
+                }
+            }
+
+            // Si todas las partes están entregadas, cambiar el estado del envío a ENTREGADO
+            if (todasEntregadas && envio.getEstado() != Envio.EstadoEnvio.ENTREGADO) {
+                envio.setEstado(Envio.EstadoEnvio.ENTREGADO);
+                envioRepository.save(envio);
+                System.out.printf("✅ Estado actualizado: Envío %d → ENTREGADO (todas las partes entregadas)%n",
+                    envio.getId());
+            }
+        } catch (Exception e) {
+            System.err.printf("❌ Error al actualizar estado a ENTREGADO para parte %d: %s%n",
+                parteId, e.getMessage());
+            e.printStackTrace();
+        }
     }
 }

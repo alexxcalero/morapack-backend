@@ -8,6 +8,7 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 import pe.edu.pucp.morapack.services.AeropuertoService;
+import pe.edu.pucp.morapack.services.EnvioService;
 import pe.edu.pucp.morapack.services.LiberacionCapacidadService;
 
 import java.util.Map;
@@ -25,6 +26,7 @@ public class AeropuertoCapacidadWebSocketController {
     private final AeropuertoService aeropuertoService;
     private final SimpMessagingTemplate messagingTemplate;
     private final LiberacionCapacidadService liberacionCapacidadService;
+    private final EnvioService envioService;
 
     /**
      * Maneja notificaciones de despegue de vuelos.
@@ -68,6 +70,11 @@ public class AeropuertoCapacidadWebSocketController {
             if (exito) {
                 logger.info("✅ Capacidad disminuida en aeropuerto {}: -{} unidades (vuelo {})",
                     aeropuertoId, capacidadOcupada, vueloId);
+
+                // ⚡ Actualizar estados de envíos cuando el vuelo despega
+                if (vueloId != null) {
+                    envioService.actualizarEstadosPorDespegue(vueloId);
+                }
 
                 // Opcional: Notificar a otros clientes conectados sobre el cambio
                 Map<String, Object> notificacion = Map.of(
@@ -130,6 +137,11 @@ public class AeropuertoCapacidadWebSocketController {
             if (exito) {
                 logger.info("✅ Capacidad aumentada en aeropuerto {}: +{} unidades (vuelo {})",
                     aeropuertoId, capacidadOcupada, vueloId);
+
+                // ⚡ Actualizar estados de envíos cuando el vuelo aterriza
+                if (vueloId != null) {
+                    envioService.actualizarEstadosPorAterrizaje(vueloId, aeropuertoId);
+                }
 
                 // ⚡ Verificar qué pedidos llegaron a su destino final y programar liberación
                 if (vueloId != null) {

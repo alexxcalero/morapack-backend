@@ -3,6 +3,7 @@ package pe.edu.pucp.morapack.services;
 import org.springframework.stereotype.Service;
 import pe.edu.pucp.morapack.models.*;
 import pe.edu.pucp.morapack.repository.ParteAsignadaPlanDeVueloRepository;
+import pe.edu.pucp.morapack.services.EnvioService;
 
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
@@ -17,13 +18,16 @@ public class LiberacionCapacidadService {
 
     private final ParteAsignadaPlanDeVueloRepository parteAsignadaPlanDeVueloRepository;
     private final AeropuertoService aeropuertoService;
+    private final EnvioService envioService;
     private Planificador planificador;
 
     public LiberacionCapacidadService(
             ParteAsignadaPlanDeVueloRepository parteAsignadaPlanDeVueloRepository,
-            AeropuertoService aeropuertoService) {
+            AeropuertoService aeropuertoService,
+            EnvioService envioService) {
         this.parteAsignadaPlanDeVueloRepository = parteAsignadaPlanDeVueloRepository;
         this.aeropuertoService = aeropuertoService;
+        this.envioService = envioService;
     }
 
     /**
@@ -159,6 +163,9 @@ public class LiberacionCapacidadService {
                 if (exito) {
                     System.out.printf("✅ Capacidad liberada en aeropuerto %d: -%d unidades (parte %d) después de 2 horas simuladas%n",
                         aeropuertoId, cantidad, parteId);
+
+                    // ⚡ Actualizar estado del envío a ENTREGADO
+                    envioService.actualizarEstadoAEntregado(parteId);
                 } else {
                     System.err.printf("❌ No se pudo liberar capacidad en aeropuerto %d para parte %d%n",
                         aeropuertoId, parteId);
