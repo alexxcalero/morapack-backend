@@ -580,11 +580,26 @@ public class Grasp {
                 // ⚡ Verificación de capacidad considerando RESERVAS (no asignaciones reales)
                 // Las asignaciones reales se harán cuando los vuelos lleguen (eventos
                 // temporales)
+                //
+                // ⚡ CRÍTICO: Para vuelos, DEBEMOS considerar reservas porque un vuelo tiene
+                // capacidad fija y no puede transportar más de su capacidad máxima. Múltiples
+                // pedidos no pueden compartir la misma capacidad de vuelo si excede el máximo.
+                // Sin embargo, para aeropuertos (especialmente destino final), podemos ser
+                // más permisivos porque los productos se liberan después de 2 horas.
                 Integer capacidadReal = Integer.MAX_VALUE;
                 for (PlanDeVuelo v : escogido.getTramos()) {
-                    // Por cada vuelo de la ruta candidata elegida, se va a identificar la minima
-                    // capacidad de los vuelos (considerando reservas)
+                    // Por cada vuelo de la ruta candidata elegida, considerar reservas
+                    // porque un vuelo no puede transportar más de su capacidad máxima
                     capacidadReal = Math.min(capacidadReal, getCapacidadLibreConReservas(v));
+                }
+
+                // ⚡ Si la capacidad de vuelos es 0, no hay nada que hacer
+                if (capacidadReal <= 0) {
+                    if (envio.cantidadRestante() > 0 && partesUsadas == 0) {
+                        System.out.printf("⚠️ [GRASP] Envío ID=%d: Vuelos sin capacidad. Restante=%d, CapacidadReal=%d, Partes usadas=%d%n",
+                                envio.getId() != null ? envio.getId() : -1, envio.cantidadRestante(), capacidadReal, partesUsadas);
+                    }
+                    break;
                 }
 
                 // Verificar también capacidad de aeropuertos intermedios y destino
@@ -652,16 +667,26 @@ public class Grasp {
                                 }
                             }
 
-                            // ⚡ CRÍTICO: Para el destino final, usar solo reservas en el mismo momento
-                            // (dentro de 2 horas). Esto permite que envíos con diferentes tiempos de llegada
-                            // no compitan directamente, lo cual es correcto porque los productos se liberan
-                            // después de 2 horas en el destino final.
-                            // Las reservas globales pueden incluir reservas que llegarán en otros momentos,
-                            // por lo que no debemos considerarlas aquí (sería demasiado restrictivo).
-                            capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadMaxima()
-                                    - capacidadOcupada
-                                    - reservasMismoMomento;
+                            // ⚡ CRÍTICO: Para el destino final durante la fase de construcción, usar solo
+                            // capacidad base (sin considerar reservas). Esto permite que múltiples pedidos
+                            // compitan por la misma capacidad durante la construcción. La verificación precisa
+                            // con tiempos de llegada se hace en la persistencia.
+                            //
+                            // NOTA: Durante la fase de construcción, no consideramos reservasMismoMomento
+                            // porque puede bloquear prematuramente la capacidad cuando múltiples pedidos
+                            // se procesan en el mismo ciclo. La verificación final se hace en la persistencia.
+                            capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadMaxima() - capacidadOcupada;
                             capacidadLibreAeropuerto = Math.max(0, capacidadLibreAeropuerto);
+
+                            // ⚡ DEBUG: Log cuando capacidad de destino final es 0
+                            if (capacidadLibreAeropuerto == 0 && envio.cantidadRestante() > 0 && partesUsadas == 0) {
+                                System.out.printf("🔍 [GRASP DEBUG] Envío ID=%d: Destino final %s sin capacidad. Max=%d, Ocupada=%d, ReservasMismoMomento=%d%n",
+                                        envio.getId() != null ? envio.getId() : -1,
+                                        destinoAeropuerto.getCodigo(),
+                                        destinoAeropuerto.getCapacidadMaxima(),
+                                        capacidadOcupada,
+                                        reservasMismoMomento);
+                            }
                         } else {
                             // ⚡ CRÍTICO: Para aeropuertos intermedios (escalas), los productos permanecen
                             // desde la llegada hasta la salida del siguiente vuelo. Necesitamos verificar
@@ -730,9 +755,11 @@ public class Grasp {
                                         - reservasSolapadas;
                                 capacidadLibreAeropuerto = Math.max(0, capacidadLibreAeropuerto);
                             } else {
-                                // Si no tenemos información temporal, usar la verificación normal con reservas
-                                // (esto puede ser demasiado conservador, pero es necesario cuando no hay info temporal)
-                                capacidadLibreAeropuerto = getCapacidadLibreAeropuertoConReservas(destinoAeropuerto);
+                                // Si no tenemos información temporal, usar solo capacidad base (sin reservas)
+                                // durante la fase de construcción para permitir competencia entre pedidos.
+                                // La verificación final se hace en la persistencia.
+                                capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadMaxima() - capacidadOcupada;
+                                capacidadLibreAeropuerto = Math.max(0, capacidadLibreAeropuerto);
                             }
                         }
                         capacidadReal = Math.min(capacidadReal, capacidadLibreAeropuerto);
@@ -745,8 +772,8 @@ public class Grasp {
                     // Esto es normal en GRASP - otras iteraciones pueden encontrar solución
                     if (envio.cantidadRestante() > 0 && partesUsadas == 0) {
                         // Solo log si no se ha asignado ninguna parte (problema más serio)
-                        System.out.printf("⚠️ [GRASP] Envío ID=%d: Sin capacidad disponible en esta iteración. Restante=%d, Partes usadas=%d%n",
-                                envio.getId() != null ? envio.getId() : -1, envio.cantidadRestante(), partesUsadas);
+                        System.out.printf("⚠️ [GRASP] Envío ID=%d: Sin capacidad disponible. Restante=%d, CapacidadReal=%d, Partes usadas=%d%n",
+                                envio.getId() != null ? envio.getId() : -1, envio.cantidadRestante(), capacidadReal, partesUsadas);
                     }
                     break;
                 }
@@ -816,11 +843,15 @@ public class Grasp {
 
         for (CandidatoRuta candidato : candidatosCacheados) {
             // Recalcular la capacidad real de la ruta considerando reservas actuales
+            // ⚡ NOTA: Durante el filtrado inicial, usamos solo la capacidad base de los vuelos
+            // (sin considerar reservas) para evitar rechazar candidatos válidos prematuramente.
+            // La verificación precisa con reservas se hace en faseConstruccion.
             Integer capacidadReal = Integer.MAX_VALUE;
 
-            // Verificar capacidad de vuelos en la ruta
+            // Verificar capacidad de vuelos en la ruta (solo capacidad base, sin reservas)
             for (PlanDeVuelo v : candidato.getTramos()) {
-                capacidadReal = Math.min(capacidadReal, getCapacidadLibreConReservas(v));
+                int capacidadLibreVuelo = v.getCapacidadMaxima() - (v.getCapacidadOcupada() != null ? v.getCapacidadOcupada() : 0);
+                capacidadReal = Math.min(capacidadReal, capacidadLibreVuelo);
             }
 
             // Verificar capacidad de aeropuertos en la ruta
@@ -841,7 +872,13 @@ public class Grasp {
                         capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadMaxima() - capacidadOcupada;
                         capacidadLibreAeropuerto = Math.max(0, capacidadLibreAeropuerto);
                     } else {
-                        capacidadLibreAeropuerto = getCapacidadLibreAeropuertoConReservas(destinoAeropuerto);
+                        // ⚡ Para aeropuertos intermedios durante el filtrado, usar solo capacidad base
+                        // La verificación precisa con solapamientos temporales se hace en faseConstruccion.
+                        // Esto evita rechazar candidatos válidos prematuramente.
+                        int capacidadOcupada = destinoAeropuerto.getCapacidadOcupada() != null
+                                ? destinoAeropuerto.getCapacidadOcupada() : 0;
+                        capacidadLibreAeropuerto = destinoAeropuerto.getCapacidadMaxima() - capacidadOcupada;
+                        capacidadLibreAeropuerto = Math.max(0, capacidadLibreAeropuerto);
                     }
                     capacidadReal = Math.min(capacidadReal, capacidadLibreAeropuerto);
                 }
