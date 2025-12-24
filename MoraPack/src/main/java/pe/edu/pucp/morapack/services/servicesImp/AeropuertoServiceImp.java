@@ -141,7 +141,6 @@ public class AeropuertoServiceImp implements AeropuertoService {
 
     /**
      * Aumenta la capacidad ocupada de un aeropuerto cuando un vuelo aterriza.
-     * ⚡ Usa operación atómica para evitar condiciones de carrera y limitar automáticamente a capacidad máxima.
      *
      * @param aeropuertoId ID del aeropuerto
      * @param cantidad Cantidad a aumentar (debe ser positiva)
@@ -168,27 +167,24 @@ public class AeropuertoServiceImp implements AeropuertoService {
                 ? aeropuerto.getCapacidadOcupada()
                 : 0;
 
-            // ⚡ CRÍTICO: Usar operación atómica que limita automáticamente a capacidad máxima
-            // Esto evita condiciones de carrera cuando múltiples vuelos aterrizan simultáneamente
-            aeropuertoRepository.incrementarCapacidadOcupada(aeropuertoId, cantidad);
+            // Calcular nueva capacidad
+            Integer nuevaCapacidad = capacidadActual + cantidad;
 
-            // Recargar el aeropuerto para obtener el valor actualizado
-            aeropuertoOpt = aeropuertoRepository.findById(aeropuertoId);
-            if (aeropuertoOpt.isPresent()) {
-                Integer capacidadFinal = aeropuertoOpt.get().getCapacidadOcupada() != null
-                    ? aeropuertoOpt.get().getCapacidadOcupada()
-                    : 0;
-
-                // Verificar si se limitó a la capacidad máxima
-                Integer capacidadMaxima = aeropuerto.getCapacidadMaxima();
-                if (capacidadMaxima != null && capacidadMaxima > 0 && capacidadFinal >= capacidadMaxima) {
-                    logger.warn("⚠️ Capacidad limitada a máxima en aeropuerto {}: {} (intentó aumentar +{})",
-                        aeropuertoId, capacidadMaxima, cantidad);
-                } else {
-                    logger.info("✅ Capacidad aumentada en aeropuerto {}: {} -> {} (+{})",
-                        aeropuertoId, capacidadActual, capacidadFinal, cantidad);
-                }
+            // Opcional: Validar que no exceda la capacidad máxima (si aplica)
+            Integer capacidadMaxima = aeropuerto.getCapacidadMaxima();
+            if (capacidadMaxima != null && capacidadMaxima > 0 && nuevaCapacidad > capacidadMaxima) {
+                logger.warn("⚠️ La capacidad ocupada excedería la máxima en aeropuerto {}: {} > {}",
+                    aeropuertoId, nuevaCapacidad, capacidadMaxima);
+                // Puedes decidir si limitar a la máxima o permitir el exceso
+                // nuevaCapacidad = capacidadMaxima;
             }
+
+            // Actualizar capacidad ocupada
+            aeropuerto.setCapacidadOcupada(nuevaCapacidad);
+            aeropuertoRepository.save(aeropuerto);
+
+            logger.info("✅ Capacidad aumentada en aeropuerto {}: {} -> {} (+{})",
+                aeropuertoId, capacidadActual, nuevaCapacidad, cantidad);
 
             return true;
         } catch (Exception e) {

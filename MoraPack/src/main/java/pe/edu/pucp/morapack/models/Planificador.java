@@ -2433,15 +2433,6 @@ public class Planificador {
 
                 if (capacidadAdicionalCiclo != null && capacidadAdicionalCiclo > 0) {
                     Integer nuevaCapacidadOcupada = capacidadActualBD + capacidadAdicionalCiclo;
-
-                    // ⚡ CRÍTICO: Verificar que no exceda la capacidad máxima del vuelo
-                    Integer capacidadMaxima = planReal.getCapacidadMaxima();
-                    if (capacidadMaxima != null && nuevaCapacidadOcupada > capacidadMaxima) {
-                        System.err.printf("⚠️  SOBREASIGNACIÓN VUELO en persistirCambios: Vuelo ID=%d | %d > %d. Limitando a capacidad máxima.%n",
-                                planId, nuevaCapacidadOcupada, capacidadMaxima);
-                        nuevaCapacidadOcupada = capacidadMaxima;
-                    }
-
                     planReal.setCapacidadOcupada(nuevaCapacidadOcupada);
                     planesParaActualizar.add(planReal);
                 }
