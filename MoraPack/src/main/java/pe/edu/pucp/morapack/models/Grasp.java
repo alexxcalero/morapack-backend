@@ -46,6 +46,18 @@ public class Grasp {
     private Map<Integer, Integer> reservasVuelos = new HashMap<>(); // vueloId -> cantidad reservada
     private Map<Integer, Integer> reservasAeropuertos = new HashMap<>(); // aeropuertoId -> cantidad reservada
 
+    // ⚡ RESERVAS CON TIEMPO: Para validar capacidad considerando llegadas simultáneas (dentro de 2 horas)
+    // Estructura: aeropuertoId -> Lista de (tiempoLlegada, cantidad)
+    private static class ReservaConTiempo {
+        ZonedDateTime tiempoLlegada;
+        Integer cantidad;
+        ReservaConTiempo(ZonedDateTime tiempoLlegada, Integer cantidad) {
+            this.tiempoLlegada = tiempoLlegada;
+            this.cantidad = cantidad;
+        }
+    }
+    private Map<Integer, List<ReservaConTiempo>> reservasAeropuertosConTiempo = new HashMap<>(); // aeropuertoId -> lista de reservas con tiempo
+
     // Definir fabricas principales
     public void setHubsPropio() {
         this.hubs = new ArrayList<>();
@@ -352,6 +364,17 @@ public class Grasp {
         }
     }
 
+    /**
+     * Reserva capacidad en un aeropuerto con tiempo de llegada (para validaciones de capacidad
+     * considerando llegadas simultáneas dentro de 2 horas)
+     */
+    private void reservarAeropuertoConTiempo(Aeropuerto aeropuerto, ZonedDateTime tiempoLlegada, Integer cantidad) {
+        if (aeropuerto.getId() != null && tiempoLlegada != null && cantidad != null) {
+            reservasAeropuertosConTiempo.computeIfAbsent(aeropuerto.getId(), k -> new ArrayList<>())
+                    .add(new ReservaConTiempo(tiempoLlegada, cantidad));
+        }
+    }
+
     public Solucion ejecutarGrasp(List<Envio> envios, ArrayList<PlanDeVuelo> planesDeVuelo) {
         Solucion mejor = null;
         int iteracionesSinMejora = 0;
@@ -370,6 +393,7 @@ public class Grasp {
             // ⚡ Reset reservas al inicio de cada iteración
             reservasVuelos.clear();
             reservasAeropuertos.clear();
+            reservasAeropuertosConTiempo.clear();
 
             // Reset capacidades (solo para verificación, no se asignan realmente)
             planesDeVuelo.forEach(v -> v.setCapacidadOcupada(capacidadBaseVuelos.getOrDefault(v, 0))); // Se reinicia
@@ -437,6 +461,7 @@ public class Grasp {
             // ⚡ Reset reservas al inicio de cada iteración
             reservasVuelos.clear();
             reservasAeropuertos.clear();
+            reservasAeropuertosConTiempo.clear();
 
             // Reset capacidades (solo para verificación, no se asignan realmente)
             planesDeVuelo.forEach(v -> v.setCapacidadOcupada(capacidadBaseVuelos.getOrDefault(v, 0)));
@@ -555,7 +580,9 @@ public class Grasp {
         for (Envio envio : enviosCopia) {
             Integer partesUsadas = 0;
 
-            while (envio.cantidadRestante() > 0 && partesUsadas < 12) {
+            // ⚡ Aumentado de 12 a 20 para permitir más divisiones de pedidos grandes
+            // Esto ayuda a distribuir mejor las llegadas y evitar conflictos de capacidad
+            while (envio.cantidadRestante() > 0 && partesUsadas < 20) {
                 List<CandidatoRuta> rutaCandidata = getCandidatosRuta(envio, planesDeVuelo);
 
                 if (rutaCandidata.isEmpty()) {
@@ -617,22 +644,49 @@ public class Grasp {
                             ZonedDateTime llegadaEstaParte = escogido.getLlegada();
                             int reservasMismoMomento = 0;
 
-                            // Sumar reservas de partes ya asignadas de otros envíos que lleguen en el mismo momento
+                            // 1. Sumar reservas de partes ya asignadas de otros envíos que lleguen en el mismo momento
+                            // ⚡ CRÍTICO: Solo considerar partes de envíos completamente planificados (sin cantidad restante)
+                            // para evitar bloqueos mutuos cuando se planifican múltiples envíos simultáneamente.
+                            // Esto permite que el algoritmo encuentre rutas con llegadas más separadas.
                             for (Envio otroEnvio : enviosCopia) {
                                 if (otroEnvio.getId() != null && envio.getId() != null
                                         && otroEnvio.getId().equals(envio.getId()))
                                     continue; // Saltar el envío actual
 
+                                // ⚡ SOLO considerar envíos completamente planificados para evitar bloqueos mutuos
+                                if (otroEnvio.cantidadRestante() > 0)
+                                    continue; // Saltar envíos que aún no están completamente planificados
+
                                 if (otroEnvio.getParteAsignadas() != null) {
                                     for (ParteAsignada parte : otroEnvio.getParteAsignadas()) {
                                         if (parte.getLlegadaFinal() != null && llegadaEstaParte != null) {
-                                            // Si la llegada está dentro de 2 horas, considerar la reserva
+                                            // ⚡ AJUSTE: Ventana de 1 hora para detectar llegadas simultáneas
+                                            // Esto previene que dos vuelos lleguen casi al mismo tiempo y excedan la capacidad
                                             Duration diferencia = Duration.between(
                                                     parte.getLlegadaFinal(), llegadaEstaParte).abs();
-                                            if (diferencia.toHours() <= 3) {
+                                            if (diferencia.toHours() <= 1) {
                                                 reservasMismoMomento += parte.getCantidad();
                                             }
                                         }
+                                    }
+                                }
+                            }
+
+                            // 2. Sumar reservas temporales del mismo ciclo que lleguen dentro de 1 hora
+                            // ⚡ CRÍTICO: Considerar reservas temporales para prevenir llegadas simultáneas que excedan capacidad
+                            // Usamos una ventana de 1 hora para detectar llegadas simultáneas
+                            // Esto previene que dos vuelos lleguen casi al mismo tiempo y excedan la capacidad del aeropuerto
+                            List<ReservaConTiempo> reservasTemporales = reservasAeropuertosConTiempo.getOrDefault(
+                                    destinoAeropuerto.getId(), Collections.emptyList());
+                            for (ReservaConTiempo reserva : reservasTemporales) {
+                                if (reserva.tiempoLlegada != null && llegadaEstaParte != null) {
+                                    Duration diferencia = Duration.between(
+                                            reserva.tiempoLlegada, llegadaEstaParte).abs();
+                                    // ⚡ Ventana de 1 hora para detectar llegadas simultáneas
+                                    // Esto permite que envíos grandes se planifiquen con llegadas separadas (más de 1 hora)
+                                    // pero previene llegadas casi simultáneas que excedan la capacidad
+                                    if (diferencia.toHours() <= 1) {
+                                        reservasMismoMomento += reserva.cantidad;
                                     }
                                 }
                             }
@@ -649,6 +703,9 @@ public class Grasp {
                     }
                 }
 
+                // ⚡ AJUSTE: Permitir planificar incluso si la capacidad es limitada
+                // El algoritmo puede dividir el envío en múltiples partes con llegadas separadas
+                // Solo rechazar si realmente no hay capacidad disponible (capacidadReal <= 0)
                 Integer cant = Math.min(envio.cantidadRestante(), capacidadReal);
                 if (cant <= 0) {
                     // ⚡ DEBUG: Log cuando no hay capacidad disponible en esta iteración
@@ -691,6 +748,12 @@ public class Grasp {
                     Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
                     if (destinoAeropuerto != null) {
                         reservarAeropuerto(destinoAeropuerto, cant);
+                        // ⚡ CRÍTICO: También registrar la reserva con tiempo de llegada para validaciones
+                        // de capacidad considerando llegadas simultáneas (dentro de 2 horas)
+                        if (i == escogido.getTramos().size() - 1) {
+                            // Solo registrar para el último vuelo (llegada final)
+                            reservarAeropuertoConTiempo(destinoAeropuerto, escogido.getLlegada(), cant);
+                        }
                     }
                 }
 
@@ -933,7 +996,7 @@ public class Grasp {
         if (tramos.isEmpty() || llegada == null)
             return Long.MAX_VALUE / 4;
 
-        long escalas = (long) tramos.size() * 10_000L; // Cada escala suma 10k puntos
+        long escalas = (long) tramos.size() * 20_000L; // Cada escala suma 10k puntos
         long tiempo = llegada.toInstant().toEpochMilli() / 60_000L; // Tiempo en minutos
 
         Duration dl = e.deadlineDesde(origenElegido);
@@ -1042,6 +1105,12 @@ public class Grasp {
                         Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
                         if (destinoAeropuerto != null) {
                             reservarAeropuerto(destinoAeropuerto, parte.getCantidad());
+                            // ⚡ CRÍTICO: También registrar la reserva con tiempo de llegada para validaciones
+                            // de capacidad considerando llegadas simultáneas (dentro de 2 horas)
+                            if (i == c.getTramos().size() - 1) {
+                                // Solo registrar para el último vuelo (llegada final)
+                                reservarAeropuertoConTiempo(destinoAeropuerto, c.getLlegada(), parte.getCantidad());
+                            }
                         }
                     }
 
@@ -1072,6 +1141,12 @@ public class Grasp {
                             Aeropuerto destinoAeropuerto = getAeropuertoById(vuelo.getCiudadDestino());
                             if (destinoAeropuerto != null) {
                                 reservarAeropuerto(destinoAeropuerto, parte.getCantidad());
+                                // ⚡ CRÍTICO: También registrar la reserva con tiempo de llegada para validaciones
+                                // de capacidad considerando llegadas simultáneas (dentro de 2 horas)
+                                if (i == rutaActual.size() - 1 && parte.getLlegadaFinal() != null) {
+                                    // Solo registrar para el último vuelo (llegada final)
+                                    reservarAeropuertoConTiempo(destinoAeropuerto, parte.getLlegadaFinal(), parte.getCantidad());
+                                }
                             }
 
                             // Si NO es el primer vuelo, liberar reserva del aeropuerto de origen

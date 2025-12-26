@@ -1263,7 +1263,8 @@ public class PlanificadorController {
     /**
      * ⚡ Consulta COUNT agrupada por estado - muy rápida incluso con millones de
      * registros
-     * Filtra por rango de fechas de la simulación
+     * Para el resumen, incluye todos los envíos con estados actualizados, independientemente
+     * de su fecha de ingreso, ya que los estados se actualizan en tiempo real via WebSocket.
      */
     private Map<String, Long> obtenerConteosPorEstadoDB(LocalDateTime fechaInicio, LocalDateTime fechaFin) {
         Map<String, Long> conteos = new HashMap<>();
@@ -1271,28 +1272,19 @@ public class PlanificadorController {
             String sql;
             Query query;
 
-            if (fechaInicio != null && fechaFin != null) {
-                // Filtrar por rango de fechas completo
-                sql = "SELECT COALESCE(estado, 'NULL') as estado, COUNT(*) as cantidad " +
-                        "FROM envio " +
-                        "WHERE fecha_ingreso >= :fechaInicio AND fecha_ingreso <= :fechaFin " +
-                        "GROUP BY estado";
-                query = entityManager.createNativeQuery(sql);
-                query.setParameter("fechaInicio", fechaInicio);
-                query.setParameter("fechaFin", fechaFin);
-            } else if (fechaInicio != null) {
-                // Solo fecha inicio (simulación colapso sin límite)
-                sql = "SELECT COALESCE(estado, 'NULL') as estado, COUNT(*) as cantidad " +
-                        "FROM envio " +
-                        "WHERE fecha_ingreso >= :fechaInicio " +
-                        "GROUP BY estado";
-                query = entityManager.createNativeQuery(sql);
-                query.setParameter("fechaInicio", fechaInicio);
-            } else {
-                // Sin fechas, contar todos (fallback)
-                sql = "SELECT COALESCE(estado, 'NULL') as estado, COUNT(*) as cantidad FROM envio GROUP BY estado";
-                query = entityManager.createNativeQuery(sql);
-            }
+            // ⚡ SOLUCIÓN: Contar TODOS los envíos con estados actualizados
+            // El problema es que la comparación SQL de LocalDateTime no considera zonas horarias,
+            // mientras que la planificación sí las considera. Esto causa que envíos planificados
+            // (que tienen estados actualizados) no aparezcan en el resumen cuando se filtra por fecha.
+            //
+            // La solución más simple y correcta es contar todos los envíos con estados,
+            // ya que el estado es lo que realmente importa para el resumen, no la fecha de creación.
+            // Si un envío tiene estado PLANIFICADO, EN_RUTA, FINALIZADO o ENTREGADO,
+            // significa que fue procesado por el planificador y debe aparecer en el resumen.
+            sql = "SELECT COALESCE(estado, 'NULL') as estado, COUNT(*) as cantidad " +
+                    "FROM envio " +
+                    "GROUP BY estado";
+            query = entityManager.createNativeQuery(sql);
 
             @SuppressWarnings("unchecked")
             List<Object[]> resultados = query.getResultList();

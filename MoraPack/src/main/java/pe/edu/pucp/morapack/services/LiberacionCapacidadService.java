@@ -137,7 +137,7 @@ public class LiberacionCapacidadService {
             delaySegundos = 2 * 60 * 60;
         } else {
             // Simulación semanal: delay de 40 segundos reales para 2 horas simuladas
-            delaySegundos = 30;
+            delaySegundos = 20;
 
             /* Código anterior con cálculo de factor de conversión (comentado):
             // Simulación semanal: usar factor de conversión similar al usado en crearEventosTemporales
