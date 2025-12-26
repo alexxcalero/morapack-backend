@@ -192,7 +192,13 @@ public class Grasp {
         final ZonedDateTime inicio = fechaInicioMinima;
         final ZonedDateTime fin = fechaFinMaxima;
 
-        return todosLosVuelos.stream()
+        // ⚡ DEBUG: Log de la ventana temporal calculada
+        System.out.printf("🔍 [filtrarVuelosPorVentanaTemporal] Ventana temporal: %s hasta %s (total vuelos: %d)%n",
+                inicio.format(java.time.format.DateTimeFormatter.ISO_ZONED_DATE_TIME),
+                fin.format(java.time.format.DateTimeFormatter.ISO_ZONED_DATE_TIME),
+                todosLosVuelos.size());
+
+        ArrayList<PlanDeVuelo> vuelosFiltrados = todosLosVuelos.stream()
                 .filter(v -> {
                     ZonedDateTime salida = v.getZonedHoraOrigen();
                     ZonedDateTime llegada = v.getZonedHoraDestino();
@@ -203,6 +209,13 @@ public class Grasp {
                     return salida.isAfter(inicio.minusHours(12)) && llegada.isBefore(fin.plusHours(12));
                 })
                 .collect(Collectors.toCollection(ArrayList::new));
+
+        // ⚡ DEBUG: Log de cuántos vuelos se filtraron
+        System.out.printf("✅ [filtrarVuelosPorVentanaTemporal] Vuelos filtrados: %d de %d (%.1f%%)%n",
+                vuelosFiltrados.size(), todosLosVuelos.size(),
+                todosLosVuelos.size() > 0 ? (vuelosFiltrados.size() * 100.0 / todosLosVuelos.size()) : 0.0);
+
+        return vuelosFiltrados;
     }
 
     /*
@@ -441,6 +454,15 @@ public class Grasp {
                         .collect(Collectors.toMap(a -> a,
                                 a -> a.getCapacidadOcupada() != null ? a.getCapacidadOcupada() : 0))
                 : Collections.emptyMap();
+
+        // ⚡ DEBUG: Log de capacidad ocupada base
+        long vuelosConCapacidadOcupada = capacidadBaseVuelos.values().stream().filter(c -> c > 0).count();
+        long aeropuertosConCapacidadOcupada = capacidadBaseAeropuertos.values().stream().filter(c -> c > 0).count();
+        int totalCapacidadOcupadaVuelos = capacidadBaseVuelos.values().stream().mapToInt(Integer::intValue).sum();
+        int totalCapacidadOcupadaAeropuertos = capacidadBaseAeropuertos.values().stream().mapToInt(Integer::intValue).sum();
+        System.out.printf("🔍 [ejecutarGraspConTimeout] Capacidad ocupada base: %d vuelos con ocupación (%d total), %d aeropuertos con ocupación (%d total)%n",
+                vuelosConCapacidadOcupada, totalCapacidadOcupadaVuelos,
+                aeropuertosConCapacidadOcupada, totalCapacidadOcupadaAeropuertos);
 
         for (int i = 0; i < MAX_ITERACIONES && iteracionesSinMejora < MAX_SIN_MEJORA; i++) {
             // Verificar timeout periódicamente
@@ -706,14 +728,123 @@ public class Grasp {
                 // ⚡ AJUSTE: Permitir planificar incluso si la capacidad es limitada
                 // El algoritmo puede dividir el envío en múltiples partes con llegadas separadas
                 // Solo rechazar si realmente no hay capacidad disponible (capacidadReal <= 0)
+                // ⚡ MEJORA: Si capacidadReal es muy pequeña pero > 0, aún asignarla para permitir
+                // que el envío se divida en muchas partes pequeñas con llegadas separadas
                 Integer cant = Math.min(envio.cantidadRestante(), capacidadReal);
-                if (cant <= 0) {
+
+                // ⚡ CRÍTICO: Si capacidadReal es 0, intentar buscar otro candidato con llegada más separada
+                // antes de rechazar completamente. Esto permite que envíos grandes se dividan mejor.
+                if (cant <= 0 && capacidadReal == 0 && rcl.size() > 1) {
+                    // Intentar con el siguiente candidato que tenga llegada más separada
+                    // (ya que están ordenados por score, los siguientes pueden tener llegadas diferentes)
+                    boolean encontradoAlternativa = false;
+                    for (int idx = 1; idx < Math.min(rcl.size(), 5); idx++) { // Probar hasta 5 candidatos alternativos
+                        CandidatoRuta candidatoAlt = rcl.get(idx);
+                        // Recalcular capacidadReal para este candidato alternativo
+                        Integer capacidadRealAlt = Integer.MAX_VALUE;
+                        for (PlanDeVuelo v : candidatoAlt.getTramos()) {
+                            capacidadRealAlt = Math.min(capacidadRealAlt, getCapacidadLibreConReservas(v));
+                        }
+                        // Verificar capacidad del aeropuerto destino para este candidato
+                        if (!candidatoAlt.getTramos().isEmpty()) {
+                            PlanDeVuelo ultimoVueloAlt = candidatoAlt.getTramos().get(candidatoAlt.getTramos().size() - 1);
+                            Aeropuerto destinoAeropuertoAlt = getAeropuertoById(ultimoVueloAlt.getCiudadDestino());
+                            if (destinoAeropuertoAlt != null) {
+                                boolean esDestinoFinalAlt = destinoAeropuertoAlt.getId().equals(envio.getAeropuertoDestino().getId());
+                                if (esDestinoFinalAlt) {
+                                    int capacidadOcupadaAlt = destinoAeropuertoAlt.getCapacidadOcupada() != null ? destinoAeropuertoAlt.getCapacidadOcupada() : 0;
+                                    ZonedDateTime llegadaAlt = candidatoAlt.getLlegada();
+                                    int reservasMismoMomentoAlt = 0;
+
+                                    // Sumar reservas de otros envíos completamente planificados
+                                    for (Envio otroEnvio : enviosCopia) {
+                                        if (otroEnvio.getId() != null && envio.getId() != null && otroEnvio.getId().equals(envio.getId()))
+                                            continue;
+                                        if (otroEnvio.cantidadRestante() > 0)
+                                            continue;
+                                        if (otroEnvio.getParteAsignadas() != null) {
+                                            for (ParteAsignada parte : otroEnvio.getParteAsignadas()) {
+                                                if (parte.getLlegadaFinal() != null && llegadaAlt != null) {
+                                                    Duration diferencia = Duration.between(parte.getLlegadaFinal(), llegadaAlt).abs();
+                                                    if (diferencia.toHours() <= 1) {
+                                                        reservasMismoMomentoAlt += parte.getCantidad();
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Sumar reservas temporales
+                                    List<ReservaConTiempo> reservasTempAlt = reservasAeropuertosConTiempo.getOrDefault(destinoAeropuertoAlt.getId(), Collections.emptyList());
+                                    for (ReservaConTiempo reserva : reservasTempAlt) {
+                                        if (reserva.tiempoLlegada != null && llegadaAlt != null) {
+                                            Duration diferencia = Duration.between(reserva.tiempoLlegada, llegadaAlt).abs();
+                                            if (diferencia.toHours() <= 1) {
+                                                reservasMismoMomentoAlt += reserva.cantidad;
+                                            }
+                                        }
+                                    }
+
+                                    int capacidadLibreAeropuertoAlt = destinoAeropuertoAlt.getCapacidadMaxima() - capacidadOcupadaAlt - reservasMismoMomentoAlt;
+                                    capacidadLibreAeropuertoAlt = Math.max(0, capacidadLibreAeropuertoAlt);
+                                    capacidadRealAlt = Math.min(capacidadRealAlt, capacidadLibreAeropuertoAlt);
+                                }
+                            }
+                        }
+
+                        if (capacidadRealAlt > 0) {
+                            // Encontramos un candidato alternativo con capacidad disponible
+                            escogido = candidatoAlt;
+                            capacidadReal = capacidadRealAlt;
+                            cant = Math.min(envio.cantidadRestante(), capacidadReal);
+                            encontradoAlternativa = true;
+                            break;
+                        }
+                    }
+
+                    if (!encontradoAlternativa) {
+                        // No se encontró alternativa viable
+                        if (envio.cantidadRestante() > 0 && partesUsadas == 0) {
+                            System.out.printf("⚠️ [GRASP] Envío ID=%d: Sin capacidad disponible en esta iteración. Restante=%d, Partes usadas=%d, capacidadReal=%d%n",
+                                    envio.getId() != null ? envio.getId() : -1, envio.cantidadRestante(), partesUsadas, capacidadReal);
+                        }
+                        break;
+                    }
+                } else if (cant <= 0) {
                     // ⚡ DEBUG: Log cuando no hay capacidad disponible en esta iteración
                     // Esto es normal en GRASP - otras iteraciones pueden encontrar solución
                     if (envio.cantidadRestante() > 0 && partesUsadas == 0) {
                         // Solo log si no se ha asignado ninguna parte (problema más serio)
-                        System.out.printf("⚠️ [GRASP] Envío ID=%d: Sin capacidad disponible en esta iteración. Restante=%d, Partes usadas=%d%n",
-                                envio.getId() != null ? envio.getId() : -1, envio.cantidadRestante(), partesUsadas);
+                        System.out.printf("⚠️ [GRASP] Envío ID=%d: Sin capacidad disponible en esta iteración. Restante=%d, Partes usadas=%d, capacidadReal=%d%n",
+                                envio.getId() != null ? envio.getId() : -1, envio.cantidadRestante(), partesUsadas, capacidadReal);
+
+                        // ⚡ DEBUG DETALLADO: Mostrar información sobre el candidato elegido y por qué falló
+                        if (escogido != null && escogido.getTramos() != null && !escogido.getTramos().isEmpty()) {
+                            PlanDeVuelo ultimoVuelo = escogido.getTramos().get(escogido.getTramos().size() - 1);
+                            Aeropuerto destinoFinal = getAeropuertoById(ultimoVuelo.getCiudadDestino());
+                            if (destinoFinal != null) {
+                                int capacidadOcupada = destinoFinal.getCapacidadOcupada() != null ? destinoFinal.getCapacidadOcupada() : 0;
+                                int capacidadMaxima = destinoFinal.getCapacidadMaxima() != null ? destinoFinal.getCapacidadMaxima() : 0;
+                                System.out.printf("   🔍 Destino: %s, Capacidad: %d/%d, Llegada candidato: %s%n",
+                                        destinoFinal.getCodigo(), capacidadOcupada, capacidadMaxima,
+                                        escogido.getLlegada() != null ? escogido.getLlegada().format(java.time.format.DateTimeFormatter.ISO_ZONED_DATE_TIME) : "null");
+
+                                // Contar reservas temporales
+                                List<ReservaConTiempo> reservasTemp = reservasAeropuertosConTiempo.getOrDefault(destinoFinal.getId(), Collections.emptyList());
+                                int reservasEnVentana = 0;
+                                if (escogido.getLlegada() != null) {
+                                    for (ReservaConTiempo r : reservasTemp) {
+                                        if (r.tiempoLlegada != null) {
+                                            Duration diff = Duration.between(r.tiempoLlegada, escogido.getLlegada()).abs();
+                                            if (diff.toHours() <= 1) {
+                                                reservasEnVentana += r.cantidad;
+                                            }
+                                        }
+                                    }
+                                }
+                                System.out.printf("   🔍 Reservas temporales en ventana de 1h: %d unidades%n", reservasEnVentana);
+                            }
+                        }
                     }
                     break;
                 }
@@ -787,6 +918,10 @@ public class Grasp {
         ArrayList<CandidatoRuta> candidatosCacheados = rutas.get(clave);
         ArrayList<CandidatoRuta> candidatosValidos = new ArrayList<>();
 
+        // ⚡ DEBUG: Log de candidatos antes del filtrado
+        System.out.printf("🔍 [getCandidatosRuta] Envío ID=%d: Candidatos cacheados: %d%n",
+                envio.getId() != null ? envio.getId() : -1, candidatosCacheados.size());
+
         for (CandidatoRuta candidato : candidatosCacheados) {
             // Recalcular la capacidad real de la ruta considerando reservas actuales
             Integer capacidadReal = Integer.MAX_VALUE;
@@ -847,6 +982,10 @@ public class Grasp {
             }
         }
 
+        // ⚡ DEBUG: Log de candidatos después del filtrado
+        System.out.printf("✅ [getCandidatosRuta] Envío ID=%d: Candidatos válidos después de filtrar: %d de %d%n",
+                envio.getId() != null ? envio.getId() : -1, candidatosValidos.size(), candidatosCacheados.size());
+
         return candidatosValidos;
     }
 
@@ -871,6 +1010,10 @@ public class Grasp {
     private ArrayList<CandidatoRuta> generarCandidatos(Envio envio, ArrayList<PlanDeVuelo> vuelos) {
         ArrayList<CandidatoRuta> candidatos = new ArrayList<>();
 
+        // ⚡ DEBUG: Log de inicio de generación de candidatos
+        System.out.printf("🔍 [generarCandidatos] Envío ID=%d: Generando candidatos desde %d orígenes posibles%n",
+                envio.getId() != null ? envio.getId() : -1, envio.getAeropuertosOrigen().size());
+
         for (Aeropuerto origen : envio.getAeropuertosOrigen()) {
             Duration deadline = deadlineCache.computeIfAbsent(
                     origen.getCodigo() + "_" + envio.getAeropuertoDestino().getCodigo(),
@@ -891,6 +1034,12 @@ public class Grasp {
                     Aeropuerto aeropuertoActual = ps.getUbicacion();
                     List<PlanDeVuelo> salidas = this.vuelosPorOrigenCache.getOrDefault(aeropuertoActual.getCodigo(),
                             Collections.emptyList());
+
+                    // ⚡ DEBUG: Log de vuelos disponibles por aeropuerto (solo en el primer nivel desde el origen)
+                    if (nivel == 0 && ps.getUbicacion().equals(origen)) {
+                        System.out.printf("🔍 [generarCandidatos] Envío ID=%d: Aeropuerto origen %s tiene %d vuelos disponibles%n",
+                                envio.getId() != null ? envio.getId() : -1, aeropuertoActual.getCodigo(), salidas.size());
+                    }
 
                     for (PlanDeVuelo v : salidas) {
                         // El vuelo sale antes de que aparezca el pedido
@@ -970,9 +1119,12 @@ public class Grasp {
                 // Se ordena por scoreRuta
                 nuevosEstados.sort(Comparator
                         .comparingLong(ps -> scoreRuta(ps.getTramos(), ps.getLlegadaUltimoVuelo(), envio, origen)));
-                // ⚡ OPTIMIZADO: Reducir beam size de 10 a 5 para acelerar
-                if (nuevosEstados.size() > 5)
-                    nuevosEstados = nuevosEstados.subList(0, 5);
+                // ⚡ Aumentar beam size de 5 a 10 para explorar más rutas y encontrar más candidatos
+                // Un beam size más grande permite mantener más rutas parciales en cada nivel,
+                // lo que aumenta las posibilidades de encontrar rutas viables, especialmente cuando
+                // hay muchas opciones de vuelos o cuando se necesitan múltiples escalas
+                if (nuevosEstados.size() > 10)
+                    nuevosEstados = nuevosEstados.subList(0, 10);
 
                 beam = nuevosEstados;
 
@@ -983,6 +1135,11 @@ public class Grasp {
 
         // Se ordena por score
         candidatos.sort(Comparator.comparingLong(CandidatoRuta::getScore));
+
+        // ⚡ DEBUG: Log de candidatos generados
+        System.out.printf("✅ [generarCandidatos] Envío ID=%d: Generados %d candidatos de ruta%n",
+                envio.getId() != null ? envio.getId() : -1, candidatos.size());
+
         return candidatos;
     }
 
